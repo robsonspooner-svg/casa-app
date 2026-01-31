@@ -1,0 +1,49 @@
+{
+  "name": "@casa/tenant-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "dev": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --config ../../eslint.config.js",
+    "clean": "rm -rf .expo dist node_modules ios android"
+  },
+  "dependencies": {
+    "@casa/api": "workspace:*",
+    "@casa/config": "workspace:*",
+    "@casa/ui": "workspace:*",
+    "expo": "~54.0.32",
+    "expo-constants": "^18.0.13",
+    "expo-document-picker": "~14.0.8",
+    "expo-image-picker": "~17.0.10",
+    "expo-linking": "^8.0.11",
+    "expo-router": "~6.0.22",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "5.6.2",
+    "react-native-screens": "~4.16.0",
+    "react-native-web": "~0.21.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@babel/plugin-proposal-async-generator-functions": "^7.20.7",
+    "@babel/plugin-proposal-class-properties": "^7.18.6",
+    "@babel/plugin-proposal-export-default-from": "^7.27.1",
+    "@babel/plugin-proposal-logical-assignment-operators": "^7.20.7",
+    "@babel/plugin-proposal-nullish-coalescing-operator": "^7.18.6",
+    "@babel/plugin-proposal-numeric-separator": "^7.18.6",
+    "@babel/plugin-proposal-object-rest-spread": "^7.20.7",
+    "@babel/plugin-proposal-optional-catch-binding": "^7.18.6",
+    "@babel/plugin-proposal-optional-chaining": "^7.21.0",
+    "@expo/server": "^0.7.5",
+    "@types/react": "~19.1.0",
+    "typescript": "^5.3.0"
+  }
+}
