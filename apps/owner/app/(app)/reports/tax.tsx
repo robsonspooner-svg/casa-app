@@ -65,7 +65,7 @@ export default function TaxSummaryScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tax Summary</Text>
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.textInverse },
   scrollView: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
 
@@ -200,14 +200,14 @@ const styles = StyleSheet.create({
   yearButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
   yearButtonActive: { backgroundColor: THEME.colors.brand, borderColor: THEME.colors.brand },
   yearText: { fontSize: 13, fontWeight: '600', color: THEME.colors.textSecondary },
-  yearTextActive: { color: '#FFFFFF' },
+  yearTextActive: { color: THEME.colors.textInverse },
 
   periodText: {
     fontSize: 13,
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
 
   netCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 20,
     alignItems: 'center',
     borderWidth: 1,
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,

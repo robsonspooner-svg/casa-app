@@ -14,9 +14,14 @@ import {
   handle_get_compliance_status, handle_get_financial_summary,
   handle_get_transactions, handle_get_trades, handle_get_work_orders,
   handle_get_expenses, handle_get_property_metrics, handle_get_payment_plan, handle_get_documents,
+  handle_get_document, handle_upload_document, handle_share_document,
+  handle_search_documents, handle_get_document_folders, handle_move_document_to_folder,
   handle_get_background_tasks, handle_get_pending_actions,
   handle_check_maintenance_threshold as handle_check_maintenance_threshold_q,
   handle_check_regulatory_requirements as handle_check_regulatory_requirements_q,
+  handle_get_tenancy_law,
+  handle_get_property_health, handle_get_tenant_satisfaction,
+  handle_get_market_intelligence, handle_get_portfolio_snapshot,
 } from './tool-handlers.ts';
 
 import {
@@ -52,9 +57,11 @@ import {
   handle_generate_tax_report, handle_generate_property_summary,
   handle_generate_portfolio_report, handle_generate_cash_flow_forecast,
   handle_generate_lease, handle_assess_tenant_damage, handle_compare_quotes,
+  handle_create_document, handle_submit_document_email,
+  handle_request_document_signature, handle_update_document_status,
   handle_web_search, handle_find_local_trades, handle_parse_business_details,
   handle_create_service_provider, handle_request_quote, handle_get_market_data,
-  handle_check_maintenance_threshold, handle_check_regulatory_requirements,
+  handle_check_maintenance_threshold,
   handle_workflow_find_tenant, handle_workflow_onboard_tenant,
   handle_workflow_end_tenancy, handle_workflow_maintenance_lifecycle,
   handle_workflow_arrears_escalation,
@@ -66,6 +73,10 @@ import {
   handle_send_docusign_envelope, handle_lodge_bond_state,
   handle_send_sms_twilio, handle_send_email_sendgrid,
   handle_send_push_expo, handle_search_trades_hipages,
+  handle_check_compliance_requirements, handle_track_authority_submission,
+  handle_generate_proof_of_service,
+  handle_generate_wealth_report, handle_generate_property_action_plan,
+  handle_predict_vacancy_risk, handle_calculate_roi_metrics,
 } from './tool-handlers-generate.ts';
 
 import { TOOL_META } from './tool-registry.ts';
@@ -105,6 +116,12 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   get_property_metrics: handle_get_property_metrics,
   get_payment_plan: handle_get_payment_plan,
   get_documents: handle_get_documents,
+  get_document: handle_get_document,
+  upload_document: handle_upload_document,
+  share_document: handle_share_document,
+  search_documents: handle_search_documents,
+  get_document_folders: handle_get_document_folders,
+  move_document_to_folder: handle_move_document_to_folder,
   get_background_tasks: handle_get_background_tasks,
   get_pending_actions: handle_get_pending_actions,
 
@@ -181,6 +198,12 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   assess_tenant_damage: handle_assess_tenant_damage,
   compare_quotes: handle_compare_quotes,
 
+  // Document lifecycle tools
+  create_document: handle_create_document,
+  submit_document_email: handle_submit_document_email,
+  request_document_signature: handle_request_document_signature,
+  update_document_status: handle_update_document_status,
+
   // External tools
   web_search: handle_web_search,
   find_local_trades: handle_find_local_trades,
@@ -189,7 +212,8 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   request_quote: handle_request_quote,
   get_market_data: handle_get_market_data,
   check_maintenance_threshold: handle_check_maintenance_threshold,
-  check_regulatory_requirements: handle_check_regulatory_requirements,
+  check_regulatory_requirements: handle_check_regulatory_requirements_q,
+  get_tenancy_law: handle_get_tenancy_law,
 
   // Workflow tools
   workflow_find_tenant: handle_workflow_find_tenant,
@@ -222,6 +246,21 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   send_email_sendgrid: handle_send_email_sendgrid,
   send_push_expo: handle_send_push_expo,
   search_trades_hipages: handle_search_trades_hipages,
+
+  // Compliance / Authority tools
+  check_compliance_requirements: handle_check_compliance_requirements,
+  track_authority_submission: handle_track_authority_submission,
+  generate_proof_of_service: handle_generate_proof_of_service,
+
+  // Beyond-PM Intelligence
+  get_property_health: handle_get_property_health,
+  get_tenant_satisfaction: handle_get_tenant_satisfaction,
+  get_market_intelligence: handle_get_market_intelligence,
+  get_portfolio_snapshot: handle_get_portfolio_snapshot,
+  generate_wealth_report: handle_generate_wealth_report,
+  generate_property_action_plan: handle_generate_property_action_plan,
+  predict_vacancy_risk: handle_predict_vacancy_risk,
+  calculate_roi_metrics: handle_calculate_roi_metrics,
 };
 
 /**
@@ -260,4 +299,121 @@ export async function executeToolHandler(
 /** Get count of implemented tool handlers */
 export function getImplementedToolCount(): number {
   return Object.keys(HANDLER_MAP).length;
+}
+
+// ---------------------------------------------------------------------------
+// Error Classification
+// ---------------------------------------------------------------------------
+
+export type ErrorType = 'FACTUAL_ERROR' | 'REASONING_ERROR' | 'TOOL_MISUSE' | 'CONTEXT_MISSING';
+
+export interface ClassifiedError {
+  type: ErrorType;
+  error: string;
+  details: {
+    tool_name: string;
+    input_summary: Record<string, unknown>;
+    suggested_action: string;
+  };
+}
+
+/**
+ * Classify a tool execution error into one of four learning-relevant types.
+ * Used to route errors to appropriate learning artifacts:
+ * - TOOL_MISUSE → parameter guidance updates
+ * - CONTEXT_MISSING → context pattern recording
+ * - FACTUAL_ERROR → corrective rule generation
+ * - REASONING_ERROR → prompt guidance
+ */
+export function classifyToolError(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  errorMessage: string,
+): ClassifiedError {
+  const errorLower = errorMessage.toLowerCase();
+  const meta = TOOL_META[toolName];
+
+  // TOOL_MISUSE: wrong tool, missing required params, handler not implemented
+  if (
+    errorLower.includes('unknown tool') ||
+    errorLower.includes('not yet implemented') ||
+    errorLower.includes('missing required') ||
+    (errorLower.includes('invalid') && (errorLower.includes('parameter') || errorLower.includes('input'))) ||
+    (errorLower.includes('expected') && errorLower.includes('got'))
+  ) {
+    return {
+      type: 'TOOL_MISUSE',
+      error: errorMessage,
+      details: {
+        tool_name: toolName,
+        input_summary: summariseInput(toolInput),
+        suggested_action: `Review tool "${toolName}" parameters. Category: ${meta?.category || 'unknown'}`,
+      },
+    };
+  }
+
+  // CONTEXT_MISSING: not found, no data, permission denied
+  if (
+    errorLower.includes('not found') ||
+    errorLower.includes('no data') ||
+    errorLower.includes('does not exist') ||
+    errorLower.includes('no rows') ||
+    errorLower.includes('permission denied') ||
+    errorLower.includes('access denied') ||
+    errorLower.includes('no matching')
+  ) {
+    return {
+      type: 'CONTEXT_MISSING',
+      error: errorMessage,
+      details: {
+        tool_name: toolName,
+        input_summary: summariseInput(toolInput),
+        suggested_action: 'Verify entity exists and user has access before calling this tool',
+      },
+    };
+  }
+
+  // FACTUAL_ERROR: constraint violations, data mismatches
+  if (
+    errorLower.includes('constraint') ||
+    errorLower.includes('duplicate') ||
+    errorLower.includes('already exists') ||
+    errorLower.includes('violates') ||
+    errorLower.includes('out of range') ||
+    errorLower.includes('invalid date') ||
+    errorLower.includes('type mismatch')
+  ) {
+    return {
+      type: 'FACTUAL_ERROR',
+      error: errorMessage,
+      details: {
+        tool_name: toolName,
+        input_summary: summariseInput(toolInput),
+        suggested_action: 'Check data assumptions before executing this tool',
+      },
+    };
+  }
+
+  // REASONING_ERROR: everything else (timeout, logic errors, unexpected failures)
+  return {
+    type: 'REASONING_ERROR',
+    error: errorMessage,
+    details: {
+      tool_name: toolName,
+      input_summary: summariseInput(toolInput),
+      suggested_action: 'Review the reasoning chain that led to this tool call',
+    },
+  };
+}
+
+function summariseInput(input: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === 'string' && value.length > 100) {
+      summary[key] = value.substring(0, 100) + '...';
+    } else {
+      summary[key] = value;
+    }
+  }
+  return summary;
 }

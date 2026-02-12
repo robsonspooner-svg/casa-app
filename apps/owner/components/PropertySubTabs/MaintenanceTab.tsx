@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
     gap: 6,
     height: 40,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     marginBottom: 16,
   },
   newRequestTopBtnText: {
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   },
   requestCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   urgencyBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   urgencyText: {
     fontSize: 11,
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingHorizontal: 24,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   newRequestBtnText: {
     fontSize: 14,
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.successBg,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     padding: 12,
     marginBottom: 12,
     gap: 10,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -1,8 +1,8 @@
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { THEME } from '@casa/config';
 import Svg, { Path } from 'react-native-svg';
-import { useAgentContext } from '@casa/api';
+import { useAgentContext, useAuth, useUnreadCount } from '@casa/api';
 
 function ActivityIcon({ focused }: { focused: boolean }) {
   const color = focused ? THEME.colors.brand : THEME.colors.textTertiary;
@@ -41,6 +41,30 @@ function ChatIcon({ focused }: { focused: boolean }) {
           strokeLinecap="round"
           strokeLinejoin="round"
           fill={focused ? color : 'none'}
+        />
+      </Svg>
+    </View>
+  );
+}
+
+function TasksIcon({ focused }: { focused: boolean }) {
+  const color = focused ? THEME.colors.brand : THEME.colors.textTertiary;
+  return (
+    <View style={styles.iconContainer}>
+      <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M22 11.08V12a10 10 0 11-5.93-9.14"
+          stroke={color}
+          strokeWidth={focused ? 2 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <Path
+          d="M22 4L12 14.01l-3-3"
+          stroke={color}
+          strokeWidth={focused ? 2 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </Svg>
     </View>
@@ -89,6 +113,17 @@ function NotificationBadge() {
   );
 }
 
+function UnreadBadge() {
+  const { user } = useAuth();
+  const { count } = useUnreadCount(user?.id);
+  if (count <= 0) return null;
+  return (
+    <View style={styles.unreadBadge}>
+      <Text style={styles.unreadBadgeText}>{count > 99 ? '99+' : count}</Text>
+    </View>
+  );
+}
+
 export default function TabLayout() {
   return (
     <Tabs
@@ -108,6 +143,7 @@ export default function TabLayout() {
             <View>
               <ActivityIcon focused={focused} />
               <NotificationBadge />
+              <UnreadBadge />
             </View>
           ),
         }}
@@ -117,6 +153,18 @@ export default function TabLayout() {
         options={{
           title: 'Chat',
           tabBarIcon: ({ focused }) => <ChatIcon focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="tasks"
+        options={{
+          title: 'Tasks',
+          tabBarIcon: ({ focused }) => (
+            <View>
+              <TasksIcon focused={focused} />
+              <NotificationBadge />
+            </View>
+          ),
         }}
       />
       <Tabs.Screen
@@ -162,5 +210,25 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.error,
     borderWidth: 1.5,
     borderColor: THEME.colors.surface,
+  },
+  unreadBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: THEME.colors.brand,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: THEME.colors.surface,
+  },
+  unreadBadgeText: {
+    color: THEME.colors.textInverse,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 13,
   },
 });

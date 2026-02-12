@@ -26,10 +26,10 @@ const STATUS_FILTERS: { label: string; value: TenancyStatus | undefined }[] = [
 
 const STATUS_COLORS: Record<TenancyStatus, string> = {
   pending: THEME.colors.textTertiary,
-  active: '#16A34A',
-  ending: '#F59E0B',
+  active: THEME.colors.success,
+  ending: THEME.colors.warning,
   ended: THEME.colors.textTertiary,
-  terminated: '#EF4444',
+  terminated: THEME.colors.error,
 };
 
 function TenancyCard({ tenancy }: { tenancy: TenancyWithDetails }) {
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   centerContainer: {
     flex: 1,
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
   },
   statusText: {
     fontSize: 12,
@@ -291,10 +291,10 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
   warningText: {
-    color: '#F59E0B',
+    color: THEME.colors.warning,
   },
   urgentText: {
-    color: '#EF4444',
+    color: THEME.colors.error,
   },
   bondRow: {
     flexDirection: 'row',
@@ -326,17 +326,17 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
-    color: '#EF4444',
+    color: THEME.colors.error,
     marginBottom: 12,
   },
   retryButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   retryText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: '600',
   },
 });

@@ -47,7 +47,14 @@ export default function AppLayout() {
       <Stack.Screen name="connections" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="autonomy" />
+      <Stack.Screen name="chat-history" />
+      <Stack.Screen name="task-detail" />
+      <Stack.Screen name="compliance" />
+      <Stack.Screen name="learn" />
+      <Stack.Screen name="updates" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="support" />
+      <Stack.Screen name="onboarding" />
     </Stack>
   );
 }

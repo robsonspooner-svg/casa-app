@@ -29,4 +29,14 @@ config.resolver.disableHierarchicalLookup = true;
 // 5. Reset transformer to handle React Native's internal files with 'as const'
 config.resetCache = true;
 
+// 6. Production bundle optimization: strip console.* calls from minified output
+config.transformer = {
+  ...config.transformer,
+  minifierConfig: {
+    compress: {
+      drop_console: true,
+    },
+  },
+};
+
 module.exports = config;

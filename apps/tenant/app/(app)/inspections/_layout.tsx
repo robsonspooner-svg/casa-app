@@ -11,9 +11,6 @@ export default function InspectionsLayout() {
         },
         animation: 'slide_from_right',
       }}
-    >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="[id]" />
-    </Stack>
+    />
   );
 }

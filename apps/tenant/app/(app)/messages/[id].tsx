@@ -69,7 +69,7 @@ function AttachmentPreview({ uri, onRemove }: { uri: string; onRemove: () => voi
       <Image source={{ uri }} style={styles.attachmentThumb} />
       <TouchableOpacity style={styles.attachmentRemove} onPress={onRemove}>
         <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-          <Path d="M18 6L6 18M6 6l12 12" stroke="#FFF" strokeWidth={2} strokeLinecap="round" />
+          <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
         </Svg>
       </TouchableOpacity>
     </View>
@@ -388,7 +388,7 @@ export default function TenantConversationView() {
             disabled={(!text.trim() && pendingAttachments.length === 0) || sending}
           >
             <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-              <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </TouchableOpacity>
         </View>
@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   bubbleContentOwn: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   bubbleMeta: {
     flexDirection: 'row',

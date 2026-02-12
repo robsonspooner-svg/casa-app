@@ -129,6 +129,57 @@ export default function SettingsScreen() {
             subtitle={`Currently: ${autonomyLabel}`}
             onPress={() => router.push('/(app)/autonomy' as any)}
           />
+          <SettingsRow
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            iconColor={THEME.colors.brand}
+            title="Casa Rules"
+            subtitle="Manage learned preferences"
+            onPress={() => router.push('/(app)/settings/agent-rules' as any)}
+          />
+        </View>
+
+        {/* Property Management */}
+        <SectionHeader title="Property Management" />
+        <View style={styles.card}>
+          <SettingsRow
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke={THEME.colors.success} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            iconColor={THEME.colors.success}
+            title="Compliance"
+            subtitle="Track safety & regulatory requirements"
+            onPress={() => router.push('/(app)/compliance' as any)}
+          />
+          <SettingsRow
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" stroke={THEME.colors.info} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" stroke={THEME.colors.info} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            iconColor={THEME.colors.info}
+            title="Learning Hub"
+            subtitle="Guides, articles & checklists"
+            onPress={() => router.push('/(app)/learn' as any)}
+          />
+          <SettingsRow
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke={THEME.colors.warning} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            iconColor={THEME.colors.warning}
+            title="Regulatory Updates"
+            subtitle="Tenancy law changes"
+            onPress={() => router.push('/(app)/updates' as any)}
+          />
         </View>
 
         {/* Notifications */}
@@ -237,7 +288,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     overflow: 'hidden',
@@ -252,7 +303,7 @@ const styles = StyleSheet.create({
   settingsIconBox: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -275,7 +326,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginTop: 24,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.error + '30',
   },

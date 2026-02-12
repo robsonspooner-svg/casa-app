@@ -19,10 +19,10 @@ import { StatusTimeline, TimelineEvent } from '@casa/ui';
 
 const STATUS_COLORS: Record<TenancyStatus, string> = {
   pending: THEME.colors.textTertiary,
-  active: '#16A34A',
-  ending: '#F59E0B',
+  active: THEME.colors.success,
+  ending: THEME.colors.warning,
   ended: THEME.colors.textTertiary,
-  terminated: '#EF4444',
+  terminated: THEME.colors.error,
 };
 
 function buildTimeline(status: TenancyStatus, tenancy: any): TimelineEvent[] {
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 16,
+    borderRadius: THEME.radius.lg,
     padding: 20,
     marginBottom: 24,
     borderWidth: 1,
@@ -442,7 +442,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     marginBottom: 16,
   },
   statusText: {
@@ -468,10 +468,10 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   warningText: {
-    color: '#F59E0B',
+    color: THEME.colors.warning,
   },
   urgentText: {
-    color: '#EF4444',
+    color: THEME.colors.error,
   },
   section: {
     marginBottom: 24,
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
   },
   detailsGrid: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -510,7 +510,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
@@ -539,7 +539,7 @@ const styles = StyleSheet.create({
     backgroundColor: `${THEME.colors.brand}15`,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   emptyText: {
     fontSize: 14,
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     borderWidth: 1,
     borderColor: THEME.colors.brand,
     borderStyle: 'dashed',
@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
   },
   increaseCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
   increasePercentage: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#F59E0B',
+    color: THEME.colors.warning,
   },
   increaseDate: {
     fontSize: 13,
@@ -616,18 +616,18 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     paddingVertical: 16,
     alignItems: 'center',
   },
   primaryActionText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontSize: 16,
     fontWeight: '700',
   },
   secondaryAction: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
@@ -639,31 +639,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   destructiveAction: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
+    backgroundColor: THEME.colors.errorBg,
+    borderRadius: THEME.radius.md,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: THEME.colors.error + '40',
   },
   destructiveActionText: {
-    color: '#EF4444',
+    color: THEME.colors.error,
     fontSize: 15,
     fontWeight: '600',
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: THEME.colors.error,
     marginBottom: 12,
   },
   retryButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   retryText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: '600',
   },
 });

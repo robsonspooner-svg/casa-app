@@ -113,7 +113,7 @@ export default function LeaseScreen() {
             {tenancy.lease_signed_at ? (
               <>
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                  <Path d="M20 6L9 17l-5-5" stroke="#16A34A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                 </Svg>
                 <Text style={styles.signedText}>
                   Signed on {new Date(tenancy.lease_signed_at).toLocaleDateString('en-AU')}
@@ -167,24 +167,24 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, color: THEME.colors.textSecondary },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
-  summaryCard: { backgroundColor: THEME.colors.surface, borderRadius: 16, padding: 20, marginBottom: 24, borderWidth: 1, borderColor: THEME.colors.border, alignItems: 'center' },
+  summaryCard: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.lg, padding: 20, marginBottom: 24, borderWidth: 1, borderColor: THEME.colors.border, alignItems: 'center' },
   summaryTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 4 },
   summaryAddress: { fontSize: 14, color: THEME.colors.textSecondary },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 12 },
-  termsGrid: { backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: THEME.colors.border },
+  termsGrid: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16, borderWidth: 1, borderColor: THEME.colors.border },
   termRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: THEME.colors.border },
   termLabel: { fontSize: 14, color: THEME.colors.textSecondary },
   termValue: { fontSize: 14, fontWeight: '600', color: THEME.colors.textPrimary, maxWidth: '60%', textAlign: 'right' },
-  signingCard: { backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: THEME.colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  signingCard: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 20, borderWidth: 1, borderColor: THEME.colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 },
   signedIcon: { },
-  signedText: { fontSize: 15, color: '#16A34A', fontWeight: '600' },
+  signedText: { fontSize: 15, color: THEME.colors.success, fontWeight: '600' },
   pendingIcon: { },
   pendingText: { fontSize: 15, color: THEME.colors.textSecondary },
-  documentCard: { backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: THEME.colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  documentCard: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16, borderWidth: 1, borderColor: THEME.colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   docTitle: { fontSize: 15, fontWeight: '600', color: THEME.colors.textPrimary },
   docFile: { fontSize: 13, color: THEME.colors.textSecondary, marginTop: 2 },
   downloadIcon: { fontSize: 20, color: THEME.colors.brand, fontWeight: '700' },
-  noDocCard: { backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: THEME.colors.border },
+  noDocCard: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 20, borderWidth: 1, borderColor: THEME.colors.border },
   noDocText: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: 'center' },
 });

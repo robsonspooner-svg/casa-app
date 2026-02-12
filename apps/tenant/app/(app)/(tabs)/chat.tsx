@@ -68,9 +68,77 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
   );
 }
 
-function MessageBubble({ message }: { message: AgentMessage }) {
+function FeedbackButtons({
+  messageId,
+  currentFeedback,
+  onFeedback,
+}: {
+  messageId: string;
+  currentFeedback: string | null;
+  onFeedback: (messageId: string, feedback: 'positive' | 'negative') => void;
+}) {
+  return (
+    <View style={styles.feedbackRow}>
+      <TouchableOpacity
+        style={[styles.feedbackBtn, currentFeedback === 'positive' && styles.feedbackBtnActive]}
+        onPress={() => onFeedback(messageId, 'positive')}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"
+            stroke={currentFeedback === 'positive' ? THEME.colors.success : THEME.colors.textTertiary}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.feedbackBtn, currentFeedback === 'negative' && styles.feedbackBtnNegative]}
+        onPress={() => onFeedback(messageId, 'negative')}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10zM17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"
+            stroke={currentFeedback === 'negative' ? THEME.colors.error : THEME.colors.textTertiary}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function formatMessageContent(content: string): string {
+  let text = content;
+  text = text.replace(/^#{1,6}\s+/gm, '');
+  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1');
+  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
+  text = text.replace(/`([^`]+)`/g, '$1');
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
+  text = text.replace(/^[-*]\s+/gm, '• ');
+  text = text.replace(/^(\d+)\.\s+/gm, '$1. ');
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text.trim();
+}
+
+function MessageBubble({
+  message,
+  onFeedback,
+}: {
+  message: AgentMessage;
+  onFeedback?: (messageId: string, feedback: 'positive' | 'negative') => void;
+}) {
   const isUser = message.role === 'user';
   const isProactive = message.role === 'proactive';
+  const displayContent = isUser ? message.content : formatMessageContent(message.content);
 
   return (
     <View style={[styles.messageBubbleRow, isUser ? styles.userRow : styles.agentRow]}>
@@ -95,13 +163,22 @@ function MessageBubble({ message }: { message: AgentMessage }) {
           ]}
         >
           <Text style={[styles.messageText, isUser ? styles.userText : styles.agentText]}>
-            {message.content}
+            {displayContent}
           </Text>
           <ToolCallSummary toolCalls={message.tool_calls} />
         </View>
-        <Text style={[styles.messageTime, isUser ? styles.userTime : styles.agentTime]}>
-          {formatTime(message.created_at)}
-        </Text>
+        <View style={styles.messageFooter}>
+          <Text style={[styles.messageTime, isUser ? styles.userTime : styles.agentTime]}>
+            {formatTime(message.created_at)}
+          </Text>
+          {!isUser && onFeedback && !message.id.startsWith('temp-') && (
+            <FeedbackButtons
+              messageId={message.id}
+              currentFeedback={message.feedback}
+              onFeedback={onFeedback}
+            />
+          )}
+        </View>
       </View>
     </View>
   );
@@ -147,7 +224,7 @@ function TypingIndicator() {
   );
 }
 
-function EmptyState({ onStartChat }: { onStartChat: () => void }) {
+function EmptyState({ onSuggestionSelect }: { onSuggestionSelect: (text: string) => void }) {
   return (
     <TouchableOpacity
       style={styles.emptyState}
@@ -173,7 +250,7 @@ function EmptyState({ onStartChat }: { onStartChat: () => void }) {
           <TouchableOpacity
             key={suggestion}
             style={styles.suggestionChip}
-            onPress={() => onStartChat()}
+            onPress={() => onSuggestionSelect(suggestion)}
             activeOpacity={0.7}
           >
             <Text style={styles.suggestionText}>{suggestion}</Text>
@@ -193,31 +270,23 @@ export default function ChatScreen() {
     error,
     sendMessage,
     startNewConversation,
+    submitFeedback,
   } = useAgentChat();
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text || sending) return;
+  const handleSend = async (text?: string) => {
+    const messageText = (text || inputText).trim();
+    if (!messageText || sending) return;
 
     setInputText('');
 
     if (!currentConversation) {
-      const conversationId = await startNewConversation();
-      if (conversationId) {
-        await sendMessage(text, conversationId);
-      }
-    } else {
-      await sendMessage(text);
-    }
-  };
-
-  const handleStartChat = async () => {
-    if (!currentConversation) {
       await startNewConversation();
     }
+
+    await sendMessage(messageText);
   };
 
   useEffect(() => {
@@ -234,7 +303,7 @@ export default function ChatScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={THEME.components.tabBar.height}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -272,13 +341,13 @@ export default function ChatScreen() {
           <ActivityIndicator size="large" color={THEME.colors.brand} />
         </View>
       ) : !hasMessages ? (
-        <EmptyState onStartChat={handleStartChat} />
+        <EmptyState onSuggestionSelect={(text) => handleSend(text)} />
       ) : (
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => <MessageBubble message={item} onFeedback={submitFeedback} />}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="interactive"
@@ -304,7 +373,7 @@ export default function ChatScreen() {
             multiline
             maxLength={2000}
             returnKeyType="send"
-            onSubmitEditing={handleSend}
+            onSubmitEditing={() => handleSend()}
             blurOnSubmit={false}
           />
           <TouchableOpacity
@@ -312,7 +381,7 @@ export default function ChatScreen() {
               styles.sendButton,
               (!inputText.trim() || sending) && styles.sendButtonDisabled,
             ]}
-            onPress={handleSend}
+            onPress={() => handleSend()}
             disabled={!inputText.trim() || sending}
             activeOpacity={0.7}
           >
@@ -440,7 +509,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 16,
+    borderRadius: THEME.radius.lg,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
@@ -517,6 +586,30 @@ const styles = StyleSheet.create({
   },
   agentTime: {
     color: THEME.colors.textTertiary,
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: THEME.spacing.xs,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  feedbackBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackBtnActive: {
+    backgroundColor: THEME.colors.successBg,
+  },
+  feedbackBtnNegative: {
+    backgroundColor: THEME.colors.errorBg,
   },
   proactiveBadge: {
     backgroundColor: THEME.colors.infoBg,

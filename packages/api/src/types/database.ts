@@ -1511,6 +1511,11 @@ export interface InspectionRoomRow {
   overall_condition: ConditionRating | null;
   notes: string | null;
   completed_at: string | null;
+  layout_sketch_url: string | null;
+  layout_sketch_data: Record<string, unknown> | null;
+  ar_room_data: Record<string, unknown> | null;
+  tenant_reviewed_at: string | null;
+  owner_review_completed_at: string | null;
 }
 
 export interface InspectionRoomInsert {
@@ -1527,6 +1532,11 @@ export interface InspectionRoomUpdate {
   overall_condition?: ConditionRating | null;
   notes?: string | null;
   completed_at?: string | null;
+  layout_sketch_url?: string | null;
+  layout_sketch_data?: Record<string, unknown> | null;
+  ar_room_data?: Record<string, unknown> | null;
+  tenant_reviewed_at?: string | null;
+  owner_review_completed_at?: string | null;
 }
 
 export interface InspectionItemRow {
@@ -1580,6 +1590,12 @@ export interface InspectionImageRow {
   thumbnail_url: string | null;
   caption: string | null;
   annotations: Record<string, unknown> | null;
+  compass_bearing: number | null;
+  device_pitch: number | null;
+  device_roll: number | null;
+  capture_sequence: number | null;
+  is_wide_shot: boolean;
+  is_closeup: boolean;
   taken_at: string;
   created_at: string;
 }
@@ -1593,6 +1609,12 @@ export interface InspectionImageInsert {
   thumbnail_url?: string | null;
   caption?: string | null;
   annotations?: Record<string, unknown> | null;
+  compass_bearing?: number | null;
+  device_pitch?: number | null;
+  device_roll?: number | null;
+  capture_sequence?: number | null;
+  is_wide_shot?: boolean;
+  is_closeup?: boolean;
   taken_at?: string;
 }
 
@@ -1680,6 +1702,148 @@ export interface InspectionWithDetails extends InspectionRow {
   tenancy?: Tenancy;
 }
 
+// Inspection Tenant Review System
+
+export type TenantSubmissionType = 'new_photo' | 'description_alteration' | 'new_item' | 'query';
+export type SubmissionStatus = 'pending' | 'approved' | 'rejected' | 'resolved';
+export type DisputeStatus = 'open' | 'owner_responded' | 'resolved' | 'escalated';
+
+export interface InspectionTenantSubmissionRow {
+  id: string;
+  inspection_id: string;
+  room_id: string;
+  item_id: string | null;
+  submitted_by: string;
+  submission_type: TenantSubmissionType;
+  description: string | null;
+  original_description: string | null;
+  image_url: string | null;
+  storage_path: string | null;
+  status: SubmissionStatus;
+  reviewer_notes: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+}
+
+export interface InspectionTenantSubmissionInsert {
+  inspection_id: string;
+  room_id: string;
+  item_id?: string | null;
+  submitted_by: string;
+  submission_type: TenantSubmissionType;
+  description?: string | null;
+  original_description?: string | null;
+  image_url?: string | null;
+  storage_path?: string | null;
+}
+
+export interface InspectionRoomAcknowledgmentRow {
+  id: string;
+  inspection_id: string;
+  room_id: string;
+  acknowledged_by: string;
+  role: 'tenant' | 'owner';
+  signature_url: string | null;
+  acknowledged_at: string;
+}
+
+export interface InspectionRoomAcknowledgmentInsert {
+  inspection_id: string;
+  room_id: string;
+  acknowledged_by: string;
+  role: 'tenant' | 'owner';
+  signature_url?: string | null;
+}
+
+export interface InspectionItemDisputeRow {
+  id: string;
+  inspection_id: string;
+  item_id: string;
+  raised_by: string;
+  dispute_reason: string;
+  proposed_condition: ConditionRating | null;
+  status: DisputeStatus;
+  owner_response: string | null;
+  resolution_notes: string | null;
+  resolved_condition: ConditionRating | null;
+  resolved_at: string | null;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionItemDisputeInsert {
+  inspection_id: string;
+  item_id: string;
+  raised_by: string;
+  dispute_reason: string;
+  proposed_condition?: ConditionRating | null;
+  conversation_id?: string | null;
+}
+
+// Authority Submissions (compliance/regulatory tracking)
+export type AuthoritySubmissionType =
+  | 'bond_lodgement' | 'bond_claim' | 'bond_refund'
+  | 'condition_report' | 'notice_to_vacate' | 'breach_notice'
+  | 'rent_increase_notice' | 'entry_notice'
+  | 'tribunal_application' | 'tribunal_response'
+  | 'compliance_certificate' | 'insurance_claim'
+  | 'other';
+
+export type AuthoritySubmissionMethod = 'api' | 'email' | 'post' | 'online_portal' | 'in_person';
+
+export type AuthoritySubmissionStatus =
+  | 'pending' | 'submitted' | 'acknowledged' | 'processed' | 'rejected' | 'requires_action';
+
+export type ProofOfServiceType =
+  | 'email_receipt' | 'registered_post_tracking' | 'portal_confirmation'
+  | 'statutory_declaration' | 'hand_delivery_witness' | 'court_filing_stamp';
+
+export interface AuthoritySubmissionRow {
+  id: string;
+  owner_id: string;
+  property_id: string;
+  document_id: string | null;
+  submission_type: AuthoritySubmissionType;
+  authority_name: string;
+  authority_state: string;
+  submission_method: AuthoritySubmissionMethod;
+  status: AuthoritySubmissionStatus;
+  reference_number: string | null;
+  submitted_at: string | null;
+  acknowledged_at: string | null;
+  proof_type: ProofOfServiceType | null;
+  proof_url: string | null;
+  tracking_number: string | null;
+  authority_response: string | null;
+  response_received_at: string | null;
+  tenancy_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthoritySubmissionInsert {
+  owner_id: string;
+  property_id: string;
+  document_id?: string | null;
+  submission_type: AuthoritySubmissionType;
+  authority_name: string;
+  authority_state: string;
+  submission_method: AuthoritySubmissionMethod;
+  status?: AuthoritySubmissionStatus;
+  reference_number?: string | null;
+  submitted_at?: string | null;
+  proof_type?: ProofOfServiceType | null;
+  proof_url?: string | null;
+  tracking_number?: string | null;
+  tenancy_id?: string | null;
+  notes?: string | null;
+}
+
+export type AuthoritySubmissionUpdate = Partial<Omit<AuthoritySubmissionRow, 'id' | 'created_at' | 'owner_id'>>;
+
 // Mission 11 Phase K: Inspection Outsourcing
 
 export interface InspectionAssignmentRow {
@@ -1752,7 +1916,7 @@ export interface InspectorAccessTokenInsert {
 }
 
 // Mission 14: Agent Enhancements — Tasks, Autonomy, Proactive Actions
-export type AgentTaskCategory = 'tenant_finding' | 'lease_management' | 'rent_collection' | 'maintenance' | 'compliance' | 'general';
+export type AgentTaskCategory = 'tenant_finding' | 'lease_management' | 'rent_collection' | 'maintenance' | 'compliance' | 'general' | 'inspections' | 'listings' | 'financial' | 'insurance' | 'communication';
 export type AgentTaskStatus = 'pending_input' | 'in_progress' | 'scheduled' | 'paused' | 'completed' | 'cancelled';
 export type AgentTaskPriority = 'urgent' | 'high' | 'normal' | 'low';
 export type AutonomyPreset = 'cautious' | 'balanced' | 'hands_off' | 'custom';
@@ -1862,6 +2026,23 @@ export interface AgentConversation {
   updated_at: string;
 }
 
+export interface InlineAction {
+  id: string;
+  type: 'approval' | 'navigation';
+  label: string;
+  description?: string;
+  /** For approval actions — the pending action ID */
+  pendingActionId?: string;
+  /** For approval actions — category like "action", "external" */
+  category?: string;
+  /** For navigation actions — the route to push */
+  route?: string;
+  /** For navigation actions — route params */
+  params?: Record<string, string>;
+  /** Current status — tracks whether user acted on this */
+  status?: 'pending' | 'approved' | 'rejected' | 'navigated';
+}
+
 export interface AgentMessage {
   id: string;
   conversation_id: string;
@@ -1869,6 +2050,7 @@ export interface AgentMessage {
   content: string;
   tool_calls: Record<string, unknown>[] | null;
   tool_results: Record<string, unknown>[] | null;
+  inline_actions?: InlineAction[] | null;
   feedback: string | null;
   tokens_used: number | null;
   created_at: string;
@@ -1894,6 +2076,624 @@ export interface AgentPendingAction {
   resolved_at: string | null;
   resolved_by: string | null;
   created_at: string;
+}
+
+// ============================================================
+// Document Hub & E-Signing
+// ============================================================
+
+export type CasaDocumentType =
+  | 'financial_report'
+  | 'tax_report'
+  | 'lease'
+  | 'notice'
+  | 'condition_report'
+  | 'compliance_certificate'
+  | 'property_summary'
+  | 'portfolio_report'
+  | 'cash_flow_forecast'
+  | 'evidence_report'
+  | 'inspection_report'
+  | 'insurance_certificate'
+  | 'identity_document'
+  | 'financial_statement'
+  | 'correspondence'
+  | 'photo'
+  | 'receipt'
+  | 'other';
+
+export type CasaDocumentStatus =
+  | 'draft'
+  | 'pending_owner_signature'
+  | 'pending_tenant_signature'
+  | 'signed'
+  | 'archived';
+
+export interface DocumentRow {
+  id: string;
+  owner_id: string;
+  tenant_id: string | null;
+  property_id: string | null;
+  tenancy_id: string | null;
+  document_type: CasaDocumentType;
+  title: string;
+  html_content: string;
+  status: CasaDocumentStatus;
+  requires_signature: boolean;
+  storage_path: string | null;
+  file_url: string | null;
+  created_by: string;
+  conversation_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  // Mission 16: Document Management additions
+  folder_id: string | null;
+  file_name: string | null;
+  original_name: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  file_extension: string | null;
+  description: string | null;
+  tags: string[] | null;
+  document_date: string | null;
+  expiry_date: string | null;
+  thumbnail_url: string | null;
+  is_archived: boolean;
+  archived_at: string | null;
+  uploaded_by: string | null;
+  ocr_text: string | null;
+}
+
+export interface DocumentInsert {
+  owner_id: string;
+  tenant_id?: string | null;
+  property_id?: string | null;
+  tenancy_id?: string | null;
+  document_type: CasaDocumentType;
+  title: string;
+  html_content: string;
+  status?: CasaDocumentStatus;
+  requires_signature?: boolean;
+  storage_path?: string | null;
+  file_url?: string | null;
+  created_by?: string;
+  conversation_id?: string | null;
+  metadata?: Record<string, unknown>;
+  // Mission 16 additions
+  folder_id?: string | null;
+  file_name?: string | null;
+  original_name?: string | null;
+  mime_type?: string | null;
+  file_size?: number | null;
+  file_extension?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
+  document_date?: string | null;
+  expiry_date?: string | null;
+  thumbnail_url?: string | null;
+  is_archived?: boolean;
+  uploaded_by?: string | null;
+}
+
+export interface DocumentUpdate {
+  title?: string;
+  html_content?: string;
+  status?: CasaDocumentStatus;
+  requires_signature?: boolean;
+  storage_path?: string | null;
+  file_url?: string | null;
+  metadata?: Record<string, unknown>;
+  // Mission 16 additions
+  folder_id?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
+  document_date?: string | null;
+  expiry_date?: string | null;
+  thumbnail_url?: string | null;
+  is_archived?: boolean;
+  archived_at?: string | null;
+}
+
+export interface DocumentSignatureRow {
+  id: string;
+  document_id: string;
+  signer_id: string;
+  signer_role: 'owner' | 'tenant';
+  signer_name: string;
+  signature_image: string;
+  signed_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface DocumentSignatureInsert {
+  document_id: string;
+  signer_id: string;
+  signer_role: 'owner' | 'tenant';
+  signer_name: string;
+  signature_image: string;
+  ip_address?: string | null;
+  user_agent?: string | null;
+}
+
+export interface SavedSignatureRow {
+  id: string;
+  user_id: string;
+  signature_image: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedSignatureInsert {
+  user_id: string;
+  signature_image: string;
+}
+
+export interface DocumentWithSignatures extends DocumentRow {
+  signatures: DocumentSignatureRow[];
+}
+
+// ============================================================
+// Mission 16: Document Management
+// ============================================================
+
+export interface DocumentFolderRow {
+  id: string;
+  owner_id: string;
+  property_id: string | null;
+  name: string;
+  description: string | null;
+  parent_id: string | null;
+  icon: string | null;
+  color: string | null;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentFolderInsert {
+  owner_id: string;
+  property_id?: string | null;
+  name: string;
+  description?: string | null;
+  parent_id?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  is_system?: boolean;
+}
+
+export interface DocumentFolderUpdate {
+  name?: string;
+  description?: string | null;
+  parent_id?: string | null;
+  icon?: string | null;
+  color?: string | null;
+}
+
+export type ShareType = 'user' | 'link';
+
+export interface DocumentShareRow {
+  id: string;
+  document_id: string;
+  share_type: ShareType;
+  shared_with_id: string | null;
+  share_token: string | null;
+  can_download: boolean;
+  can_print: boolean;
+  expires_at: string | null;
+  access_count: number;
+  last_accessed_at: string | null;
+  shared_by: string;
+  created_at: string;
+}
+
+export interface DocumentShareInsert {
+  document_id: string;
+  share_type: ShareType;
+  shared_with_id?: string | null;
+  share_token?: string | null;
+  can_download?: boolean;
+  can_print?: boolean;
+  expires_at?: string | null;
+  shared_by: string;
+}
+
+export type DocumentAccessAction = 'view' | 'download' | 'print' | 'share';
+
+export interface DocumentAccessLogRow {
+  id: string;
+  document_id: string;
+  accessed_by: string | null;
+  share_id: string | null;
+  action: DocumentAccessAction;
+  created_at: string;
+}
+
+export interface LeaseTemplateRow {
+  id: string;
+  state: string;
+  version: string;
+  name: string;
+  html_template: string;
+  required_fields: string[];
+  optional_clauses: Record<string, unknown> | null;
+  effective_from: string;
+  superseded_at: string | null;
+  is_current: boolean;
+  created_at: string;
+}
+
+export interface DocumentWithFolder extends DocumentRow {
+  folder?: DocumentFolderRow | null;
+}
+
+export interface DocumentShareWithDocument extends DocumentShareRow {
+  document?: DocumentRow;
+}
+
+export type AnnotationType = 'highlight' | 'note' | 'drawing' | 'stamp';
+
+export interface DocumentAnnotationRow {
+  id: string;
+  document_id: string;
+  created_by: string;
+  page_number: number;
+  annotation_type: AnnotationType;
+  content: string | null;
+  position: { x: number; y: number; width?: number; height?: number };
+  style: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentAnnotationInsert {
+  document_id: string;
+  created_by: string;
+  page_number?: number;
+  annotation_type: AnnotationType;
+  content?: string | null;
+  position: { x: number; y: number; width?: number; height?: number };
+  style?: Record<string, unknown> | null;
+}
+
+// ============================================================
+// Mission 15: Learning Engine & Compliance
+// ============================================================
+
+export type ComplianceCategory = 'smoke_alarm' | 'pool_safety' | 'gas_safety' | 'electrical_safety' | 'blind_cord' | 'building_insurance' | 'landlord_insurance' | 'energy_rating' | 'asbestos_register';
+export type ComplianceStatus = 'pending' | 'compliant' | 'overdue' | 'upcoming' | 'exempt' | 'not_applicable';
+export type ReminderType = 'info' | 'warning' | 'critical';
+export type RuleCategory = 'communication' | 'maintenance' | 'financial' | 'scheduling' | 'tenant_relations' | 'compliance' | 'general';
+export type RuleSource = 'correction_pattern' | 'explicit' | 'inferred';
+export type LearningCategory = 'getting_started' | 'legal' | 'financial' | 'maintenance' | 'tenant_relations' | 'compliance' | 'insurance';
+export type RegulatoryCategory = 'tenancy_law' | 'safety' | 'financial' | 'insurance' | 'building' | 'environmental';
+export type ImpactLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export interface ComplianceRequirement {
+  id: string;
+  state: string;
+  name: string;
+  description: string | null;
+  category: ComplianceCategory;
+  frequency_months: number;
+  is_mandatory: boolean;
+  applies_to_property_types: string[];
+  conditions: string | null;
+  created_at: string;
+}
+
+export interface PropertyCompliance {
+  id: string;
+  property_id: string;
+  requirement_id: string;
+  status: ComplianceStatus;
+  last_completed_at: string | null;
+  next_due_date: string | null;
+  certificate_url: string | null;
+  notes: string | null;
+  completed_by: string | null;
+  evidence_urls: string[];
+  created_at: string;
+  updated_at: string;
+  // Joined
+  requirement?: ComplianceRequirement;
+  property?: Pick<Property, 'id' | 'address_line_1' | 'suburb' | 'state'>;
+}
+
+export interface PropertyComplianceInsert {
+  property_id: string;
+  requirement_id: string;
+  status?: ComplianceStatus;
+  next_due_date?: string | null;
+  notes?: string | null;
+}
+
+export interface PropertyComplianceUpdate {
+  status?: ComplianceStatus;
+  last_completed_at?: string | null;
+  next_due_date?: string | null;
+  certificate_url?: string | null;
+  notes?: string | null;
+  completed_by?: string | null;
+  evidence_urls?: string[];
+}
+
+export interface ComplianceReminder {
+  id: string;
+  property_compliance_id: string;
+  user_id: string;
+  reminder_type: ReminderType;
+  days_before_due: number;
+  sent_at: string;
+  channel: string;
+  acknowledged_at: string | null;
+}
+
+export interface AgentRule {
+  id: string;
+  user_id: string;
+  property_id: string | null;
+  rule_text: string;
+  category: RuleCategory;
+  confidence: number;
+  source: RuleSource;
+  correction_ids: string[];
+  active: boolean;
+  applications_count: number;
+  rejections_count: number;
+  embedding: number[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRuleInsert {
+  user_id: string;
+  property_id?: string | null;
+  rule_text: string;
+  category: RuleCategory;
+  confidence?: number;
+  source?: RuleSource;
+  correction_ids?: string[];
+  active?: boolean;
+}
+
+export interface AgentRuleUpdate {
+  rule_text?: string;
+  category?: RuleCategory;
+  confidence?: number;
+  active?: boolean;
+  applications_count?: number;
+  rejections_count?: number;
+}
+
+export interface AgentCorrection {
+  id: string;
+  user_id: string;
+  decision_id: string | null;
+  original_action: string;
+  correction: string;
+  context_snapshot: Record<string, unknown>;
+  pattern_matched: boolean;
+  error_type: ErrorType | null;
+  embedding: number[] | null;
+  created_at: string;
+}
+
+export interface AgentTrajectory {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  tool_sequence: Array<{ name: string; input_summary: string }>;
+  total_duration_ms: number | null;
+  success: boolean;
+  efficiency_score: number | null;
+  goal: string | null;
+  intent_hash: string | null;
+  intent_label: string | null;
+  is_golden: boolean;
+  tool_count: number | null;
+  created_at: string;
+}
+
+export type ErrorType = 'FACTUAL_ERROR' | 'REASONING_ERROR' | 'TOOL_MISUSE' | 'CONTEXT_MISSING';
+
+export interface ConfidenceFactors {
+  historical_accuracy: number;
+  source_quality: number;
+  precedent_alignment: number;
+  rule_alignment: number;
+  golden_alignment: number;
+  outcome_track: number;
+  composite: number;
+}
+
+export interface AgentDecision {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  property_id: string | null;
+  decision_type: string;
+  tool_name: string;
+  input_data: Record<string, unknown>;
+  output_data: Record<string, unknown> | null;
+  reasoning: string | null;
+  confidence: number | null;
+  confidence_factors: ConfidenceFactors | null;
+  autonomy_level: number;
+  owner_feedback: 'approved' | 'rejected' | 'corrected' | null;
+  owner_correction: string | null;
+  error_type: ErrorType | null;
+  error_details: Record<string, unknown> | null;
+  embedding: number[] | null;
+  was_auto_executed: boolean;
+  created_at: string;
+}
+
+export type OutcomeType = 'success' | 'partial' | 'failure' | 'timeout' | 'user_override';
+
+export interface AgentOutcome {
+  id: string;
+  user_id: string;
+  decision_id: string | null;
+  task_id: string | null;
+  tool_name: string | null;
+  outcome_type: OutcomeType;
+  outcome_details: Record<string, unknown> | null;
+  measured_at: string;
+  created_at: string;
+}
+
+// ============================================================
+// Beyond-PM Intelligence Types
+// ============================================================
+
+export interface PropertyHealthScore {
+  id: string;
+  property_id: string;
+  owner_id: string;
+  overall_score: number;
+  maintenance_score: number | null;
+  financial_score: number | null;
+  compliance_score: number | null;
+  tenant_score: number | null;
+  market_position_score: number | null;
+  risk_factors: string[];
+  opportunities: string[];
+  predicted_maintenance_cost_12m: number | null;
+  predicted_vacancy_risk: number | null;
+  roi_annual: number | null;
+  capital_growth_estimate: number | null;
+  calculated_at: string;
+}
+
+export interface PortfolioSnapshot {
+  id: string;
+  owner_id: string;
+  snapshot_date: string;
+  total_properties: number;
+  total_value_estimate: number | null;
+  total_equity_estimate: number | null;
+  total_annual_rent: number | null;
+  total_annual_expenses: number | null;
+  net_yield: number | null;
+  occupancy_rate: number | null;
+  average_health_score: number | null;
+  average_days_to_let: number | null;
+  total_maintenance_ytd: number | null;
+  insights: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TenantSatisfaction {
+  id: string;
+  tenancy_id: string;
+  property_id: string;
+  owner_id: string;
+  satisfaction_score: number | null;
+  response_time_avg_hours: number | null;
+  maintenance_resolution_avg_days: number | null;
+  communication_score: number | null;
+  rent_payment_reliability: number | null;
+  renewal_probability: number | null;
+  risk_flags: string[];
+  calculated_at: string;
+}
+
+export interface MarketIntelligence {
+  id: string;
+  suburb: string;
+  state: string;
+  property_type: string;
+  bedrooms: number | null;
+  median_rent_weekly: number | null;
+  rent_growth_annual: number | null;
+  vacancy_rate: number | null;
+  days_on_market_avg: number | null;
+  demand_score: number | null;
+  supply_score: number | null;
+  yield_estimate: number | null;
+  data_sources: Record<string, unknown>[];
+  calculated_at: string;
+}
+
+export interface ToolGenome {
+  id: string;
+  user_id: string;
+  tool_name: string;
+  success_rate_ema: number;
+  avg_duration_ms: number;
+  total_executions: number;
+  total_successes: number;
+  total_failures: number;
+  failure_patterns: Record<string, number>;
+  parameter_insights: { success_params: string[]; failure_params: string[] };
+  co_occurrence: Record<string, { count: number; successes: number }>;
+  last_error: string | null;
+  last_error_at: string | null;
+  last_success_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearningContent {
+  id: string;
+  title: string;
+  slug: string;
+  content_markdown: string;
+  category: LearningCategory;
+  state: string | null;
+  tags: string[];
+  reading_time_minutes: number;
+  is_published: boolean;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserLearningProgress {
+  id: string;
+  user_id: string;
+  content_id: string;
+  completed: boolean;
+  bookmarked: boolean;
+  checklist_progress: Record<string, unknown>;
+  last_read_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegulatoryUpdate {
+  id: string;
+  title: string;
+  description: string;
+  state: string;
+  category: RegulatoryCategory;
+  effective_date: string;
+  impact_level: ImpactLevel;
+  action_required: string | null;
+  source_url: string | null;
+  is_published: boolean;
+  created_at: string;
+}
+
+export interface AutonomyGraduationTracking {
+  id: string;
+  user_id: string;
+  category: string;
+  consecutive_approvals: number;
+  total_approvals: number;
+  total_rejections: number;
+  current_level: number;
+  graduation_threshold: number;
+  backoff_multiplier: number;
+  last_suggestion_at: string | null;
+  last_rejection_at: string | null;
+  last_approval_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ============================================================
@@ -2271,6 +3071,155 @@ export interface PropertyMetricsRow {
   next_inspection_date: string | null;
 }
 
+// =============================================================================
+// Mission 17: Push Notifications & Alerts
+// =============================================================================
+
+export type NotificationType =
+  | 'payment_received'
+  | 'payment_due'
+  | 'payment_overdue'
+  | 'autopay_scheduled'
+  | 'autopay_failed'
+  | 'maintenance_submitted'
+  | 'maintenance_acknowledged'
+  | 'maintenance_scheduled'
+  | 'maintenance_completed'
+  | 'application_received'
+  | 'application_status_changed'
+  | 'message_received'
+  | 'inspection_scheduled'
+  | 'inspection_reminder'
+  | 'inspection_completed'
+  | 'compliance_due_soon'
+  | 'compliance_overdue'
+  | 'lease_expiring_soon'
+  | 'lease_renewed'
+  | 'tenant_moved_out'
+  | 'system_announcement'
+  | 'feature_update';
+
+export type PushTokenPlatform = 'ios' | 'android' | 'web';
+
+export interface PushTokenRow {
+  id: string;
+  user_id: string;
+  token: string;
+  platform: PushTokenPlatform;
+  device_info: Record<string, unknown> | null;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PushTokenInsert {
+  user_id: string;
+  token: string;
+  platform: PushTokenPlatform;
+  device_info?: Record<string, unknown> | null;
+  is_active?: boolean;
+  last_used_at?: string | null;
+}
+
+export type PushTokenUpdate = Partial<Omit<PushTokenRow, 'id' | 'user_id' | 'created_at' | 'updated_at'>>;
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  related_type: string | null;
+  related_id: string | null;
+  push_sent: boolean;
+  email_sent: boolean;
+  sms_sent: boolean;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationInsert {
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown> | null;
+  related_type?: string | null;
+  related_id?: string | null;
+  push_sent?: boolean;
+  email_sent?: boolean;
+  sms_sent?: boolean;
+  is_read?: boolean;
+  read_at?: string | null;
+}
+
+export type NotificationUpdate = Partial<Pick<NotificationRow, 'is_read' | 'read_at' | 'push_sent' | 'email_sent' | 'sms_sent'>>;
+
+export type EmailDigestFrequency = 'immediate' | 'daily' | 'weekly' | 'none';
+
+export interface NotificationSettingsRow {
+  user_id: string;
+  quiet_hours_enabled: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  timezone: string;
+  email_digest: EmailDigestFrequency;
+  email_digest_time: string;
+  do_not_disturb_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationSettingsInsert {
+  user_id: string;
+  quiet_hours_enabled?: boolean;
+  quiet_start?: string;
+  quiet_end?: string;
+  timezone?: string;
+  email_digest?: EmailDigestFrequency;
+  do_not_disturb_until?: string | null;
+}
+
+export type NotificationSettingsUpdate = Partial<Omit<NotificationSettingsRow, 'user_id' | 'created_at' | 'updated_at'>>;
+
+export type ScheduledNotificationStatus = 'pending' | 'sent' | 'cancelled';
+
+export interface ScheduledNotificationRow {
+  id: string;
+  user_id: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  scheduled_for: string;
+  is_recurring: boolean;
+  recurrence_rule: string | null;
+  related_type: string | null;
+  related_id: string | null;
+  status: ScheduledNotificationStatus;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface ScheduledNotificationInsert {
+  user_id: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown> | null;
+  scheduled_for: string;
+  is_recurring?: boolean;
+  recurrence_rule?: string | null;
+  related_type?: string | null;
+  related_id?: string | null;
+  status?: ScheduledNotificationStatus;
+}
+
+export type ScheduledNotificationUpdate = Partial<Pick<ScheduledNotificationRow, 'title' | 'body' | 'data' | 'scheduled_for' | 'is_recurring' | 'recurrence_rule' | 'status'>>;
+
 // Database schema type for Supabase client
 export interface Database {
   public: {
@@ -2460,6 +3409,21 @@ export interface Database {
         Insert: Omit<InspectionTemplateRoomRow, 'id'>;
         Update: Partial<Omit<InspectionTemplateRoomRow, 'id'>>;
       };
+      inspection_tenant_submissions: {
+        Row: InspectionTenantSubmissionRow;
+        Insert: InspectionTenantSubmissionInsert;
+        Update: Partial<InspectionTenantSubmissionInsert & { status: SubmissionStatus; reviewer_notes: string | null; reviewed_at: string | null; reviewed_by: string | null }>;
+      };
+      inspection_room_acknowledgments: {
+        Row: InspectionRoomAcknowledgmentRow;
+        Insert: InspectionRoomAcknowledgmentInsert;
+        Update: never;
+      };
+      inspection_item_disputes: {
+        Row: InspectionItemDisputeRow;
+        Insert: InspectionItemDisputeInsert;
+        Update: Partial<Omit<InspectionItemDisputeRow, 'id' | 'created_at'>>;
+      };
       conversations: {
         Row: ConversationRow;
         Insert: ConversationInsert;
@@ -2515,6 +3479,32 @@ export interface Database {
         Insert: ScheduledReportInsert;
         Update: ScheduledReportUpdate;
       };
+      authority_submissions: {
+        Row: AuthoritySubmissionRow;
+        Insert: AuthoritySubmissionInsert;
+        Update: AuthoritySubmissionUpdate;
+      };
+      // Mission 17: Notifications
+      push_tokens: {
+        Row: PushTokenRow;
+        Insert: PushTokenInsert;
+        Update: PushTokenUpdate;
+      };
+      notifications: {
+        Row: NotificationRow;
+        Insert: NotificationInsert;
+        Update: NotificationUpdate;
+      };
+      notification_settings: {
+        Row: NotificationSettingsRow;
+        Insert: NotificationSettingsInsert;
+        Update: NotificationSettingsUpdate;
+      };
+      scheduled_notifications: {
+        Row: ScheduledNotificationRow;
+        Insert: ScheduledNotificationInsert;
+        Update: ScheduledNotificationUpdate;
+      };
     };
     Enums: {
       user_role: UserRole;
@@ -2545,6 +3535,16 @@ export interface Database {
       report_format: ReportFormat;
       report_status: ReportStatus;
       report_frequency: ReportFrequency;
+      document_type: CasaDocumentType;
+      document_status: CasaDocumentStatus;
+      authority_submission_type: AuthoritySubmissionType;
+      authority_submission_method: AuthoritySubmissionMethod;
+      authority_submission_status: AuthoritySubmissionStatus;
+      proof_of_service_type: ProofOfServiceType;
+      notification_type: NotificationType;
+      push_token_platform: PushTokenPlatform;
+      email_digest_frequency: EmailDigestFrequency;
+      scheduled_notification_status: ScheduledNotificationStatus;
     };
   };
 }

@@ -308,14 +308,17 @@ async function handleSubscriptionUpdated(supabase: any, subscription: any) {
   const priceId = items?.data?.[0]?.price?.id;
   let tier = 'starter'; // default
 
-  // Map price IDs to tiers (configure these in env or product metadata)
-  const proPriceId = Deno.env.get('STRIPE_PRO_PRICE_ID');
-  const handsOffPriceId = Deno.env.get('STRIPE_HANDS_OFF_PRICE_ID');
+  // Map price IDs to tiers
+  const starterPriceId = Deno.env.get('STRIPE_PRICE_STARTER');
+  const proPriceId = Deno.env.get('STRIPE_PRICE_PRO');
+  const handsOffPriceId = Deno.env.get('STRIPE_PRICE_HANDS_OFF');
 
-  if (priceId === proPriceId) {
-    tier = 'pro';
-  } else if (priceId === handsOffPriceId) {
+  if (priceId === handsOffPriceId) {
     tier = 'hands_off';
+  } else if (priceId === proPriceId) {
+    tier = 'pro';
+  } else if (priceId === starterPriceId) {
+    tier = 'starter';
   }
 
   // Update profile

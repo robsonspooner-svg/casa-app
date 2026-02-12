@@ -110,7 +110,7 @@ export default function ConductInspection() {
                   {isComplete ? (
                     <View style={styles.completeCircle}>
                       <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                        <Path d="M20 6L9 17l-5-5" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
                       </Svg>
                     </View>
                   ) : (

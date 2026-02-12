@@ -188,7 +188,7 @@ export default function PortfolioScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  const { properties, loading: propsLoading, refreshing, refreshProperties } = useProperties();
+  const { properties, loading: propsLoading, refreshing, error: propsError, refreshProperties } = useProperties();
   const { tenancies } = useTenancies({ status: 'active' });
   const { requests: maintenanceRequests } = useMaintenance({ excludeCompleted: true });
   const { inspections } = useInspections({ excludeCompleted: true });
@@ -372,7 +372,26 @@ export default function PortfolioScreen() {
       </View>
 
       {/* Property List */}
-      {propsLoading && properties.length === 0 ? (
+      {propsError && properties.length === 0 ? (
+        <View style={styles.errorContainer}>
+          <View style={styles.errorIcon}>
+            <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                stroke={THEME.colors.warning}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </View>
+          <Text style={styles.errorTitle}>Unable to load properties</Text>
+          <Text style={styles.errorText}>{propsError}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh} activeOpacity={0.7}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : propsLoading && properties.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={THEME.colors.brand} />
         </View>
@@ -456,7 +475,7 @@ const styles = StyleSheet.create({
   headerIconButton: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     backgroundColor: THEME.colors.canvas,
     alignItems: 'center',
     justifyContent: 'center',
@@ -466,7 +485,7 @@ const styles = StyleSheet.create({
   addButton: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     backgroundColor: THEME.colors.brand,
     alignItems: 'center',
     justifyContent: 'center',
@@ -478,7 +497,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.canvas,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     paddingHorizontal: 12,
     height: 40,
     borderWidth: 1,
@@ -497,7 +516,7 @@ const styles = StyleSheet.create({
   filterPill: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.canvas,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -519,6 +538,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  errorIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.warningBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    marginBottom: 8,
+  },
+  errorText: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: THEME.colors.brand,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+  },
+  retryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: THEME.colors.textInverse,
+  },
   listContent: {
     padding: 16,
     paddingBottom: 32,
@@ -526,7 +584,7 @@ const styles = StyleSheet.create({
   propertyCard: {
     flexDirection: 'row',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 1,
@@ -567,7 +625,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   statusBadgeText: {
     fontSize: 11,
@@ -590,8 +648,8 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    backgroundColor: '#F0EFFF',
-    borderRadius: 6,
+    backgroundColor: THEME.colors.brand + '15',
+    borderRadius: THEME.radius.sm,
   },
   casaActiveDot: {
     width: 6,
@@ -649,7 +707,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
   },
   addPropertyButtonText: {
     fontSize: 15,

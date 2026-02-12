@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   },
   optionCardSelected: {
     borderColor: THEME.colors.brand,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: THEME.colors.brand + '15',
   },
   optionLabel: {
     fontSize: THEME.fontSize.body,
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
   },
   typeCardSelected: {
     borderColor: THEME.colors.brand,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: THEME.colors.brand + '15',
   },
   typeLabel: {
     fontSize: THEME.fontSize.body,
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   },
   outsourceCardSelected: {
     borderColor: THEME.colors.brand,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: THEME.colors.brand + '15',
   },
   outsourceCardDisabled: {
     opacity: 0.6,
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
   proBadgeText: {
     fontSize: 10,
     fontWeight: THEME.fontWeight.bold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     letterSpacing: 1,
   },
   templateInfo: {

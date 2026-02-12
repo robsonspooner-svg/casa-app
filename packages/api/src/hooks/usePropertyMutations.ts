@@ -50,7 +50,36 @@ export function usePropertyMutations(): PropertyMutations {
         .single();
 
       if (error) throw new Error(error.message);
-      return data as Property;
+
+      // Auto-initialize compliance requirements for the property based on state
+      const property = data as Property;
+      if (property.id && property.state) {
+        try {
+          const { data: requirements } = await supabase
+            .from('compliance_requirements')
+            .select('id, frequency_months')
+            .eq('state', property.state);
+
+          if (requirements && requirements.length > 0) {
+            const now = new Date();
+            const complianceRecords = requirements.map((req: any) => {
+              const nextDue = new Date(now);
+              if (req.frequency_months > 0) {
+                nextDue.setMonth(nextDue.getMonth() + req.frequency_months);
+              }
+              return {
+                property_id: property.id,
+                requirement_id: req.id,
+                status: 'pending',
+                next_due_date: req.frequency_months > 0 ? nextDue.toISOString().split('T')[0] : null,
+              };
+            });
+            await (supabase.from('property_compliance') as ReturnType<typeof supabase.from>).insert(complianceRecords);
+          }
+        } catch { /* compliance init is best-effort — don't block property creation */ }
+      }
+
+      return property;
     },
     [user]
   );

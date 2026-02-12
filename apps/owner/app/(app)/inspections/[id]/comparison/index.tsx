@@ -385,7 +385,7 @@ export default function AIComparisonResults() {
                               >
                                 <Text style={[
                                   styles.reclassifyChipText,
-                                  isSelected && { color: '#FFFFFF' },
+                                  isSelected && { color: THEME.colors.textInverse },
                                 ]}>
                                   {config.label}
                                 </Text>
@@ -407,9 +407,9 @@ export default function AIComparisonResults() {
                             }}
                           >
                             <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                              <Path d="M20 6L9 17l-5-5" stroke={issue.owner_agreed === true ? '#FFFFFF' : THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                              <Path d="M20 6L9 17l-5-5" stroke={issue.owner_agreed === true ? THEME.colors.textInverse : THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                             </Svg>
-                            <Text style={[styles.agreeButtonText, issue.owner_agreed === true && { color: '#FFFFFF' }]}>
+                            <Text style={[styles.agreeButtonText, issue.owner_agreed === true && { color: THEME.colors.textInverse }]}>
                               Agree
                             </Text>
                           </TouchableOpacity>
@@ -423,9 +423,9 @@ export default function AIComparisonResults() {
                             }}
                           >
                             <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                              <Path d="M18 6L6 18M6 6l12 12" stroke={issue.owner_agreed === false ? '#FFFFFF' : THEME.colors.error} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                              <Path d="M18 6L6 18M6 6l12 12" stroke={issue.owner_agreed === false ? THEME.colors.textInverse : THEME.colors.error} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                             </Svg>
-                            <Text style={[styles.disagreeButtonText, issue.owner_agreed === false && { color: '#FFFFFF' }]}>
+                            <Text style={[styles.disagreeButtonText, issue.owner_agreed === false && { color: THEME.colors.textInverse }]}>
                               Disagree
                             </Text>
                           </TouchableOpacity>
@@ -723,7 +723,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   filterTabTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   // Issue Card
   issueCard: {

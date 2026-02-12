@@ -20,6 +20,11 @@ const PRESET_DEFAULTS: Record<AutonomyPreset, Record<AgentTaskCategory, Autonomy
     maintenance: 'L1',
     compliance: 'L0',
     general: 'L1',
+    inspections: 'L1',
+    listings: 'L1',
+    financial: 'L0',
+    insurance: 'L0',
+    communication: 'L1',
   },
   balanced: {
     tenant_finding: 'L2',
@@ -28,6 +33,11 @@ const PRESET_DEFAULTS: Record<AutonomyPreset, Record<AgentTaskCategory, Autonomy
     maintenance: 'L2',
     compliance: 'L1',
     general: 'L2',
+    inspections: 'L2',
+    listings: 'L2',
+    financial: 'L1',
+    insurance: 'L1',
+    communication: 'L2',
   },
   hands_off: {
     tenant_finding: 'L3',
@@ -36,6 +46,11 @@ const PRESET_DEFAULTS: Record<AutonomyPreset, Record<AgentTaskCategory, Autonomy
     maintenance: 'L3',
     compliance: 'L2',
     general: 'L3',
+    inspections: 'L3',
+    listings: 'L3',
+    financial: 'L2',
+    insurance: 'L2',
+    communication: 'L3',
   },
   custom: {
     tenant_finding: 'L2',
@@ -44,6 +59,11 @@ const PRESET_DEFAULTS: Record<AutonomyPreset, Record<AgentTaskCategory, Autonomy
     maintenance: 'L2',
     compliance: 'L1',
     general: 'L2',
+    inspections: 'L2',
+    listings: 'L2',
+    financial: 'L1',
+    insurance: 'L1',
+    communication: 'L2',
   },
 };
 

@@ -4,3 +4,7 @@
 
 expo-env.d.ts
 # @end expo-cli
+
+# Native directories (using CNG/Prebuild via EAS)
+/ios
+/android

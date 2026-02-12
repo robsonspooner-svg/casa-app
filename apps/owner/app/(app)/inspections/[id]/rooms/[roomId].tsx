@@ -1,5 +1,5 @@
 // Room Inspection - Items Checklist with Condition Ratings, Photo Capture, Voice Notes
-// Mission 11: Property Inspections
+// Mission 11: Property Inspections + Guided Spatial Camera Capture
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -22,12 +22,15 @@ import { THEME } from '@casa/config';
 import { Button, ConditionBadge } from '@casa/ui';
 import { useInspection, useInspectionMutations } from '@casa/api';
 import type { ConditionRating, InspectionItemRow, InspectionImageRow } from '@casa/api';
+import GuidedCameraCapture from '../../../../../components/GuidedCameraCapture';
+import type { CapturedPhoto } from '../../../../../components/GuidedCameraCapture';
+import RoomLayoutSketch from '../../../../../components/RoomLayoutSketch';
 
 const CONDITION_OPTIONS: { value: ConditionRating; label: string; color: string }[] = [
   { value: 'excellent', label: 'Excellent', color: THEME.colors.success },
-  { value: 'good', label: 'Good', color: '#16A34A' },
+  { value: 'good', label: 'Good', color: THEME.colors.success },
   { value: 'fair', label: 'Fair', color: THEME.colors.warning },
-  { value: 'poor', label: 'Poor', color: '#EA580C' },
+  { value: 'poor', label: 'Poor', color: THEME.colors.warning },
   { value: 'damaged', label: 'Damaged', color: THEME.colors.error },
   { value: 'missing', label: 'Missing', color: THEME.colors.error },
   { value: 'not_applicable', label: 'N/A', color: THEME.colors.textTertiary },
@@ -36,7 +39,7 @@ const CONDITION_OPTIONS: { value: ConditionRating; label: string; color: string 
 export default function RoomInspection() {
   const { id, roomId } = useLocalSearchParams<{ id: string; roomId: string }>();
   const { inspection, loading, refreshInspection } = useInspection(id || null);
-  const { rateItem, completeRoom, updateRoom, uploadImage } = useInspectionMutations();
+  const { rateItem, completeRoom, updateRoom, uploadImage, analyzePhotos } = useInspectionMutations();
 
   const [roomNotes, setRoomNotes] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -49,14 +52,44 @@ export default function RoomInspection() {
   const [isRecording, setIsRecording] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
 
+  // Guided capture + layout sketch state
+  const [showGuidedCapture, setShowGuidedCapture] = useState(false);
+  const [showLayoutSketch, setShowLayoutSketch] = useState(false);
+  const [savingLayout, setSavingLayout] = useState(false);
+  const [roomCompleted, setRoomCompleted] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  // Ref for scrolling to checklist after capture
+  const scrollRef = useRef<ScrollView>(null);
+  const checklistRef = useRef<View>(null);
+
   const room = inspection?.rooms.find(r => r.id === roomId);
   const roomImages = inspection?.images.filter(img => img.room_id === roomId) || [];
+  const isEntryExit = inspection?.inspection_type === 'entry' || inspection?.inspection_type === 'exit';
 
   useEffect(() => {
     if (room?.notes) {
       setRoomNotes(room.notes);
     }
   }, [room?.notes]);
+
+  // Auto-save room notes after 2 seconds of inactivity (prevents data loss)
+  useEffect(() => {
+    if (!roomId || !room) return;
+    const currentNotes = room.notes || '';
+    if (roomNotes === currentNotes) return; // No change
+    if (roomNotes === '') return; // Don't save empty on initial load
+
+    const timer = setTimeout(async () => {
+      try {
+        await updateRoom(roomId, { notes: roomNotes || null });
+      } catch {
+        // Silent fail — notes will be saved on room completion
+      }
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [roomNotes, roomId, room, updateRoom]);
 
   // Cleanup recording on unmount
   useEffect(() => {
@@ -75,15 +108,25 @@ export default function RoomInspection() {
         condition,
         notes: selectedItemId === item.id ? itemNotes : item.notes || undefined,
       });
-      setSelectedItemId(null);
-      setItemNotes('');
       refreshInspection();
+
+      // Auto-advance to next unchecked item
+      const items = room?.items || [];
+      const currentIndex = items.findIndex(i => i.id === item.id);
+      const nextUnchecked = items.find((i, idx) => idx > currentIndex && !i.checked_at && i.id !== item.id);
+      if (nextUnchecked) {
+        setSelectedItemId(nextUnchecked.id);
+        setItemNotes(nextUnchecked.notes || '');
+      } else {
+        setSelectedItemId(null);
+        setItemNotes('');
+      }
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to rate item');
     } finally {
       setSaving(false);
     }
-  }, [rateItem, refreshInspection, selectedItemId, itemNotes]);
+  }, [rateItem, refreshInspection, selectedItemId, itemNotes, room?.items]);
 
   // Photo capture
   const handleTakePhoto = useCallback(async (itemId?: string) => {
@@ -135,15 +178,23 @@ export default function RoomInspection() {
 
     if (!result.canceled && result.assets.length > 0) {
       setUploading(true);
+      let uploaded = 0;
       try {
         for (const asset of result.assets) {
           const fileName = `photo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
           const mimeType = asset.mimeType || 'image/jpeg';
           await uploadImage(id, asset.uri, fileName, mimeType, roomId, itemId || null);
+          uploaded++;
         }
         refreshInspection();
       } catch (err) {
-        Alert.alert('Error', err instanceof Error ? err.message : 'Failed to upload photos');
+        refreshInspection();
+        const total = result.assets.length;
+        if (uploaded > 0) {
+          Alert.alert('Partial Upload', `${uploaded} of ${total} photos uploaded. ${err instanceof Error ? err.message : 'Some uploads failed.'}`);
+        } else {
+          Alert.alert('Error', err instanceof Error ? err.message : 'Failed to upload photos');
+        }
       } finally {
         setUploading(false);
       }
@@ -151,12 +202,134 @@ export default function RoomInspection() {
   }, [id, roomId, uploadImage, refreshInspection]);
 
   const showPhotoOptions = useCallback((itemId?: string) => {
-    Alert.alert('Add Photo', 'Choose a source', [
-      { text: 'Camera', onPress: () => handleTakePhoto(itemId) },
-      { text: 'Photo Library', onPress: () => handlePickPhoto(itemId) },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [handleTakePhoto, handlePickPhoto]);
+    if (isEntryExit && !itemId) {
+      // For entry/exit inspections, default to guided capture for room-level photos
+      Alert.alert('Add Photos', 'Choose how to capture', [
+        { text: 'Guided Capture', onPress: () => setShowGuidedCapture(true) },
+        { text: 'Quick Camera', onPress: () => handleTakePhoto(itemId) },
+        { text: 'Photo Library', onPress: () => handlePickPhoto(itemId) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    } else {
+      Alert.alert('Add Photo', 'Choose a source', [
+        { text: 'Camera', onPress: () => handleTakePhoto(itemId) },
+        { text: 'Photo Library', onPress: () => handlePickPhoto(itemId) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [handleTakePhoto, handlePickPhoto, isEntryExit]);
+
+  // Immediate upload for each photo during guided capture (prevents data loss)
+  const handlePhotoTaken = useCallback(async (photo: CapturedPhoto) => {
+    if (!id || !roomId) return;
+    await uploadImage(
+      id,
+      photo.uri,
+      photo.fileName,
+      photo.mimeType,
+      roomId,
+      null,
+      null, // caption
+      photo.compassBearing,
+      photo.devicePitch,
+      photo.deviceRoll,
+      photo.captureSequence,
+      photo.isWideShot,
+      photo.isCloseup,
+    );
+  }, [id, roomId, uploadImage]);
+
+  // Guided capture complete handler — only upload photos not already saved
+  const handleGuidedCaptureComplete = useCallback(async (photos: CapturedPhoto[]) => {
+    if (!id || !roomId) return;
+    setShowGuidedCapture(false);
+    const unsaved = photos.filter(p => !p.saved);
+    if (unsaved.length > 0) {
+      setUploading(true);
+      try {
+        for (const photo of unsaved) {
+          await uploadImage(
+            id,
+            photo.uri,
+            photo.fileName,
+            photo.mimeType,
+            roomId,
+            null,
+            null,
+            photo.compassBearing,
+            photo.devicePitch,
+            photo.deviceRoll,
+            photo.captureSequence,
+            photo.isWideShot,
+            photo.isCloseup,
+          );
+        }
+      } catch (err) {
+        Alert.alert('Error', err instanceof Error ? err.message : 'Failed to upload some photos');
+      } finally {
+        setUploading(false);
+      }
+    }
+    refreshInspection();
+    // Auto-expand first unchecked item to guide user through checklist
+    const firstUnchecked = room?.items.find(i => !i.checked_at);
+    if (firstUnchecked) {
+      setSelectedItemId(firstUnchecked.id);
+      setItemNotes(firstUnchecked.notes || '');
+    }
+    // Scroll to checklist area after a brief delay
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: 300, animated: true });
+    }, 300);
+    // Trigger AI auto-tagging in background (non-blocking)
+    if (id) {
+      setAnalyzing(true);
+      analyzePhotos(id).then(() => {
+        refreshInspection();
+      }).catch(() => {
+        // AI tagging is non-critical, silent fail
+      }).finally(() => {
+        setAnalyzing(false);
+      });
+    }
+  }, [id, roomId, uploadImage, refreshInspection, room?.items, analyzePhotos]);
+
+  // Layout sketch save handler
+  const handleSaveLayout = useCallback(async (imageData: string, pathData: string) => {
+    if (!roomId) return;
+    setSavingLayout(true);
+    try {
+      // Upload sketch image to storage
+      const response = await fetch(imageData);
+      const blob = await response.blob();
+      const { getSupabaseClient } = await import('@casa/api');
+      const supabase = getSupabaseClient();
+      const storagePath = `layouts/${id}/${roomId}_${Date.now()}.png`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('inspection-images')
+        .upload(storagePath, blob, { contentType: 'image/png' });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('inspection-images')
+        .getPublicUrl(storagePath);
+
+      // Update room with sketch URL and path data
+      await updateRoom(roomId, {
+        layout_sketch_url: urlData.publicUrl,
+        layout_sketch_data: JSON.parse(pathData),
+      } as any);
+
+      setShowLayoutSketch(false);
+      refreshInspection();
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save layout');
+    } finally {
+      setSavingLayout(false);
+    }
+  }, [id, roomId, updateRoom, refreshInspection]);
 
   // Voice note recording
   const handleStartRecording = useCallback(async () => {
@@ -198,12 +371,17 @@ export default function RoomInspection() {
         allowsRecordingIOS: false,
       });
 
-      if (uri) {
+      if (uri && (uri.startsWith('file://') || uri.startsWith('content://'))) {
         setUploading(true);
-        const fileName = `voice_${Date.now()}.m4a`;
-        await uploadImage(id, uri, fileName, 'audio/m4a', roomId || null);
-        refreshInspection();
-        setUploading(false);
+        try {
+          const fileName = `voice_${Date.now()}.m4a`;
+          await uploadImage(id, uri, fileName, 'audio/m4a', roomId || null);
+          refreshInspection();
+        } finally {
+          setUploading(false);
+        }
+      } else if (uri) {
+        Alert.alert('Error', 'Voice recording produced an invalid file.');
       }
     } catch (err) {
       setUploading(false);
@@ -245,7 +423,7 @@ export default function RoomInspection() {
 
       await completeRoom(roomId, overallCondition);
       refreshInspection();
-      router.back();
+      setRoomCompleted(true);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to complete room');
     } finally {
@@ -299,19 +477,82 @@ export default function RoomInspection() {
       {/* Upload indicator */}
       {uploading && (
         <View style={styles.uploadBanner}>
-          <ActivityIndicator size="small" color="#FFFFFF" />
+          <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           <Text style={styles.uploadText}>Uploading...</Text>
         </View>
       )}
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      {/* AI analysis indicator */}
+      {analyzing && !uploading && (
+        <View style={styles.analyzingBanner}>
+          <ActivityIndicator size="small" color={THEME.colors.brand} />
+          <Text style={styles.analyzingText}>Casa Agent is tagging your photos...</Text>
+        </View>
+      )}
+
+      <ScrollView ref={scrollRef} style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Room Layout Sketch */}
+        {isEntryExit && (
+          <View style={styles.layoutSection}>
+            {room.layout_sketch_url ? (
+              <TouchableOpacity
+                style={styles.layoutPreview}
+                onPress={() => setShowLayoutSketch(true)}
+              >
+                <Image source={{ uri: room.layout_sketch_url }} style={styles.layoutImage} resizeMode="contain" />
+                <Text style={styles.layoutEditText}>Edit Layout</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.layoutButton}
+                onPress={() => setShowLayoutSketch(true)}
+              >
+                <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                  <Path d="M3 3h18v18H3V3z" stroke={THEME.colors.brand} strokeWidth={1.5} />
+                  <Path d="M3 9h18M9 3v18" stroke={THEME.colors.brand} strokeWidth={1} strokeDasharray="3 3" />
+                </Svg>
+                <Text style={styles.layoutButtonText}>Draw Room Layout</Text>
+                <Text style={styles.layoutHint}>Sketch walls, doors and windows</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Guided Capture Banner (entry/exit only) */}
+        {isEntryExit && roomOnlyImages.length === 0 && (
+          <TouchableOpacity
+            style={styles.guidedBanner}
+            onPress={() => setShowGuidedCapture(true)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.guidedBannerIcon}>
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2v11z" stroke={THEME.colors.textInverse} strokeWidth={1.5} />
+                <Path d="M12 17a4 4 0 100-8 4 4 0 000 8z" stroke={THEME.colors.textInverse} strokeWidth={1.5} />
+              </Svg>
+            </View>
+            <View style={styles.guidedBannerText}>
+              <Text style={styles.guidedBannerTitle}>Start 360° Room Scan</Text>
+              <Text style={styles.guidedBannerSub}>Rotate and capture every direction with compass tagging</Text>
+            </View>
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+        )}
+
         {/* Room Photos */}
         {roomOnlyImages.length > 0 && (
           <View style={styles.photoSection}>
             <Text style={styles.photoSectionTitle}>Room Photos</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoRow}>
               {roomOnlyImages.map(img => (
-                <Image key={img.id} source={{ uri: img.url }} style={styles.photoThumb} />
+                <View key={img.id} style={styles.photoThumbContainer}>
+                  <Image source={{ uri: img.url }} style={styles.photoThumb} />
+                  {img.caption && (
+                    <Text style={styles.photoCaption} numberOfLines={2}>{img.caption}</Text>
+                  )}
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -335,7 +576,7 @@ export default function RoomInspection() {
                   {item.checked_at ? (
                     <View style={styles.checkedIcon}>
                       <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                        <Path d="M20 6L9 17l-5-5" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
                       </Svg>
                     </View>
                   ) : (
@@ -392,7 +633,7 @@ export default function RoomInspection() {
                       >
                         <Text style={[
                           styles.ratingChipText,
-                          item.condition === opt.value && { color: '#FFFFFF' },
+                          item.condition === opt.value && { color: THEME.colors.textInverse },
                         ]}>
                           {opt.label}
                         </Text>
@@ -466,15 +707,71 @@ export default function RoomInspection() {
           />
         </View>
 
-        {/* Complete Room */}
+        {/* Complete Room / Next Room */}
         <View style={styles.completeSection}>
-          <Button
-            title={saving ? 'Saving...' : 'Complete Room'}
-            onPress={handleCompleteRoom}
-            disabled={saving || uploading}
-          />
+          {roomCompleted ? (
+            <>
+              <View style={styles.completedBanner}>
+                <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                  <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.completedText}>Room Complete</Text>
+              </View>
+              {(() => {
+                // Find next incomplete room
+                const rooms = inspection?.rooms || [];
+                const currentIdx = rooms.findIndex(r => r.id === roomId);
+                const nextRoom = rooms.find((r, i) => i > currentIdx && !r.completed_at);
+                if (nextRoom) {
+                  return (
+                    <Button
+                      title={`Next: ${nextRoom.name}`}
+                      onPress={() => {
+                        router.replace({
+                          pathname: '/(app)/inspections/[id]/rooms/[roomId]' as any,
+                          params: { id: inspection!.id, roomId: nextRoom.id },
+                        });
+                      }}
+                    />
+                  );
+                }
+                return (
+                  <Button
+                    title="All Rooms Done — Back to Inspection"
+                    onPress={() => router.back()}
+                  />
+                );
+              })()}
+              <Button title="Back to Rooms" onPress={() => router.back()} variant="text" />
+            </>
+          ) : (
+            <Button
+              title={saving ? 'Saving...' : 'Complete Room'}
+              onPress={handleCompleteRoom}
+              disabled={saving || uploading}
+            />
+          )}
         </View>
       </ScrollView>
+
+      {/* Guided Camera Capture Modal */}
+      <GuidedCameraCapture
+        visible={showGuidedCapture}
+        onClose={() => setShowGuidedCapture(false)}
+        onComplete={handleGuidedCaptureComplete}
+        onPhotoTaken={handlePhotoTaken}
+        roomName={room.name}
+        isEntryExit={isEntryExit}
+      />
+
+      {/* Room Layout Sketch Modal */}
+      <RoomLayoutSketch
+        visible={showLayoutSketch}
+        onClose={() => setShowLayoutSketch(false)}
+        onSave={handleSaveLayout}
+        saving={savingLayout}
+        existingPathData={room.layout_sketch_data ? (() => { try { return JSON.stringify(room.layout_sketch_data); } catch { return null; } })() : null}
+      />
     </SafeAreaView>
   );
 }
@@ -526,7 +823,20 @@ const styles = StyleSheet.create({
   },
   uploadText: {
     fontSize: THEME.fontSize.caption,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
+    fontWeight: THEME.fontWeight.medium as any,
+  },
+  analyzingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: THEME.spacing.sm,
+    backgroundColor: THEME.colors.brand + '20',
+    paddingVertical: THEME.spacing.xs,
+  },
+  analyzingText: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.brand,
     fontWeight: THEME.fontWeight.medium as any,
   },
   content: {
@@ -545,12 +855,21 @@ const styles = StyleSheet.create({
   photoRow: {
     flexDirection: 'row',
   },
+  photoThumbContainer: {
+    marginRight: THEME.spacing.sm,
+    width: 88,
+  },
   photoThumb: {
-    width: 72,
+    width: 88,
     height: 72,
     borderRadius: THEME.radius.md,
-    marginRight: THEME.spacing.sm,
     backgroundColor: THEME.colors.subtle,
+  },
+  photoCaption: {
+    fontSize: 10,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 13,
   },
   itemCard: {
     backgroundColor: THEME.colors.surface,
@@ -728,10 +1047,100 @@ const styles = StyleSheet.create({
   },
   completeSection: {
     paddingVertical: THEME.spacing.xl,
+    gap: THEME.spacing.md,
+  },
+  completedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: THEME.spacing.sm,
+    backgroundColor: THEME.colors.successBg,
+    borderRadius: THEME.radius.md,
+    paddingVertical: THEME.spacing.md,
+    marginBottom: THEME.spacing.sm,
+  },
+  completedText: {
+    fontSize: THEME.fontSize.h3,
+    fontWeight: THEME.fontWeight.semibold as any,
+    color: THEME.colors.success,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  layoutSection: {
+    marginBottom: THEME.spacing.md,
+  },
+  layoutButton: {
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    padding: THEME.spacing.base,
+    alignItems: 'center',
+    gap: THEME.spacing.xs,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.brand,
+    borderStyle: 'dashed',
+  },
+  layoutButtonText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold as any,
+    color: THEME.colors.brand,
+  },
+  layoutHint: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textTertiary,
+  },
+  layoutPreview: {
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+  },
+  layoutImage: {
+    width: '100%',
+    height: 150,
+    backgroundColor: THEME.colors.subtle,
+  },
+  layoutEditText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.medium as any,
+    color: THEME.colors.brand,
+    textAlign: 'center',
+    paddingVertical: THEME.spacing.sm,
+  },
+  guidedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    padding: THEME.spacing.base,
+    marginBottom: THEME.spacing.md,
+    gap: THEME.spacing.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.brand,
+    ...THEME.shadow.sm,
+  },
+  guidedBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: THEME.colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guidedBannerText: {
+    flex: 1,
+  },
+  guidedBannerTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold as any,
+    color: THEME.colors.textPrimary,
+  },
+  guidedBannerSub: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    marginTop: 1,
   },
 });

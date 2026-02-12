@@ -26,18 +26,15 @@ Casa is an AI-powered property management platform for Australian property owner
 
 ## Credentials & IDs
 
+> **IMPORTANT**: All credentials are stored in `.env.local` files and Supabase secrets. Never commit secrets to git.
+> See `apps/owner/.env.local` for Supabase keys and `supabase secrets list` for Edge Function secrets.
+
 | Key | Value |
 |-----|-------|
 | Supabase Project Ref | `woxlvhzgannzhajtjnke` |
 | API URL | `https://woxlvhzgannzhajtjnke.supabase.co` |
-| Anon Key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndveGx2aHpnYW5uemhhanRqbmtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwODYwNTcsImV4cCI6MjA4NDY2MjA1N30._akFWKzx3MC0OvkMrqM2MoKl6vNI_FR3ViQ-jj89pi4` |
-| Service Role Key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndveGx2aHpnYW5uemhhanRqbmtlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA4NjA1NywiZXhwIjoyMDg0NjYyMDU3fQ.ZxWmgLToiq3EMMYSJ9FL5LDqP2as6FyIKOaxvt-Dv2E` |
 | Owner User ID (Robbie) | `e323a5a6-4f1f-4cf5-9707-6812a6c9d23a` |
-| Owner Email | `robbie.spooner@icloud.com` |
-| Owner Password | `pass2015` |
 | Tenant User ID (Robson) | `dc209741-6218-49b6-8509-10d65a4cebc5` |
-| Tenant Email | `robson.spooner@gmail.com` |
-| Tenant Password | `pass2015` |
 | Test Property ID | `ce0622c8-d803-4808-90f8-61cef129109a` (4 Maloja Avenue, Caloundra) |
 | Test Tenancy ID | `0912be54-0ac6-43e3-ac3f-af120f5dedd6` |
 
@@ -347,7 +344,7 @@ For testing, authenticate as owner/tenant:
 curl -X POST 'https://woxlvhzgannzhajtjnke.supabase.co/auth/v1/token?grant_type=password' \
   -H "apikey: <anon_key>" \
   -H "Content-Type: application/json" \
-  -d '{"email":"robbie.spooner@icloud.com","password":"pass2015"}'
+  -d '{"email":"<your_email>","password":"<your_password>"}'
 ```
 
 ---

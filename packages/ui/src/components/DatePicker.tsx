@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Modal, ViewStyle } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Modal, ViewStyle, useColorScheme } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
@@ -102,6 +102,7 @@ export function DatePicker({
           onChange={handleChange}
           minimumDate={minimumDate}
           maximumDate={maximumDate}
+          themeVariant="light"
         />
       )}
 
@@ -118,7 +119,7 @@ export function DatePicker({
             activeOpacity={1}
             onPress={handleIOSCancel}
           >
-            <View style={styles.modalContent}>
+            <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
               <View style={styles.modalHeader}>
                 <TouchableOpacity onPress={handleIOSCancel}>
                   <Text style={styles.modalCancel}>Cancel</Text>
@@ -130,10 +131,11 @@ export function DatePicker({
               <DateTimePicker
                 value={tempDate}
                 mode="date"
-                display="spinner"
+                display="inline"
                 onChange={handleChange}
                 minimumDate={minimumDate}
                 maximumDate={maximumDate}
+                themeVariant="light"
                 style={styles.iosPicker}
               />
             </View>
@@ -192,7 +194,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingBottom: 20,
+    paddingBottom: 34,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -213,6 +215,6 @@ const styles = StyleSheet.create({
     color: THEME.colors.brand,
   },
   iosPicker: {
-    height: 216,
+    height: 340,
   },
 });

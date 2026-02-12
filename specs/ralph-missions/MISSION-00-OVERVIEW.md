@@ -16,18 +16,24 @@
 | 10 | Trade Coordination | COMPLETE | Trade network, work orders, quotes, reviews, portfolio. 4 migrations (599 lines). Tenant work order visibility + review requests |
 | 11 | Inspections | COMPLETE | Full inspection system: templates (8 default rooms), scheduling, conducting (room-by-room), AI comparison, voice notes, tenant acknowledgment. 2 migrations (680 lines) |
 | 12 | Communications | COMPLETE | In-app messaging: conversations, participants, messages, attachments, read receipts, reactions, templates. Realtime enabled. 1 migration (397 lines) |
-| 13 | Financial Reports | NOT STARTED | Agent integration (6 tools), ATO tax categorisation, expense tracking, cash flow forecasting, monthly auto-generation |
-| 14 | AI Orchestrator | **50% COMPLETE** | Chat UI, Tasks UI, heartbeat (4 scanners), autonomy settings, 125 tool definitions, 112 tool handlers built. **Remaining**: 13 external integration tools, 5 workflow orchestrations, 8 additional heartbeat scanners, tool implementation tracking, Claude Agent SDK migration |
+| 13 | Financial Reports | COMPLETE | Reports dashboard, financial summary (income vs expenses, monthly breakdown), tax summary, expense breakdown, cash flow analysis, property performance metrics, generated report history. 1 migration, useFinancials hook, 8 report screens |
+| 14 | AI Orchestrator | **COMPLETE** | Chat UI, Tasks UI (owner+tenant), 20 heartbeat scanners, autonomy settings UI, 130 tool definitions, 41 tool handlers, system prompt with 19 behavioural guidelines + dynamic rules/preferences injection, contextual tool filtering, pending actions/approval flow, trajectory recording, useGenerateListing hook, agent_tasks category migration. 38/39 E2E adversarial tests (390+ total). Deferred: pgvector retrieval (→M15), real external API connections (→M17/19/20), response caching (→M19) |
 | 15 | Learning Engine | NOT STARTED | Correction-to-rule pipeline, pgvector memory retrieval, autonomy graduation, rule management UI, compliance engine (8 states), learning content, regulatory updates |
 | 16 | Document Management | NOT STARTED | Agent integration (8 tools), document generation service (7 types), lease template system (NSW/VIC/QLD), auto-categorisation |
 | 17 | Notifications | NOT STARTED | Notification dispatch service, agent notification integration (13 event types), SMS templates (Twilio, Spam Act compliant), email templates (SendGrid), tenant notifications |
-| 18 | Security Audit | NOT STARTED | Feature gating enforcement (3 tiers), agent action audit trail, data encryption requirements (AES-256), 7-year audit retention |
+| 18 | Security Audit | NOT STARTED | **Google OAuth sign-in**, feature gating enforcement (3 tiers), agent action audit trail, data encryption requirements (AES-256), 7-year audit retention |
 | 19 | Performance | NOT STARTED | Agent performance optimisation (response time targets, tool search, context window management), database indexes for agent queries, pgvector HNSW index, cache strategy |
-| 20 | Launch Prep | NOT STARTED | PM transition wizard (inspection preference collection), website promise verification checklist, agent launch readiness checklist, inspection outsourcing in onboarding |
+| 20 | Launch Prep | NOT STARTED | **Combined app entry point (role selection)**, **onboarding intro screens**, **subscription payment website**, PM transition wizard (inspection preference collection), website promise verification checklist, agent launch readiness checklist, inspection outsourcing in onboarding |
 
-**Overall Progress**: 12/20 missions complete (60%), Mission 14 at 50%
+**Overall Progress**: 14/20 missions complete (70%), 6 remaining (15-20)
 
-**Next Priority**: Mission 13 (Financial Reports) — last P1 feature mission. Then complete Mission 14 remaining items (external integrations, workflows, heartbeat expansion). Mission 14 tool handlers already exist but need real external API connections (Brave Search, Google Places, SendGrid, Twilio, etc.).
+**Next Priority**: Mission 15 (Learning Engine). Then missions 16-20 in sequence.
+
+**Audit Gaps Added to Missions**:
+- Google OAuth → Mission 18 Phase A
+- Combined app entry point (role selection) → Mission 20 Phase A0
+- Onboarding intro screens → Mission 20 Phase A0
+- Subscription payment website → Mission 20 Phase A1
 
 **External Integration Applications to Start Immediately** (long lead times):
 - Stripe Connect account setup

@@ -110,6 +110,15 @@ export default function ProfileScreen() {
         )}
       </Card>
 
+      <TouchableOpacity
+        style={styles.settingsLink}
+        onPress={() => router.push('/(app)/settings' as any)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.settingsLinkText}>Settings</Text>
+        <Text style={styles.settingsChevron}>{'>'}</Text>
+      </TouchableOpacity>
+
       <View style={styles.signOutSection}>
         <Button title="Sign Out" variant="text" onPress={handleSignOut} />
       </View>
@@ -171,6 +180,26 @@ const styles = StyleSheet.create({
   fieldValue: {
     fontSize: THEME.fontSize.body,
     color: THEME.colors.textPrimary,
+  },
+  settingsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    padding: THEME.spacing.base,
+    marginBottom: THEME.spacing.base,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+  },
+  settingsLinkText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.textPrimary,
+  },
+  settingsChevron: {
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textTertiary,
   },
   signOutSection: {
     marginTop: 'auto',

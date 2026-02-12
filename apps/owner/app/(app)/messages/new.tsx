@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
   tenantAvatarText: {
     fontSize: THEME.fontSize.bodySmall,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   tenantInfo: {
     flex: 1,

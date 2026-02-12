@@ -181,7 +181,7 @@ export default function RenewLeaseScreen() {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
             <Text style={styles.renewButtonText}>Renew Lease</Text>
           )}
@@ -201,20 +201,20 @@ const styles = StyleSheet.create({
   headerRight: { width: 40 },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
-  currentInfo: { backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: THEME.colors.border, alignItems: 'center' },
+  currentInfo: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: THEME.colors.border, alignItems: 'center' },
   currentLabel: { fontSize: 13, color: THEME.colors.textSecondary, marginBottom: 4 },
   currentValue: { fontSize: 18, fontWeight: '700', color: THEME.colors.textPrimary },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 12 },
   optionRow: { flexDirection: 'row', gap: 8 },
-  optionChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: THEME.colors.surface, borderWidth: 1, borderColor: THEME.colors.border },
+  optionChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: THEME.radius.full, backgroundColor: THEME.colors.surface, borderWidth: 1, borderColor: THEME.colors.border },
   optionChipActive: { backgroundColor: THEME.colors.brand, borderColor: THEME.colors.brand },
   optionText: { fontSize: 14, color: THEME.colors.textSecondary, fontWeight: '500' },
-  optionTextActive: { color: '#FFFFFF' },
-  input: { backgroundColor: THEME.colors.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border },
-  increaseNote: { fontSize: 13, color: '#F59E0B', fontWeight: '500', marginTop: 8 },
+  optionTextActive: { color: THEME.colors.textInverse },
+  input: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border },
+  increaseNote: { fontSize: 13, color: THEME.colors.warning, fontWeight: '500', marginTop: 8 },
   footer: { padding: 20, borderTopWidth: 1, borderTopColor: THEME.colors.border },
-  renewButton: { backgroundColor: THEME.colors.brand, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
+  renewButton: { backgroundColor: THEME.colors.brand, borderRadius: THEME.radius.md, paddingVertical: 16, alignItems: 'center' },
   buttonDisabled: { opacity: 0.6 },
-  renewButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  renewButtonText: { color: THEME.colors.textInverse, fontSize: 16, fontWeight: '700' },
 });

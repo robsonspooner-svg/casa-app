@@ -10,6 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -18,9 +19,17 @@ import {
   Input,
   ScreenContainer,
   StepIndicator,
+  UpgradePrompt,
   THEME,
 } from '@casa/ui';
-import { usePropertyMutations, PropertyType, PaymentFrequency } from '@casa/api';
+import {
+  usePropertyMutations,
+  useProperties,
+  useProfile,
+  useFeatureGate,
+  PropertyType,
+  PaymentFrequency,
+} from '@casa/api';
 
 const STEPS = ['Address', 'Details', 'Financials', 'Review'];
 
@@ -83,9 +92,15 @@ const initialFormData: PropertyFormData = {
 export default function AddPropertyWizard() {
   const router = useRouter();
   const { createProperty } = usePropertyMutations();
+  const { properties, loading: propertiesLoading } = useProperties();
+  const { profile } = useProfile();
+  const { featureValue, currentTier, requiredTier } = useFeatureGate(profile, 'maxProperties');
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<PropertyFormData>(initialFormData);
+
+  const maxProperties = typeof featureValue === 'number' ? featureValue : 3;
+  const propertyLimitReached = maxProperties !== Infinity && properties.length >= maxProperties;
 
   const updateFormData = useCallback((key: keyof PropertyFormData, value: string) => {
     setFormData(prev => ({ ...prev, [key]: value }));
@@ -472,6 +487,50 @@ export default function AddPropertyWizard() {
     }
   };
 
+  if (propertiesLoading) {
+    return (
+      <ScreenContainer scrollable={false} padded={false}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+              <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textPrimary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Add Property</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={THEME.colors.brand} />
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (propertyLimitReached) {
+    const tierLabel = currentTier === 'starter' ? 'Starter' : currentTier === 'pro' ? 'Pro' : 'Hands-Off';
+    return (
+      <ScreenContainer scrollable={false} padded={false}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+              <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textPrimary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Add Property</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.upgradeContainer}>
+          <UpgradePrompt
+            requiredTier={requiredTier ?? 'pro'}
+            featureName="Property Limit Reached"
+            featureDescription={`Your ${tierLabel} plan allows up to ${maxProperties} properties. Upgrade to manage more.`}
+            onUpgrade={() => router.push('/(app)/settings/subscription' as any)}
+          />
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer scrollable={false} padded={false}>
       {/* Header */}
@@ -640,5 +699,15 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.h2,
     fontWeight: THEME.fontWeight.bold,
     color: THEME.colors.textPrimary,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upgradeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: THEME.spacing.base,
   },
 });

@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   tenancyCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   statusBadgeText: {
     fontSize: 11,
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingHorizontal: 24,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   findTenantBtnText: {
     fontSize: 14,
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.successBg,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     padding: 12,
     marginBottom: 12,
     gap: 10,
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },

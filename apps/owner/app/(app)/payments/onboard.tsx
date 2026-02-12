@@ -1,21 +1,53 @@
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { Card, Button } from '@casa/ui';
-import { useOwnerPayouts } from '@casa/api';
+import { useOwnerPayouts, getSupabaseClient } from '@casa/api';
 
 export default function PayoutOnboardScreen() {
-  const { stripeAccount, isOnboarded } = useOwnerPayouts();
+  const { stripeAccount, isOnboarded, refreshPayouts } = useOwnerPayouts();
+  const [loading, setLoading] = useState(false);
 
-  const handleStartOnboarding = () => {
-    // In production, this would call the backend to create a Stripe Connect
-    // account link and open it in the system browser
-    Alert.alert(
-      'Stripe Connect Required',
-      'Payout onboarding requires Stripe Connect integration. This will redirect to Stripe when API keys are configured.',
-      [{ text: 'OK' }]
-    );
+  const handleStartOnboarding = async () => {
+    setLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+
+      const { data, error } = await supabase.functions.invoke('create-connect-account', {
+        body: {
+          refreshUrl: 'casa-owner://payments/onboard',
+          returnUrl: 'casa-owner://payments/onboard',
+        },
+      });
+
+      if (error) {
+        const errMsg = data?.error || error.message || 'Failed to start onboarding';
+        throw new Error(errMsg);
+      }
+
+      // If already fully onboarded, refresh the local state
+      if (data?.alreadyOnboarded) {
+        await refreshPayouts();
+        return;
+      }
+
+      if (!data?.onboardingUrl) {
+        throw new Error('No onboarding URL returned');
+      }
+
+      // Open Stripe Connect onboarding in an in-app browser
+      await WebBrowser.openBrowserAsync(data.onboardingUrl);
+
+      // After returning from Stripe, refresh the account status
+      await refreshPayouts();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to start payout onboarding. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (isOnboarded) {
@@ -101,10 +133,14 @@ export default function PayoutOnboardScreen() {
       </Card>
 
       <Button
-        title="Connect Bank Account"
+        title={loading ? 'Connecting...' : 'Connect Bank Account'}
         onPress={handleStartOnboarding}
         style={styles.connectButton}
+        disabled={loading}
       />
+      {loading && (
+        <ActivityIndicator size="small" color={THEME.colors.brand} style={styles.loader} />
+      )}
     </ScrollView>
   );
 }
@@ -223,6 +259,10 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   connectButton: {
+    marginBottom: THEME.spacing.base,
+  },
+  loader: {
+    marginTop: -THEME.spacing.md,
     marginBottom: THEME.spacing.base,
   },
 });

@@ -208,7 +208,7 @@ export default function RentIncreaseScreen() {
           disabled={!eligibility.allowed || submitting}
         >
           {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
             <Text style={styles.submitButtonText}>Create Draft Notice</Text>
           )}
@@ -228,15 +228,15 @@ const styles = StyleSheet.create({
   headerRight: { width: 40 },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
-  rulesBox: { backgroundColor: '#EFF6FF', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#BFDBFE' },
-  rulesTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 8 },
-  rulesText: { fontSize: 13, color: '#1E40AF', marginBottom: 4 },
-  warningBox: { backgroundColor: '#FEF2F2', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#FECACA' },
-  warningText: { fontSize: 14, color: '#EF4444', fontWeight: '500' },
-  warningDate: { fontSize: 13, color: '#EF4444', marginTop: 4 },
+  rulesBox: { backgroundColor: THEME.colors.infoBg, borderRadius: THEME.radius.md, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: THEME.colors.info + '40' },
+  rulesTitle: { fontSize: 14, fontWeight: '700', color: THEME.colors.info, marginBottom: 8 },
+  rulesText: { fontSize: 13, color: THEME.colors.info, marginBottom: 4 },
+  warningBox: { backgroundColor: THEME.colors.errorBg, borderRadius: THEME.radius.md, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: THEME.colors.error + '40' },
+  warningText: { fontSize: 14, color: THEME.colors.error, fontWeight: '500' },
+  warningDate: { fontSize: 13, color: THEME.colors.error, marginTop: 4 },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 12 },
-  comparisonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: THEME.colors.border },
+  comparisonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 20, borderWidth: 1, borderColor: THEME.colors.border },
   comparisonItem: { alignItems: 'center' },
   comparisonLabel: { fontSize: 12, color: THEME.colors.textTertiary, marginBottom: 4 },
   comparisonValue: { fontSize: 24, fontWeight: '700', color: THEME.colors.textPrimary },
@@ -245,14 +245,14 @@ const styles = StyleSheet.create({
   amountInput: { fontSize: 24, fontWeight: '700', color: THEME.colors.brand, textAlign: 'center', minWidth: 80, borderBottomWidth: 2, borderBottomColor: THEME.colors.brand, paddingVertical: 4 },
   percentageRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
   percentageLabel: { fontSize: 14, color: THEME.colors.textSecondary },
-  percentageValue: { fontSize: 14, fontWeight: '600', color: '#F59E0B' },
+  percentageValue: { fontSize: 14, fontWeight: '600', color: THEME.colors.warning },
   timelineInfo: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: THEME.colors.border },
   timelineLabel: { fontSize: 14, color: THEME.colors.textSecondary },
   timelineValue: { fontSize: 14, fontWeight: '600', color: THEME.colors.textPrimary },
-  input: { backgroundColor: THEME.colors.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border },
+  input: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   footer: { padding: 20, borderTopWidth: 1, borderTopColor: THEME.colors.border },
-  submitButton: { backgroundColor: THEME.colors.brand, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
+  submitButton: { backgroundColor: THEME.colors.brand, borderRadius: THEME.radius.md, paddingVertical: 16, alignItems: 'center' },
   buttonDisabled: { opacity: 0.5 },
-  submitButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  submitButtonText: { color: THEME.colors.textInverse, fontSize: 16, fontWeight: '700' },
 });

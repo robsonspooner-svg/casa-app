@@ -10,10 +10,10 @@ import {
   Platform,
   ActivityIndicator,
   Animated,
-  ScrollView,
   Keyboard,
   Image,
 } from 'react-native';
+import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import {
@@ -25,6 +25,7 @@ import {
   useInspections,
   useAgentInsights,
 } from '@casa/api';
+import type { InlineAction } from '@casa/api';
 
 function formatTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -77,9 +78,180 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
   );
 }
 
-function MessageBubble({ message }: { message: AgentMessage }) {
+function InlineActionCards({
+  actions,
+  onApprove,
+  onReject,
+}: {
+  actions: InlineAction[];
+  onApprove: (actionId: string) => void;
+  onReject: (actionId: string) => void;
+}) {
+  if (!actions || actions.length === 0) return null;
+
+  return (
+    <View style={styles.inlineActionsContainer}>
+      {actions.map((action) => {
+        const isResolved = action.status === 'approved' || action.status === 'rejected';
+
+        return (
+          <View key={action.id} style={styles.inlineActionCard}>
+            <View style={styles.inlineActionHeader}>
+              <View style={styles.inlineActionIcon}>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    stroke={isResolved
+                      ? (action.status === 'approved' ? THEME.colors.success : THEME.colors.textTertiary)
+                      : THEME.colors.warning}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+              </View>
+              <View style={styles.inlineActionInfo}>
+                <Text style={styles.inlineActionLabel}>{action.label}</Text>
+                {action.description && (
+                  <Text style={styles.inlineActionDesc} numberOfLines={2}>{action.description}</Text>
+                )}
+              </View>
+            </View>
+
+            {isResolved ? (
+              <View style={styles.inlineActionResolved}>
+                <Text style={[
+                  styles.inlineActionResolvedText,
+                  action.status === 'approved' && { color: THEME.colors.success },
+                  action.status === 'rejected' && { color: THEME.colors.textTertiary },
+                ]}>
+                  {action.status === 'approved' ? 'Approved' : 'Declined'}
+                </Text>
+              </View>
+            ) : action.type === 'approval' && action.pendingActionId ? (
+              <View style={styles.inlineActionButtons}>
+                <TouchableOpacity
+                  style={styles.inlineApproveBtn}
+                  onPress={() => onApprove(action.pendingActionId!)}
+                  activeOpacity={0.7}
+                >
+                  <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                    <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                  <Text style={styles.inlineApproveBtnText}>Approve</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inlineRejectBtn}
+                  onPress={() => onReject(action.pendingActionId!)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.inlineRejectBtnText}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            ) : action.type === 'navigation' && action.route ? (
+              <TouchableOpacity
+                style={styles.inlineNavBtn}
+                onPress={() => router.push({ pathname: action.route as any, params: action.params } as any)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.inlineNavBtnText}>{action.label}</Text>
+                <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                  <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brandIndigo} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// Strip Markdown formatting from agent responses to render clean text
+function formatMessageContent(content: string): string {
+  let text = content;
+  // Remove heading markers (## **Title** → Title)
+  text = text.replace(/^#{1,6}\s+/gm, '');
+  // Remove bold/italic markers (**text** or ***text*** → text)
+  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1');
+  // Remove __ bold/italic
+  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
+  // Remove inline code backticks
+  text = text.replace(/`([^`]+)`/g, '$1');
+  // Convert markdown links [text](url) → text
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  // Remove horizontal rules
+  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
+  // Clean up bullet point markers (- item → • item)
+  text = text.replace(/^[-*]\s+/gm, '• ');
+  // Clean up numbered lists that have **bold** numbers
+  text = text.replace(/^(\d+)\.\s+/gm, '$1. ');
+  // Collapse multiple blank lines into one
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text.trim();
+}
+
+function FeedbackButtons({
+  messageId,
+  currentFeedback,
+  onFeedback,
+}: {
+  messageId: string;
+  currentFeedback: string | null;
+  onFeedback: (messageId: string, feedback: 'positive' | 'negative') => void;
+}) {
+  return (
+    <View style={styles.feedbackRow}>
+      <TouchableOpacity
+        style={[styles.feedbackBtn, currentFeedback === 'positive' && styles.feedbackBtnActive]}
+        onPress={() => onFeedback(messageId, 'positive')}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"
+            stroke={currentFeedback === 'positive' ? THEME.colors.success : THEME.colors.textTertiary}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.feedbackBtn, currentFeedback === 'negative' && styles.feedbackBtnNegative]}
+        onPress={() => onFeedback(messageId, 'negative')}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10zM17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"
+            stroke={currentFeedback === 'negative' ? THEME.colors.error : THEME.colors.textTertiary}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function MessageBubble({
+  message,
+  onApproveAction,
+  onRejectAction,
+  onFeedback,
+}: {
+  message: AgentMessage;
+  onApproveAction?: (actionId: string) => void;
+  onRejectAction?: (actionId: string) => void;
+  onFeedback?: (messageId: string, feedback: 'positive' | 'negative') => void;
+}) {
   const isUser = message.role === 'user';
   const isProactive = message.role === 'proactive';
+  const displayContent = isUser ? message.content : formatMessageContent(message.content);
 
   return (
     <View style={[styles.messageBubbleRow, isUser ? styles.userRow : styles.agentRow]}>
@@ -104,23 +276,55 @@ function MessageBubble({ message }: { message: AgentMessage }) {
           ]}
         >
           <Text style={[styles.messageText, isUser ? styles.userText : styles.agentText]}>
-            {message.content}
+            {displayContent}
           </Text>
           <ToolCallSummary toolCalls={message.tool_calls} />
         </View>
-        <Text style={[styles.messageTime, isUser ? styles.userTime : styles.agentTime]}>
-          {formatTime(message.created_at)}
-        </Text>
+        {!isUser && message.inline_actions && message.inline_actions.length > 0 && (
+          <InlineActionCards
+            actions={message.inline_actions}
+            onApprove={onApproveAction || (() => {})}
+            onReject={onRejectAction || (() => {})}
+          />
+        )}
+        <View style={styles.messageFooter}>
+          <Text style={[styles.messageTime, isUser ? styles.userTime : styles.agentTime]}>
+            {formatTime(message.created_at)}
+          </Text>
+          {!isUser && onFeedback && !message.id.startsWith('temp-') && (
+            <FeedbackButtons
+              messageId={message.id}
+              currentFeedback={message.feedback}
+              onFeedback={onFeedback}
+            />
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
-function TypingIndicator() {
+// Thinking phrases that cycle while the agent works
+const THINKING_PHRASES = [
+  'Thinking...',
+  'Checking your properties...',
+  'Analysing data...',
+  'Looking into it...',
+  'Working on it...',
+  'Reviewing records...',
+  'Processing your request...',
+];
+
+function ThinkingIndicator({ startTime, retrying }: { startTime: number; retrying?: string | null }) {
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
   const dot3 = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
+  // Dot animation
   useEffect(() => {
     const animate = (dot: Animated.Value, delay: number) => {
       Animated.loop(
@@ -136,33 +340,83 @@ function TypingIndicator() {
     animate(dot3, 400);
   }, [dot1, dot2, dot3]);
 
+  // Avatar pulse animation
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [pulseAnim]);
+
+  // Fade in on mount
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  // Cycle thinking phrases every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhraseIndex(prev => (prev + 1) % THINKING_PHRASES.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Elapsed time counter
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  const displayPhrase = retrying || THINKING_PHRASES[phraseIndex];
+
   return (
-    <View style={[styles.messageBubbleRow, styles.agentRow]}>
-      <View style={styles.agentAvatar}>
+    <Animated.View style={[styles.messageBubbleRow, styles.agentRow, { opacity: fadeAnim }]}>
+      <Animated.View style={[styles.agentAvatar, { transform: [{ scale: pulseAnim }] }]}>
         <Image
           source={require('../../../assets/casa_logo.png')}
           style={styles.agentAvatarImage}
         />
+      </Animated.View>
+      <View style={styles.messageColumn}>
+        <View style={[styles.messageBubble, styles.agentBubble, styles.thinkingBubble]}>
+          <View style={styles.thinkingRow}>
+            {[dot1, dot2, dot3].map((dot, i) => (
+              <Animated.View
+                key={i}
+                style={[
+                  styles.thinkingDot,
+                  { opacity: Animated.add(0.3, Animated.multiply(dot, 0.7)) },
+                ]}
+              />
+            ))}
+            <Text style={styles.thinkingText}>{displayPhrase}</Text>
+          </View>
+          {elapsed >= 5 && (
+            <Text style={styles.thinkingElapsed}>
+              {elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
+            </Text>
+          )}
+        </View>
       </View>
-      <View style={[styles.messageBubble, styles.agentBubble, styles.typingBubble]}>
-        {[dot1, dot2, dot3].map((dot, i) => (
-          <Animated.View
-            key={i}
-            style={[styles.typingDot, { opacity: Animated.add(0.3, Animated.multiply(dot, 0.7)) }]}
-          />
-        ))}
-      </View>
-    </View>
+    </Animated.View>
   );
 }
 
-function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
+function useSuggestionChips() {
   const { properties } = useProperties();
   const { arrears } = useArrears();
   const { inspections } = useInspections({});
   const { insights } = useAgentInsights();
 
-  const chips = useMemo(() => {
+  return useMemo(() => {
     const contextual: string[] = [];
     const defaults = [
       'How are my properties performing?',
@@ -202,46 +456,61 @@ function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
     // Cap contextual at 3 so we still show some defaults
     return [...contextual.slice(0, 3), ...defaults.slice(0, 3 - Math.min(contextual.length, 3) + 2)];
   }, [properties, arrears, inspections, insights]);
-
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.chipsContainer}
-    >
-      {chips.map(chip => (
-        <TouchableOpacity
-          key={chip}
-          style={styles.chip}
-          onPress={() => onSelect(chip)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.chipText}>{chip}</Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
-  );
 }
 
 function EmptyState({ onSuggestionSelect }: { onSuggestionSelect: (text: string) => void }) {
+  const chips = useSuggestionChips();
+
   return (
     <TouchableOpacity
       style={styles.emptyState}
       activeOpacity={1}
       onPress={Keyboard.dismiss}
     >
-      <View style={styles.emptyIconContainer}>
-        <Image
-          source={require('../../../assets/casa_logo.png')}
-          style={styles.emptyLogoImage}
-        />
+      <View style={styles.emptyContent}>
+        <View style={styles.emptyIconContainer}>
+          <Image
+            source={require('../../../assets/casa_logo.png')}
+            style={styles.emptyLogoImage}
+          />
+        </View>
+        <Text style={styles.emptyTitle}>Chat with Casa</Text>
+        <Text style={styles.emptyText}>
+          Ask anything about your properties, tenants, or finances. Casa will handle it.
+        </Text>
       </View>
-      <Text style={styles.emptyTitle}>Chat with Casa</Text>
-      <Text style={styles.emptyText}>
-        Ask anything about your properties, tenants, or finances. Casa will handle it.
-      </Text>
-      <SuggestionChips onSelect={onSuggestionSelect} />
+      <View style={styles.emptyChipsWrap}>
+        {chips.map(chip => (
+          <TouchableOpacity
+            key={chip}
+            style={styles.emptyChip}
+            onPress={() => onSuggestionSelect(chip)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.emptyChipText}>{chip}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </TouchableOpacity>
+  );
+}
+
+function InlineChips({ onSelect }: { onSelect: (text: string) => void }) {
+  const chips = useSuggestionChips();
+
+  return (
+    <View style={styles.inlineChipsRow}>
+      {chips.slice(0, 3).map(chip => (
+        <TouchableOpacity
+          key={chip}
+          style={styles.inlineChip}
+          onPress={() => onSelect(chip)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.inlineChipText} numberOfLines={1}>{chip}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 }
 
@@ -254,35 +523,41 @@ export default function ChatScreen() {
     error,
     sendMessage,
     startNewConversation,
+    approveAction,
+    rejectAction,
+    submitFeedback,
+    clearError,
   } = useAgentChat();
 
   const { properties } = useProperties();
   const { pendingCount } = useAgentContext();
 
   const [inputText, setInputText] = useState('');
+  const [sendStartTime, setSendStartTime] = useState(0);
   const flatListRef = useRef<FlatList>(null);
 
   const subtitle = useMemo(() => {
-    if (sending) return 'Thinking...';
+    if (sending) return 'Working on your request...';
+    if (error && error.includes('retrying')) return 'Busy — retrying...';
     if (pendingCount > 0) return `Working on ${pendingCount} task${pendingCount === 1 ? '' : 's'}`;
     if (properties.length > 0) return `Managing ${properties.length} propert${properties.length === 1 ? 'y' : 'ies'}`;
     return 'All caught up';
-  }, [sending, pendingCount, properties.length]);
+  }, [sending, error, pendingCount, properties.length]);
 
   const handleSend = async (text?: string) => {
     const messageText = (text || inputText).trim();
     if (!messageText || sending) return;
 
     setInputText('');
+    setSendStartTime(Date.now());
 
     if (!currentConversation) {
-      const conversationId = await startNewConversation();
-      if (conversationId) {
-        await sendMessage(messageText, conversationId);
-      }
-    } else {
-      await sendMessage(messageText);
+      // Reset state for a fresh conversation — edge function creates the
+      // conversation row when it receives the first message with no ID.
+      await startNewConversation();
     }
+
+    await sendMessage(messageText);
   };
 
   const handleSuggestionSelect = (text: string) => {
@@ -304,7 +579,7 @@ export default function ChatScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={THEME.components.tabBar.height}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -320,6 +595,21 @@ export default function ChatScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.push('/(app)/chat-history' as any)}
+            activeOpacity={0.7}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M12 8v4l3 3M3 12a9 9 0 1018 0 9 9 0 00-18 0z"
+                stroke={THEME.colors.textPrimary}
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={() => startNewConversation()}
@@ -348,24 +638,49 @@ export default function ChatScreen() {
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => (
+            <MessageBubble
+              message={item}
+              onApproveAction={approveAction}
+              onRejectAction={rejectAction}
+              onFeedback={submitFeedback}
+            />
+          )}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          ListFooterComponent={sending ? <TypingIndicator /> : null}
+          ListFooterComponent={sending ? <ThinkingIndicator startTime={sendStartTime} retrying={error && error.includes('retrying') ? error : null} /> : null}
         />
       )}
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
+      {error && !sending && (
+        <TouchableOpacity
+          style={[
+            styles.errorContainer,
+            error.includes('retrying') && styles.retryingContainer,
+          ]}
+          onPress={() => {
+            // Clear the error on tap so user can try again
+            clearError();
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={[
+            styles.errorText,
+            error.includes('retrying') && styles.retryingText,
+          ]}>
+            {error}
+          </Text>
+          {!error.includes('retrying') && (
+            <Text style={styles.errorDismissHint}>Tap to dismiss</Text>
+          )}
+        </TouchableOpacity>
       )}
 
       {/* Suggestion chips above input when conversation active */}
       {hasMessages && !sending && (
-        <SuggestionChips onSelect={handleSuggestionSelect} />
+        <InlineChips onSelect={handleSuggestionSelect} />
       )}
 
       <View style={styles.inputBar}>
@@ -459,7 +774,7 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
   },
   headerButton: {
     width: 40,
@@ -474,13 +789,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Empty state
+  // Empty state — centered content with wrapped chips at bottom
   emptyState: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     paddingHorizontal: THEME.spacing.xl,
-    paddingBottom: THEME.spacing.lg,
+  },
+  emptyContent: {
+    alignItems: 'center',
+    marginBottom: THEME.spacing.xl,
   },
   emptyIconContainer: {
     width: 56,
@@ -508,25 +825,51 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: THEME.spacing.md,
   },
-  // Suggestion chips
-  chipsContainer: {
-    paddingHorizontal: THEME.spacing.base,
-    paddingVertical: 6,
-    gap: 6,
+  // Empty state chips — wrapped flow layout
+  emptyChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: THEME.spacing.sm,
   },
-  chip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+  emptyChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 16,
+    borderRadius: THEME.radius.full,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
-  chipText: {
+  emptyChipText: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    fontWeight: '500',
+  },
+  // Inline chips — shown above input during active conversation
+  inlineChipsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: THEME.spacing.base,
+    paddingVertical: 6,
+    gap: 6,
+    backgroundColor: THEME.colors.canvas,
+  },
+  inlineChip: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.full,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    alignItems: 'center',
+  },
+  inlineChipText: {
     fontSize: 12,
     color: THEME.colors.textSecondary,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   // Messages list
   messagesList: {
@@ -599,6 +942,30 @@ const styles = StyleSheet.create({
   agentTime: {
     color: THEME.colors.textTertiary,
   },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: THEME.spacing.xs,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  feedbackBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackBtnActive: {
+    backgroundColor: THEME.colors.successBg,
+  },
+  feedbackBtnNegative: {
+    backgroundColor: THEME.colors.errorBg,
+  },
   proactiveBadge: {
     backgroundColor: THEME.colors.infoBg,
     paddingVertical: 2,
@@ -640,19 +1007,32 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     paddingLeft: THEME.spacing.base,
   },
-  // Typing indicator
-  typingBubble: {
+  // Thinking indicator
+  thinkingBubble: {
+    paddingVertical: THEME.spacing.md,
+    paddingHorizontal: THEME.spacing.base,
+  },
+  thinkingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: THEME.spacing.base,
-    paddingHorizontal: THEME.spacing.lg,
   },
-  typingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: THEME.colors.textTertiary,
+  thinkingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: THEME.colors.brand,
+  },
+  thinkingText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
+  thinkingElapsed: {
+    fontSize: 10,
+    color: THEME.colors.textTertiary,
+    marginTop: 4,
   },
   // Error
   errorContainer: {
@@ -664,10 +1044,23 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.error,
   },
+  errorDismissHint: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.error,
+    opacity: 0.6,
+    marginTop: 2,
+  },
+  retryingContainer: {
+    backgroundColor: THEME.colors.warningBg,
+  },
+  retryingText: {
+    color: THEME.colors.warning,
+  },
   // Input bar
   inputBar: {
     paddingHorizontal: THEME.spacing.base,
-    paddingVertical: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    paddingBottom: THEME.spacing.xs,
     backgroundColor: THEME.colors.surface,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.border,
@@ -702,5 +1095,95 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.4,
+  },
+  // Inline action cards (shown below agent messages)
+  inlineActionsContainer: {
+    marginTop: THEME.spacing.sm,
+    gap: THEME.spacing.sm,
+  },
+  inlineActionCard: {
+    backgroundColor: THEME.colors.canvas,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    padding: THEME.spacing.md,
+    gap: THEME.spacing.sm,
+  },
+  inlineActionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: THEME.spacing.sm,
+  },
+  inlineActionIcon: {
+    marginTop: 2,
+  },
+  inlineActionInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  inlineActionLabel: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+  },
+  inlineActionDesc: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
+  inlineActionButtons: {
+    flexDirection: 'row',
+    gap: THEME.spacing.sm,
+  },
+  inlineApproveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 34,
+    backgroundColor: THEME.colors.brand,
+    borderRadius: THEME.radius.sm,
+  },
+  inlineApproveBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textInverse,
+  },
+  inlineRejectBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 34,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.border,
+  },
+  inlineRejectBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textSecondary,
+  },
+  inlineNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 34,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: THEME.colors.subtle,
+  },
+  inlineNavBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.brandIndigo,
+  },
+  inlineActionResolved: {
+    alignItems: 'center',
+    paddingVertical: THEME.spacing.xs,
+  },
+  inlineActionResolvedText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
   },
 });

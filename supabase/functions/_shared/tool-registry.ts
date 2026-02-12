@@ -24,6 +24,10 @@ export interface ToolMeta {
   riskLevel: string;
   reversible: boolean;
   compensationTool?: string;
+  /** When true, the tool is an integration stub not yet connected to a live API.
+   *  Stub tools are excluded from the tools array sent to Claude so it never
+   *  attempts to call them. Flip to false once the integration is live. */
+  isStub?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +59,7 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
   { name: 'get_compliance_status', description: 'Get compliance status for properties (smoke alarms, gas, pool, etc.)', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, overdue_only: { type: 'boolean', description: 'Only overdue items' } } } },
   { name: 'get_financial_summary', description: 'Get income, expenses, net position for period', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, period: { type: 'string', enum: ['month', 'quarter', 'year', 'custom'], description: 'Reporting period' }, start_date: { type: 'string', description: 'Start date (ISO 8601) for custom period' }, end_date: { type: 'string', description: 'End date (ISO 8601) for custom period' } }, required: ['period'] } },
   { name: 'get_transactions', description: 'Get itemized transactions (rent, bond, maintenance, fees)', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, type: { type: 'string', enum: ['rent', 'bond', 'maintenance', 'fee', 'all'], description: 'Transaction type' }, period: { type: 'string', enum: ['month', 'quarter', 'year', 'all'], description: 'Time period' } } } },
-  { name: 'get_trades', description: 'Search tradesperson network by category/area/rating', input_schema: { type: 'object', properties: { category: { type: 'string', description: 'Trade category (plumber, electrician, etc.)' }, postcode: { type: 'string', description: 'Service area postcode' }, min_rating: { type: 'number', description: 'Minimum rating (1-5)' } } } },
+  { name: 'get_trades', description: 'Search owner\'s EXISTING preferred tradesperson network only (not external). For finding NEW tradespeople, use find_local_trades or web_search instead.', input_schema: { type: 'object', properties: { category: { type: 'string', description: 'Trade category (plumber, electrician, etc.)' }, postcode: { type: 'string', description: 'Service area postcode' }, min_rating: { type: 'number', description: 'Minimum rating (1-5)' } } } },
   { name: 'get_work_orders', description: 'Get work orders for a property or trade with status and cost details', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, trade_id: { type: 'string', description: 'Filter by tradesperson' }, status: { type: 'string', enum: ['pending', 'accepted', 'in_progress', 'completed', 'cancelled', 'all'], description: 'Work order status' } } } },
   { name: 'get_expenses', description: 'Get expense records for tax reporting and financial analysis', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, period: { type: 'string', enum: ['month', 'quarter', 'year', 'financial_year', 'all'], description: 'Time period' }, category: { type: 'string', description: 'Expense category filter' } } } },
   { name: 'get_payment_plan', description: 'Get payment plan details including installments and status', input_schema: { type: 'object', properties: { payment_plan_id: { type: 'string', description: 'Payment plan UUID' }, tenancy_id: { type: 'string', description: 'Or lookup by tenancy' } } } },
@@ -130,15 +134,35 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
   { name: 'assess_tenant_damage', description: 'Analyse if damage is tenant-caused vs wear and tear', input_schema: { type: 'object', properties: { maintenance_request_id: { type: 'string' }, description: { type: 'string' }, photo_urls: { type: 'array', items: { type: 'string' } }, property_age_years: { type: 'number' }, tenancy_duration_months: { type: 'number' }, last_inspection_notes: { type: 'string' } }, required: ['description'] } },
   { name: 'compare_quotes', description: 'Compare multiple quotes with ranked recommendations', input_schema: { type: 'object', properties: { maintenance_request_id: { type: 'string' }, quote_ids: { type: 'array', items: { type: 'string' } }, priority_factors: { type: 'object', properties: { price_weight: { type: 'number' }, quality_weight: { type: 'number' }, speed_weight: { type: 'number' } } } }, required: ['maintenance_request_id', 'quote_ids'] } },
 
+  // ── DOCUMENT MANAGEMENT TOOLS ────────────────────────────────────────────
+  { name: 'get_document', description: 'Get a single document with full details including signatures and sharing info', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' } }, required: ['document_id'] } },
+  { name: 'upload_document', description: 'Record a file upload as a document (owner uploaded files via the app). Links to property/folder and auto-categorises.', input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Document title' }, property_id: { type: 'string', description: 'Property UUID' }, folder_id: { type: 'string', description: 'Folder UUID' }, document_type: { type: 'string', enum: ['lease', 'notice', 'financial_report', 'tax_report', 'compliance_certificate', 'condition_report', 'evidence_report', 'other'], description: 'Document type' }, description: { type: 'string', description: 'Description' }, tags: { type: 'array', items: { type: 'string' }, description: 'Tags for categorisation' }, expiry_date: { type: 'string', description: 'Document expiry date (ISO 8601)' }, storage_path: { type: 'string', description: 'Supabase Storage path' } }, required: ['title', 'document_type'] } },
+  { name: 'share_document', description: 'Share a document with a tenant (creates share record with optional expiry)', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' }, tenant_id: { type: 'string', description: 'Tenant user UUID' }, can_download: { type: 'boolean', description: 'Allow download' }, expiry_days: { type: 'number', description: 'Share expires after N days (0 = never)' } }, required: ['document_id', 'tenant_id'] } },
+  { name: 'search_documents', description: 'Full-text search across document titles, descriptions, and content', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query' }, property_id: { type: 'string', description: 'Filter by property' }, document_type: { type: 'string', description: 'Filter by type' }, limit: { type: 'number', description: 'Max results (default 20)' } }, required: ['query'] } },
+  { name: 'get_document_folders', description: 'Get folder structure for a property', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property UUID' } }, required: ['property_id'] } },
+  { name: 'move_document_to_folder', description: 'Move a document into a specific folder', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' }, folder_id: { type: 'string', description: 'Target folder UUID (null to remove from folder)' } }, required: ['document_id'] } },
+
+  // ── DOCUMENT LIFECYCLE TOOLS ──────────────────────────────────────────────
+  { name: 'create_document', description: 'Create a document record with HTML content. Use after generating document text (lease, notice, report, etc.) to save it as a viewable, signable, shareable document.', input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Document title' }, document_type: { type: 'string', enum: ['lease', 'notice', 'financial_report', 'tax_report', 'compliance_certificate', 'inspection_report', 'property_summary', 'portfolio_report', 'cash_flow_forecast', 'other'], description: 'Document type' }, html_content: { type: 'string', description: 'Full HTML content of the document' }, property_id: { type: 'string', description: 'Related property UUID' }, tenancy_id: { type: 'string', description: 'Related tenancy UUID' }, tenant_id: { type: 'string', description: 'Related tenant UUID' }, requires_signature: { type: 'boolean', description: 'Whether this document needs signing' }, folder_id: { type: 'string', description: 'Folder to store document in' }, tags: { type: 'array', items: { type: 'string' }, description: 'Document tags' }, expiry_date: { type: 'string', description: 'Document expiry date (ISO 8601)' } }, required: ['title', 'document_type', 'html_content'] } },
+  { name: 'submit_document_email', description: 'Email a document to a recipient (tenant, accountant, authority, etc.) with the document content inline', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' }, to_email: { type: 'string', description: 'Recipient email address' }, to_name: { type: 'string', description: 'Recipient name' }, subject: { type: 'string', description: 'Email subject (defaults to document title)' }, body_message: { type: 'string', description: 'Optional message to include before the document' } }, required: ['document_id', 'to_email'] } },
+  { name: 'request_document_signature', description: 'Request a signature on a document. Creates a pending action for the signer (owner or tenant) that appears on their tasks/activity page.', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' }, signer_type: { type: 'string', enum: ['owner', 'tenant'], description: 'Who needs to sign' }, message: { type: 'string', description: 'Message for the signer' } }, required: ['document_id'] } },
+  { name: 'update_document_status', description: 'Update a document status (draft, submitted, archived, etc.)', input_schema: { type: 'object', properties: { document_id: { type: 'string', description: 'Document UUID' }, status: { type: 'string', enum: ['draft', 'pending_owner_signature', 'pending_tenant_signature', 'signed', 'submitted', 'archived'], description: 'New status' } }, required: ['document_id', 'status'] } },
+
+  // ── COMPLIANCE / AUTHORITY TOOLS ─────────────────────────────────────────
+  { name: 'check_compliance_requirements', description: 'Get state-specific compliance requirements for a property, including legislation section references, prescribed forms, and authority details', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property UUID' }, state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'], description: 'Australian state' }, category: { type: 'string', enum: ['smoke_alarm', 'pool_safety', 'gas_safety', 'electrical_safety', 'blind_cord', 'building_insurance', 'landlord_insurance', 'energy_rating', 'asbestos_register', 'all'], description: 'Compliance category (or all)' } }, required: ['state'] } },
+  { name: 'track_authority_submission', description: 'Create or update an authority submission tracking record. Use when submitting documents to state authorities (bond lodgement, tribunal applications, notices, condition reports).', input_schema: { type: 'object', properties: { submission_id: { type: 'string', description: 'Existing submission UUID (for update)' }, property_id: { type: 'string', description: 'Property UUID' }, submission_type: { type: 'string', enum: ['bond_lodgement', 'bond_claim', 'bond_refund', 'condition_report', 'notice_to_vacate', 'breach_notice', 'rent_increase_notice', 'entry_notice', 'tribunal_application', 'tribunal_response', 'compliance_certificate', 'insurance_claim', 'other'], description: 'Type of submission' }, authority_name: { type: 'string', description: 'Authority name (e.g. NSW Fair Trading, RTA QLD)' }, authority_state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'] }, submission_method: { type: 'string', enum: ['api', 'email', 'post', 'online_portal', 'in_person'], description: 'How it was submitted' }, document_id: { type: 'string', description: 'Linked document UUID' }, tenancy_id: { type: 'string', description: 'Linked tenancy UUID' }, reference_number: { type: 'string', description: 'Authority reference number' }, status: { type: 'string', enum: ['pending', 'submitted', 'acknowledged', 'processed', 'rejected', 'requires_action'] }, notes: { type: 'string' } }, required: ['property_id', 'submission_type', 'authority_state', 'submission_method'] } },
+  { name: 'generate_proof_of_service', description: 'Generate a proof of service / statutory declaration document for a notice or submission. Records the method, date, and witnesses of service delivery.', input_schema: { type: 'object', properties: { submission_id: { type: 'string', description: 'Authority submission UUID' }, document_id: { type: 'string', description: 'Document UUID that was served' }, served_to: { type: 'string', description: 'Name of person served' }, service_method: { type: 'string', enum: ['email', 'registered_post', 'hand_delivery', 'online_portal'], description: 'Method of service' }, service_date: { type: 'string', description: 'Date of service (ISO 8601)' }, tracking_number: { type: 'string', description: 'Tracking number for registered post' }, witness_name: { type: 'string', description: 'Witness name for hand delivery' }, property_address: { type: 'string', description: 'Property address' }, state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'] } }, required: ['document_id', 'served_to', 'service_method', 'service_date', 'state'] } },
+
   // ── EXTERNAL / INTEGRATION TOOLS ──────────────────────────────────────────
-  { name: 'web_search', description: 'Search the web for property management info — regulations, market rates, service providers, compliance', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query' }, region: { type: 'string', description: 'Region to focus results' }, max_results: { type: 'number' } }, required: ['query'] } },
-  { name: 'find_local_trades', description: 'Search for local tradespeople near a property — returns business name, contact, ratings, distance', input_schema: { type: 'object', properties: { trade_type: { type: 'string', description: 'Type (plumber, electrician, etc.)' }, property_id: { type: 'string', description: 'Property UUID to find trades near' }, suburb: { type: 'string', description: 'Suburb to search' }, urgency: { type: 'string', enum: ['emergency', 'urgent', 'routine'] }, max_results: { type: 'number' } }, required: ['trade_type'] } },
+  { name: 'web_search', description: 'Search the web for any information — regulations, market rates, service providers, compliance, tradespeople, businesses. Use when the owner asks to search online or find something on the web.', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query' }, region: { type: 'string', description: 'Region to focus results' }, max_results: { type: 'number' } }, required: ['query'] } },
+  { name: 'find_local_trades', description: 'Search online for NEW local tradespeople near a property or suburb. Use this when the owner asks to find, search for, or locate tradespeople. Returns business name, contact, ratings, distance.', input_schema: { type: 'object', properties: { trade_type: { type: 'string', description: 'Type (plumber, electrician, etc.)' }, property_id: { type: 'string', description: 'Property UUID to find trades near' }, suburb: { type: 'string', description: 'Suburb to search' }, urgency: { type: 'string', enum: ['emergency', 'urgent', 'routine'] }, max_results: { type: 'number' } }, required: ['trade_type'] } },
   { name: 'parse_business_details', description: 'Extract structured business info from a webpage — ABN, license, insurance, ratings, contact', input_schema: { type: 'object', properties: { url: { type: 'string', description: 'Business webpage URL' }, business_name: { type: 'string' } }, required: ['url'] } },
   { name: 'create_service_provider', description: 'Create/update a service provider card with structured business details', input_schema: { type: 'object', properties: { business_name: { type: 'string' }, trade_type: { type: 'string' }, contact_name: { type: 'string' }, phone: { type: 'string' }, email: { type: 'string' }, abn: { type: 'string', description: 'Australian Business Number' }, license_number: { type: 'string' }, insurance_status: { type: 'string', enum: ['verified', 'unverified', 'expired'] }, rating: { type: 'number', description: '1-5' }, suburb: { type: 'string' }, state: { type: 'string' }, notes: { type: 'string' } }, required: ['business_name', 'trade_type', 'phone'] } },
   { name: 'request_quote', description: 'Send quote request to tradesperson with maintenance details', input_schema: { type: 'object', properties: { provider_id: { type: 'string' }, maintenance_request_id: { type: 'string' }, property_id: { type: 'string' }, description: { type: 'string', description: 'Work description for quote' }, urgency: { type: 'string', enum: ['emergency', 'urgent', 'routine'] }, preferred_dates: { type: 'array', items: { type: 'string' } }, access_instructions: { type: 'string' }, photos: { type: 'array', items: { type: 'string' } } }, required: ['description', 'property_id'] } },
   { name: 'check_maintenance_threshold', description: 'Check if repair cost within auto-approval threshold', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property UUID' }, estimated_cost: { type: 'number', description: 'Estimated cost (AUD)' }, category: { type: 'string' }, is_tenant_caused: { type: 'boolean' } }, required: ['property_id', 'estimated_cost', 'category'] } },
   { name: 'get_market_data', description: 'Fetch rental market data for suburb — median rents, vacancy rates, yield, trends', input_schema: { type: 'object', properties: { suburb: { type: 'string' }, state: { type: 'string' }, property_type: { type: 'string', enum: ['house', 'apartment', 'townhouse', 'unit'] }, bedrooms: { type: 'number' } }, required: ['suburb', 'state'] } },
-  { name: 'check_regulatory_requirements', description: 'Check state-specific regulatory requirements for a property action', input_schema: { type: 'object', properties: { state: { type: 'string', description: 'Australian state' }, action_type: { type: 'string', description: 'Action type to check' }, property_id: { type: 'string' } }, required: ['state', 'action_type'] } },
+  { name: 'check_regulatory_requirements', description: 'Check state-specific tenancy law rules for a property action — returns legally binding requirements from the tenancy_law_rules database including notice periods, frequency limits, penalties', input_schema: { type: 'object', properties: { state: { type: 'string', description: 'Australian state (NSW, VIC, QLD, SA, WA, TAS, NT, ACT)' }, action_type: { type: 'string', description: 'Action type: rent_increase, entry, inspection, terminate, bond, maintenance, discrimination, minimum_standards' }, property_id: { type: 'string', description: 'Property UUID — if provided and state not given, will auto-detect state from property' } }, required: ['action_type'] } },
+  { name: 'get_tenancy_law', description: 'Query tenancy law rules by state, category, or specific rule key — comprehensive database of Australian residential tenancy regulations', input_schema: { type: 'object', properties: { state: { type: 'string', description: 'Australian state (NSW, VIC, QLD, SA, WA, TAS, NT, ACT)' }, category: { type: 'string', description: 'Rule category: entry_notice, rent_increase, bond, termination, repairs, discrimination, general, minimum_standards, safety, fees, inspections, tribunal' }, rule_key: { type: 'string', description: 'Specific rule key e.g. routine_inspection, max_frequency, notice_period, max_amount, lodgement_deadline, end_of_fixed_term, periodic_no_grounds, breach_non_payment, max_inspections' } }, required: [] } },
 
   // ── WORKFLOW TOOLS ────────────────────────────────────────────────────────
   { name: 'workflow_find_tenant', description: 'Full workflow: list → syndicate → screen → recommend', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property UUID' }, preferences: { type: 'object', description: 'Listing and screening preferences' } }, required: ['property_id'] } },
@@ -175,9 +199,19 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
   { name: 'send_docusign_envelope', description: 'Send document for digital signature via DocuSign', input_schema: { type: 'object', properties: { document_type: { type: 'string' }, tenancy_id: { type: 'string' }, signers: { type: 'array', items: { type: 'object' } } }, required: ['document_type', 'tenancy_id'] } },
   { name: 'lodge_bond_state', description: 'Lodge bond with state bond authority', input_schema: { type: 'object', properties: { tenancy_id: { type: 'string' }, state: { type: 'string' }, amount: { type: 'number' } }, required: ['tenancy_id', 'state', 'amount'] } },
   { name: 'send_sms_twilio', description: 'Send SMS notification via Twilio', input_schema: { type: 'object', properties: { to: { type: 'string' }, message: { type: 'string' } }, required: ['to', 'message'] } },
-  { name: 'send_email_sendgrid', description: 'Send email via SendGrid', input_schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, html_content: { type: 'string' } }, required: ['to', 'subject', 'html_content'] } },
+  { name: 'send_email_sendgrid', description: 'Send email via Resend', input_schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, html_content: { type: 'string' } }, required: ['to', 'subject', 'html_content'] } },
   { name: 'send_push_expo', description: 'Send push notification via Expo', input_schema: { type: 'object', properties: { user_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, data: { type: 'object' } }, required: ['user_id', 'title', 'body'] } },
   { name: 'search_trades_hipages', description: 'Search hipages for tradespeople', input_schema: { type: 'object', properties: { trade_type: { type: 'string' }, suburb: { type: 'string' }, state: { type: 'string' } }, required: ['trade_type', 'suburb'] } },
+
+  // ── BEYOND-PM INTELLIGENCE ──────────────────────────────────────────────
+  { name: 'get_property_health', description: 'Get property health score breakdown (0-100) with risk factors, opportunities, and predicted costs. No traditional PM provides this.', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property ID' } }, required: ['property_id'] } },
+  { name: 'get_tenant_satisfaction', description: 'Get tenant satisfaction and retention score for a tenancy, including renewal probability and risk flags.', input_schema: { type: 'object', properties: { tenancy_id: { type: 'string', description: 'Tenancy ID' } }, required: ['tenancy_id'] } },
+  { name: 'get_market_intelligence', description: 'Get suburb-level market data: median rents, vacancy rates, demand scores, and trends.', input_schema: { type: 'object', properties: { suburb: { type: 'string', description: 'Suburb name' }, state: { type: 'string', description: 'State code (NSW, VIC, QLD, etc.)' } }, required: ['suburb', 'state'] } },
+  { name: 'get_portfolio_snapshot', description: 'Get latest portfolio wealth snapshot with total income, expenses, yield, and growth metrics.', input_schema: { type: 'object', properties: { include_history: { type: 'boolean', description: 'Include historical snapshots for trend analysis' } }, required: [] } },
+  { name: 'generate_wealth_report', description: 'Generate a comprehensive portfolio wealth report with property-by-property analysis, growth projections, and investment recommendations.', input_schema: { type: 'object', properties: { period: { type: 'string', description: 'Report period (monthly, quarterly, annual)' }, include_projections: { type: 'boolean', description: 'Include forward projections' } }, required: ['period'] } },
+  { name: 'generate_property_action_plan', description: 'Generate a specific action plan to improve a property health score, with prioritised steps and estimated impact.', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property ID to improve' } }, required: ['property_id'] } },
+  { name: 'predict_vacancy_risk', description: 'Predict vacancy risk for a property based on tenant satisfaction, market conditions, and lease timeline.', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property ID' } }, required: ['property_id'] } },
+  { name: 'calculate_roi_metrics', description: 'Calculate detailed investment return metrics: gross yield, net yield, capital growth estimate, and total return.', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property ID' }, purchase_price: { type: 'number', description: 'Original purchase price (optional, for accurate ROI)' } }, required: ['property_id'] } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -218,6 +252,7 @@ export const TOOL_META: Record<string, ToolMeta> = {
   get_pending_actions: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   check_maintenance_threshold: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   check_regulatory_requirements: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+  get_tenancy_law: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
 
   // Action tools — varying autonomy levels
   create_property: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: true, compensationTool: 'delete_property' },
@@ -280,15 +315,28 @@ export const TOOL_META: Record<string, ToolMeta> = {
   generate_financial_report: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   generate_tax_report: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   generate_property_summary: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+  generate_portfolio_report: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+  generate_cash_flow_forecast: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   generate_lease: { category: 'generate', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
   assess_tenant_damage: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   compare_quotes: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+
+  // Compliance / Authority tools
+  check_compliance_requirements: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  track_authority_submission: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: true },
+  generate_proof_of_service: { category: 'generate', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
+
+  // Document lifecycle tools
+  create_document: { category: 'action', autonomyLevel: 2, riskLevel: 'low', reversible: false },
+  submit_document_email: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
+  request_document_signature: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
+  update_document_status: { category: 'action', autonomyLevel: 2, riskLevel: 'low', reversible: true },
 
   // External tools
   web_search: { category: 'external', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   find_local_trades: { category: 'external', autonomyLevel: 3, riskLevel: 'low', reversible: false },
   parse_business_details: { category: 'external', autonomyLevel: 3, riskLevel: 'none', reversible: false },
-  create_service_provider: { category: 'external', autonomyLevel: 1, riskLevel: 'low', reversible: true },
+  create_service_provider: { category: 'external', autonomyLevel: 3, riskLevel: 'low', reversible: true },
   request_quote: { category: 'external', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
   get_market_data: { category: 'external', autonomyLevel: 3, riskLevel: 'none', reversible: false },
 
@@ -310,6 +358,16 @@ export const TOOL_META: Record<string, ToolMeta> = {
   check_plan: { category: 'planning', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   replan: { category: 'planning', autonomyLevel: 3, riskLevel: 'none', reversible: false },
 
+  // Beyond-PM Intelligence Tools
+  get_property_health: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_tenant_satisfaction: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_market_intelligence: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_portfolio_snapshot: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  generate_wealth_report: { category: 'generate', autonomyLevel: 2, riskLevel: 'none', reversible: false },
+  generate_property_action_plan: { category: 'generate', autonomyLevel: 2, riskLevel: 'none', reversible: false },
+  predict_vacancy_risk: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+  calculate_roi_metrics: { category: 'generate', autonomyLevel: 3, riskLevel: 'none', reversible: false },
+
   // Additional action tools
   send_receipt: { category: 'action', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   retry_payment: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
@@ -318,18 +376,19 @@ export const TOOL_META: Record<string, ToolMeta> = {
   cancel_rent_increase: { category: 'action', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
 
   // Integration tools (require external API configuration)
-  syndicate_listing_domain: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: true },
-  syndicate_listing_rea: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: true },
-  run_credit_check: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false },
-  run_tica_check: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false },
-  collect_rent_stripe: { category: 'integration', autonomyLevel: 1, riskLevel: 'high', reversible: false },
-  refund_payment_stripe: { category: 'integration', autonomyLevel: 0, riskLevel: 'high', reversible: false },
-  send_docusign_envelope: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: false },
-  lodge_bond_state: { category: 'integration', autonomyLevel: 0, riskLevel: 'high', reversible: false },
-  send_sms_twilio: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false },
+  // isStub: true means the integration is not yet live — tool is hidden from Claude
+  syndicate_listing_domain: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: true, isStub: true },
+  syndicate_listing_rea: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: true, isStub: true },
+  run_credit_check: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false, isStub: true },
+  run_tica_check: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false, isStub: true },
+  collect_rent_stripe: { category: 'integration', autonomyLevel: 1, riskLevel: 'high', reversible: false, isStub: true },
+  refund_payment_stripe: { category: 'integration', autonomyLevel: 0, riskLevel: 'high', reversible: false, isStub: true },
+  send_docusign_envelope: { category: 'integration', autonomyLevel: 1, riskLevel: 'medium', reversible: false, isStub: true },
+  lodge_bond_state: { category: 'integration', autonomyLevel: 0, riskLevel: 'high', reversible: false, isStub: true },
+  send_sms_twilio: { category: 'integration', autonomyLevel: 1, riskLevel: 'low', reversible: false, isStub: true },
   send_email_sendgrid: { category: 'integration', autonomyLevel: 2, riskLevel: 'low', reversible: false },
   send_push_expo: { category: 'integration', autonomyLevel: 3, riskLevel: 'none', reversible: false },
-  search_trades_hipages: { category: 'integration', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  search_trades_hipages: { category: 'integration', autonomyLevel: 4, riskLevel: 'none', reversible: false, isStub: true },
 };
 
 // ---------------------------------------------------------------------------
@@ -341,11 +400,159 @@ export function getClaudeTools(): Array<{
   description: string;
   input_schema: Record<string, unknown>;
 }> {
-  return CLAUDE_TOOLS.map(({ name, description, input_schema }) => ({
-    name,
-    description,
-    input_schema,
-  }));
+  return CLAUDE_TOOLS
+    .filter((t) => !TOOL_META[t.name]?.isStub)
+    .map(({ name, description, input_schema }) => ({
+      name,
+      description,
+      input_schema,
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Contextual Tool Filtering — reduces tool count sent to Claude per request
+// ---------------------------------------------------------------------------
+// Sending 130 tools per request wastes ~25K+ tokens and slows Claude down.
+// This function analyzes the message to determine which tool groups are relevant
+// and returns a focused subset (typically 20-40 tools instead of 130).
+
+const TOOL_GROUPS: Record<string, string[]> = {
+  // Core tools always included (memory, planning, basic queries)
+  core: [
+    'get_properties', 'get_property', 'get_pending_actions', 'get_background_tasks',
+    'remember', 'recall', 'search_precedent',
+    'plan_task', 'get_owner_rules', 'check_plan', 'replan',
+  ],
+  // Property & tenancy management
+  property: [
+    'get_property', 'get_properties', 'create_property', 'update_property', 'delete_property',
+    'get_tenancy', 'get_tenancy_detail', 'search_tenants',
+    'create_tenancy', 'update_tenancy', 'terminate_lease', 'renew_lease',
+    'invite_tenant', 'get_compliance_status', 'record_compliance',
+  ],
+  // Financial & rent
+  financial: [
+    'get_payments', 'get_rent_schedule', 'get_arrears', 'get_arrears_detail',
+    'get_financial_summary', 'get_transactions', 'get_expenses', 'get_payment_plan',
+    'process_payment', 'send_receipt', 'retry_payment',
+    'create_payment_plan', 'escalate_arrears', 'resolve_arrears', 'log_arrears_action',
+    'send_rent_reminder', 'send_breach_notice',
+    'create_rent_increase', 'change_rent_amount', 'cancel_rent_increase',
+    'collect_rent_stripe', 'refund_payment_stripe',
+    'update_autopay', 'lodge_bond', 'claim_bond', 'lodge_bond_state',
+    'generate_financial_report', 'generate_tax_report',
+  ],
+  // Maintenance & trades
+  maintenance: [
+    'get_maintenance', 'get_maintenance_detail', 'get_quotes', 'get_work_orders',
+    'get_trades',
+    'create_maintenance', 'update_maintenance_status', 'add_maintenance_comment',
+    'record_maintenance_cost', 'create_work_order', 'update_work_order_status',
+    'approve_quote', 'reject_quote', 'compare_quotes',
+    'triage_maintenance', 'estimate_cost', 'check_maintenance_threshold',
+    'web_search', 'find_local_trades', 'parse_business_details',
+    'create_service_provider', 'request_quote', 'add_trade_to_network', 'submit_trade_review',
+    'search_trades_hipages',
+  ],
+  // Listings & applications
+  listings: [
+    'get_listings', 'get_listing_detail', 'get_applications', 'get_application_detail',
+    'create_listing', 'update_listing', 'publish_listing', 'pause_listing',
+    'generate_listing', 'suggest_rent_price', 'analyze_rent',
+    'syndicate_listing_domain', 'syndicate_listing_rea',
+    'score_application', 'rank_applications',
+    'accept_application', 'reject_application', 'shortlist_application',
+    'workflow_find_tenant',
+  ],
+  // Inspections
+  inspections: [
+    'get_inspections', 'get_inspection_detail',
+    'schedule_inspection', 'cancel_inspection',
+    'record_inspection_finding', 'submit_inspection_to_tenant', 'finalize_inspection',
+    'generate_inspection_report', 'compare_inspections', 'assess_tenant_damage',
+  ],
+  // Documents
+  documents: [
+    'get_documents', 'create_document', 'submit_document_email',
+    'request_document_signature', 'update_document_status',
+    'generate_lease', 'generate_notice', 'generate_financial_report',
+    'generate_tax_report', 'generate_inspection_report',
+    'generate_property_summary', 'generate_portfolio_report',
+    'generate_cash_flow_forecast',
+  ],
+  // Communication & messaging
+  communication: [
+    'get_conversations', 'get_conversation_messages',
+    'send_message', 'create_conversation', 'send_in_app_message',
+    'draft_message', 'generate_notice',
+    'send_sms_twilio', 'send_email_sendgrid', 'send_push_expo',
+    'send_docusign_envelope',
+    'submit_document_email',
+  ],
+  // External search & market
+  external: [
+    'web_search', 'find_local_trades', 'parse_business_details',
+    'get_market_data', 'check_regulatory_requirements', 'get_tenancy_law',
+  ],
+  // Workflows
+  workflow: [
+    'workflow_find_tenant', 'workflow_onboard_tenant', 'workflow_end_tenancy',
+    'workflow_maintenance_lifecycle', 'workflow_arrears_escalation',
+  ],
+  // Beyond-PM Intelligence
+  intelligence: [
+    'get_property_health', 'get_tenant_satisfaction', 'get_market_intelligence',
+    'get_portfolio_snapshot', 'generate_wealth_report', 'generate_property_action_plan',
+    'predict_vacancy_risk', 'calculate_roi_metrics',
+  ],
+};
+
+// Keywords that trigger each tool group
+const GROUP_TRIGGERS: Record<string, RegExp> = {
+  property: /propert|address|unit|apartment|house|tenant|tenancy|lease|bond|comply|compliance|smoke|pool|bed|bath|landlord/i,
+  documents: /document|lease|notice|report|sign|signature|pdf|export|compliance cert|certificate|generate.*report|create.*document|email.*document|send.*document|submit.*document/i,
+  financial: /rent|arrear|overdue|pay|income|expense|financ|tax|invoice|receipt|refund|stripe|bond|payment plan|plan|debit|credit/i,
+  maintenance: /mainten|repair|fix|broken|plumb|electric|trade|contractor|quote|work order|leak|damage|hvac|ac unit|air condition|fridge|tap|heater|handyman/i,
+  listings: /listing|advertis|publish|syndicate|domain|rea\b|application|tenant find|vacancy|vacant|rent price|market rent|applicant/i,
+  inspections: /inspect|condition|entry report|exit report|routine report|damage|walkthrough/i,
+  communication: /message|email|sms|notify|contact|send|communicate|remind|notice|letter/i,
+  external: /search|web|online|find.*service|find.*trade|find.*plumb|find.*electric|find.*handyman|find.*contractor|find.*local|google|market data|regulation|law|look.*up|nearby/i,
+  workflow: /workflow|process|onboard|end tenancy|lifecycle|escalat/i,
+  intelligence: /health score|property health|tenant satisfaction|retention|vacancy risk|market intelligence|portfolio snapshot|wealth report|action plan|roi|return on investment|yield|capital growth|investment|portfolio|performance|growth/i,
+};
+
+export function getContextualTools(message: string): Array<{
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}> {
+  // Always include core tools
+  const selectedToolNames = new Set(TOOL_GROUPS.core);
+
+  // Match message against group triggers
+  let matchedGroups = 0;
+  for (const [group, trigger] of Object.entries(GROUP_TRIGGERS)) {
+    if (trigger.test(message)) {
+      for (const toolName of (TOOL_GROUPS[group] || [])) {
+        selectedToolNames.add(toolName);
+      }
+      matchedGroups++;
+    }
+  }
+
+  // If no specific groups matched (e.g., "hello" or general chat), include a broad set
+  if (matchedGroups === 0) {
+    for (const toolName of TOOL_GROUPS.property) selectedToolNames.add(toolName);
+    for (const toolName of TOOL_GROUPS.financial) selectedToolNames.add(toolName);
+    for (const toolName of TOOL_GROUPS.maintenance) selectedToolNames.add(toolName);
+  }
+
+  // Filter the full tool list to only include selected tools,
+  // excluding integration stubs that are not yet connected to live APIs
+  return CLAUDE_TOOLS
+    .filter((t) => selectedToolNames.has(t.name))
+    .filter((t) => !TOOL_META[t.name]?.isStub)
+    .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
 // ---------------------------------------------------------------------------

@@ -24,13 +24,13 @@ import type { MaintenanceStatus, MaintenanceComment } from '@casa/api';
 
 const STATUS_CONFIG: Record<MaintenanceStatus, { label: string; color: string; bg: string }> = {
   submitted: { label: 'Submitted', color: THEME.colors.info, bg: THEME.colors.infoBg },
-  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: '#EDE9FE' },
+  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: THEME.colors.brand + '20' },
   awaiting_quote: { label: 'Awaiting Quote', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   approved: { label: 'Approved', color: THEME.colors.success, bg: THEME.colors.successBg },
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   on_hold: { label: 'On Hold', color: THEME.colors.warning, bg: THEME.colors.warningBg },
 };
 
@@ -320,10 +320,10 @@ export default function MaintenanceDetailScreen() {
             disabled={!newComment.trim() || sendingComment}
           >
             {sendingComment ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={THEME.colors.textInverse} />
             ) : (
               <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
             )}
           </TouchableOpacity>
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   commentOther: {
-    backgroundColor: '#F0F0F0',
+    backgroundColor: THEME.colors.subtle,
     alignSelf: 'flex-start',
   },
   commentText: {

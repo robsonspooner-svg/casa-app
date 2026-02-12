@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   },
   pickerTextSelected: {
     fontSize: THEME.fontSize.bodySmall,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: THEME.fontWeight.medium,
   },
   dateRow: {

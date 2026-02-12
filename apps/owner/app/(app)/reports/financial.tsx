@@ -150,7 +150,7 @@ export default function FinancialSummaryScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Financial Summary</Text>
@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   scrollView: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
   periodButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   periodTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 
   // Filter chips
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 
   // Totals
@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
   totalCard: {
     flex: 1,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
   },
   totalLabel: {
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   },
   netCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
@@ -459,7 +459,7 @@ const styles = StyleSheet.create({
   // Chart
   chartCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
   // Breakdown table
   breakdownCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     overflow: 'hidden',
@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
   // Collection rate
   collectionCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,

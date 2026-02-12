@@ -52,6 +52,36 @@ export async function handle_create_property(input: ToolInput, userId: string, s
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Auto-initialize compliance requirements for the new property based on state
+  const propertyId = (data as any).id;
+  const propertyState = (data as any).state;
+  if (propertyId && propertyState) {
+    try {
+      const { data: requirements } = await sb
+        .from('compliance_requirements')
+        .select('id, frequency_months, is_mandatory')
+        .eq('state', propertyState);
+
+      if (requirements && requirements.length > 0) {
+        const now = new Date();
+        const complianceRecords = requirements.map((req: any) => {
+          const nextDue = new Date(now);
+          if (req.frequency_months > 0) {
+            nextDue.setMonth(nextDue.getMonth() + req.frequency_months);
+          }
+          return {
+            property_id: propertyId,
+            requirement_id: req.id,
+            status: 'pending',
+            next_due_date: req.frequency_months > 0 ? nextDue.toISOString().split('T')[0] : null,
+          };
+        });
+        await sb.from('property_compliance').insert(complianceRecords);
+      }
+    } catch { /* compliance init is best-effort */ }
+  }
+
   return { success: true, data: { ...data, message: `Property created at ${(data as any).address_line_1}, ${(data as any).suburb} ${(data as any).state}` } };
 }
 
@@ -147,6 +177,47 @@ export async function handle_terminate_lease(input: ToolInput, userId: string, s
   if (!await verifyTenancyOwnership(input.tenancy_id as string, userId, sb))
     return { success: false, error: 'Tenancy not found or access denied' };
 
+  // Get property state for regulatory compliance
+  const { data: tenancy } = await sb.from('tenancies').select('property_id, lease_type, end_date').eq('id', input.tenancy_id as string).single();
+  let propertyState = '';
+  if ((tenancy as any)?.property_id) {
+    const { data: prop } = await sb.from('properties').select('state').eq('id', (tenancy as any).property_id).single();
+    propertyState = (prop?.state || '').toUpperCase();
+  }
+
+  const warnings: string[] = [];
+
+  // Check termination notice requirements
+  if (propertyState && input.effective_date) {
+    const termType = (input.termination_type as string || '').toLowerCase();
+    let ruleKey = 'end_of_fixed_term';
+    if (termType === 'periodic' || (tenancy as any)?.lease_type === 'periodic') {
+      ruleKey = 'periodic_no_grounds';
+    } else if (termType === 'breach') {
+      ruleKey = 'breach_non_payment';
+    }
+
+    const { data: noticeRules } = await sb
+      .from('tenancy_law_rules')
+      .select('notice_days, rule_text, legislation_ref')
+      .eq('state', propertyState)
+      .eq('category', 'termination')
+      .eq('rule_key', ruleKey)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (noticeRules?.[0]?.notice_days) {
+      const requiredDays = noticeRules[0].notice_days;
+      const effectiveDate = new Date(input.effective_date as string);
+      const now = new Date();
+      const daysGiven = Math.floor((effectiveDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysGiven < requiredDays) {
+        warnings.push(`${propertyState} requires ${requiredDays} days notice for ${termType || 'end of lease'} termination. Only ${daysGiven} days provided. Minimum effective date should be ${new Date(now.getTime() + requiredDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}. ${noticeRules[0].legislation_ref || ''}`);
+      }
+    }
+  }
+
   const { data, error } = await sb
     .from('tenancies')
     .update({
@@ -161,7 +232,14 @@ export async function handle_terminate_lease(input: ToolInput, userId: string, s
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+  return {
+    success: true,
+    data: {
+      ...data,
+      regulatory_state: propertyState,
+      ...(warnings.length > 0 ? { regulatory_warnings: warnings } : {}),
+    },
+  };
 }
 
 export async function handle_renew_lease(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -452,6 +530,16 @@ export async function handle_add_maintenance_comment(input: ToolInput, userId: s
 }
 
 export async function handle_record_maintenance_cost(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify ownership: maintenance_requests → properties.owner_id
+  const { data: req, error: reqErr } = await sb
+    .from('maintenance_requests')
+    .select('id, property_id, properties!inner(owner_id)')
+    .eq('id', input.request_id as string)
+    .eq('properties.owner_id', userId)
+    .single();
+
+  if (reqErr || !req) return { success: false, error: 'Maintenance request not found or access denied' };
+
   const updates: any = {};
   if (input.estimated_cost !== undefined) updates.estimated_cost = input.estimated_cost;
   if (input.actual_cost !== undefined) updates.actual_cost = input.actual_cost;
@@ -476,6 +564,71 @@ export async function handle_schedule_inspection(input: ToolInput, userId: strin
   if (!await verifyPropertyOwnership(input.property_id as string, userId, sb))
     return { success: false, error: 'Property not found or access denied' };
 
+  // Get the property's state for regulatory compliance
+  const { data: property } = await sb.from('properties').select('state').eq('id', input.property_id as string).single();
+  const propertyState = (property?.state || '').toUpperCase();
+
+  // Check entry notice requirements from tenancy_law_rules
+  const inspectionType = (input.type as string || 'routine').toLowerCase();
+  let ruleKey = 'routine_inspection';
+  if (inspectionType === 'entry' || inspectionType === 'ingoing') ruleKey = 'routine_inspection';
+  else if (inspectionType === 'exit') ruleKey = 'routine_inspection';
+  else if (inspectionType === 'maintenance' || inspectionType === 'repair') ruleKey = 'repairs_maintenance';
+
+  const { data: entryRules } = await sb
+    .from('tenancy_law_rules')
+    .select('notice_days, notice_business_days, rule_text, legislation_ref, conditions')
+    .eq('state', propertyState)
+    .eq('category', 'entry_notice')
+    .eq('rule_key', ruleKey)
+    .eq('is_active', true)
+    .limit(1);
+
+  const rule = entryRules?.[0];
+  let regulatoryWarning: string | null = null;
+
+  if (rule && input.preferred_date) {
+    const scheduledDate = new Date(input.preferred_date as string);
+    const now = new Date();
+    const daysDifference = Math.floor((scheduledDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const requiredDays = rule.notice_business_days || rule.notice_days || 0;
+
+    if (requiredDays > 0 && daysDifference < requiredDays) {
+      regulatoryWarning = `WARNING: ${propertyState} law requires ${requiredDays} ${rule.notice_business_days ? 'business' : ''} days notice for ${inspectionType} inspections. Scheduled date is only ${daysDifference} days away. ${rule.legislation_ref || ''}. The tenant must be given proper written notice.`;
+    }
+  }
+
+  // Also check max inspection frequency
+  const { data: freqRule } = await sb
+    .from('tenancy_law_rules')
+    .select('max_frequency_months, rule_text')
+    .eq('state', propertyState)
+    .eq('category', 'entry_notice')
+    .eq('rule_key', 'max_inspections')
+    .eq('is_active', true)
+    .limit(1);
+
+  let frequencyWarning: string | null = null;
+  if (freqRule?.[0]?.max_frequency_months && inspectionType === 'routine') {
+    const minMonths = freqRule[0].max_frequency_months;
+    const { data: recentInspections } = await sb
+      .from('inspections')
+      .select('scheduled_date')
+      .eq('property_id', input.property_id as string)
+      .eq('inspection_type', 'routine')
+      .neq('status', 'cancelled')
+      .order('scheduled_date', { ascending: false })
+      .limit(1);
+
+    if (recentInspections?.[0]?.scheduled_date) {
+      const lastDate = new Date(recentInspections[0].scheduled_date);
+      const monthsSince = (new Date().getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+      if (monthsSince < minMonths) {
+        frequencyWarning = `WARNING: ${propertyState} law limits routine inspections to once every ${minMonths} months. Last inspection was ${Math.round(monthsSince)} months ago. ${freqRule[0].rule_text}`;
+      }
+    }
+  }
+
   const { data, error } = await sb
     .from('inspections')
     .insert({
@@ -489,23 +642,37 @@ export async function handle_schedule_inspection(input: ToolInput, userId: strin
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+  return {
+    success: true,
+    data: {
+      ...data,
+      regulatory_state: propertyState,
+      ...(regulatoryWarning ? { regulatory_warning: regulatoryWarning } : {}),
+      ...(frequencyWarning ? { frequency_warning: frequencyWarning } : {}),
+      notice_requirement: rule ? { days: rule.notice_business_days || rule.notice_days, business_days: !!rule.notice_business_days, legislation: rule.legislation_ref } : null,
+    },
+  };
 }
 
 export async function handle_cancel_inspection(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify ownership: inspections → properties.owner_id
+  const { data: inspection, error: verifyErr } = await sb
+    .from('inspections')
+    .select('id, property_id, properties!inner(owner_id)')
+    .eq('id', input.inspection_id as string)
+    .eq('properties.owner_id', userId)
+    .single();
+
+  if (verifyErr || !inspection) return { success: false, error: 'Inspection not found or access denied' };
+
   const { data, error } = await sb
     .from('inspections')
     .update({ status: 'cancelled', summary_notes: input.reason || 'Cancelled' })
     .eq('id', input.inspection_id as string)
-    .eq('properties.owner_id', userId)
     .select('id, status')
     .single();
 
-  // Fallback if join filter doesn't work
-  if (error) {
-    const { error: e2 } = await sb.from('inspections').update({ status: 'cancelled', summary_notes: input.reason || 'Cancelled' }).eq('id', input.inspection_id as string);
-    if (e2) return { success: false, error: e2.message };
-  }
+  if (error) return { success: false, error: error.message };
   return { success: true, data: { inspection_id: input.inspection_id, status: 'cancelled' } };
 }
 
@@ -768,6 +935,16 @@ export async function handle_escalate_arrears(input: ToolInput, userId: string, 
 }
 
 export async function handle_resolve_arrears(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify ownership: arrears_records → tenancies → properties.owner_id
+  const { data: ar, error: arErr } = await sb
+    .from('arrears_records')
+    .select('id, tenancy_id, tenancies!inner(property_id, properties!inner(owner_id))')
+    .eq('id', input.arrears_id as string)
+    .eq('tenancies.properties.owner_id', userId)
+    .single();
+
+  if (arErr || !ar) return { success: false, error: 'Arrears record not found or access denied' };
+
   const { error } = await sb
     .from('arrears_records')
     .update({ is_resolved: true, resolved_at: new Date().toISOString(), resolved_reason: input.resolution_reason as string })
@@ -777,13 +954,24 @@ export async function handle_resolve_arrears(input: ToolInput, userId: string, s
   return { success: true, data: { arrears_id: input.arrears_id, resolved: true } };
 }
 
-export async function handle_log_arrears_action(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
+export async function handle_log_arrears_action(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify ownership: arrears_records → tenancies → properties.owner_id
+  const { data: ar, error: arErr } = await sb
+    .from('arrears_records')
+    .select('id, tenancy_id, tenancies!inner(property_id, properties!inner(owner_id))')
+    .eq('id', input.arrears_id as string)
+    .eq('tenancies.properties.owner_id', userId)
+    .single();
+
+  if (arErr || !ar) return { success: false, error: 'Arrears record not found or access denied' };
+
   const { data, error } = await sb
     .from('arrears_actions')
     .insert({
       arrears_record_id: input.arrears_id as string,
       action_type: input.action_type as string,
       description: input.description as string,
+      performed_by: userId,
       is_automated: false,
     })
     .select('id, action_type, description, created_at')
@@ -801,9 +989,89 @@ export async function handle_create_rent_increase(input: ToolInput, userId: stri
   if (!await verifyTenancyOwnership(input.tenancy_id as string, userId, sb))
     return { success: false, error: 'Tenancy not found or access denied' };
 
-  const { data: tenancy } = await sb.from('tenancies').select('rent_amount').eq('id', input.tenancy_id as string).single();
+  const { data: tenancy } = await sb.from('tenancies').select('rent_amount, property_id, lease_type, start_date').eq('id', input.tenancy_id as string).single();
   const current = (tenancy as any)?.rent_amount || 0;
   const pct = current > 0 ? (((input.new_amount as number) - current) / current * 100) : 0;
+
+  // Get property state for regulatory compliance
+  let propertyState = '';
+  if ((tenancy as any)?.property_id) {
+    const { data: prop } = await sb.from('properties').select('state').eq('id', (tenancy as any).property_id).single();
+    propertyState = (prop?.state || '').toUpperCase();
+  }
+
+  const warnings: string[] = [];
+
+  // Check rent increase frequency from tenancy_law_rules
+  if (propertyState) {
+    const { data: freqRules } = await sb
+      .from('tenancy_law_rules')
+      .select('max_frequency_months, rule_text, legislation_ref, conditions')
+      .eq('state', propertyState)
+      .eq('category', 'rent_increase')
+      .eq('rule_key', 'max_frequency')
+      .eq('is_active', true)
+      .limit(1);
+
+    if (freqRules?.[0]?.max_frequency_months) {
+      const maxFreq = freqRules[0].max_frequency_months;
+      // Check last rent increase for this tenancy
+      const { data: lastIncrease } = await sb
+        .from('rent_increases')
+        .select('effective_date')
+        .eq('tenancy_id', input.tenancy_id as string)
+        .neq('status', 'cancelled')
+        .order('effective_date', { ascending: false })
+        .limit(1);
+
+      if (lastIncrease?.[0]?.effective_date) {
+        const lastDate = new Date(lastIncrease[0].effective_date);
+        const proposedDate = new Date(input.effective_date as string);
+        const monthsBetween = (proposedDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+
+        if (monthsBetween < maxFreq) {
+          return {
+            success: false,
+            error: `REGULATORY BLOCK: ${propertyState} law only allows rent increases every ${maxFreq} months. Last increase was on ${lastDate.toISOString().split('T')[0]} (${Math.round(monthsBetween)} months ago). Next increase earliest date: ${new Date(lastDate.getTime() + maxFreq * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}. ${freqRules[0].legislation_ref || ''}`,
+          };
+        }
+      }
+
+      // Also check from tenancy start date if no previous increase
+      if (!lastIncrease?.[0] && (tenancy as any)?.start_date) {
+        const startDate = new Date((tenancy as any).start_date);
+        const proposedDate = new Date(input.effective_date as string);
+        const monthsSinceStart = (proposedDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+        if (monthsSinceStart < maxFreq) {
+          return {
+            success: false,
+            error: `REGULATORY BLOCK: ${propertyState} law only allows rent increases every ${maxFreq} months from lease start. Tenancy started ${startDate.toISOString().split('T')[0]} (${Math.round(monthsSinceStart)} months ago). ${freqRules[0].legislation_ref || ''}`,
+          };
+        }
+      }
+    }
+
+    // Check notice period requirement
+    const { data: noticeRules } = await sb
+      .from('tenancy_law_rules')
+      .select('notice_days, notice_business_days, rule_text, legislation_ref')
+      .eq('state', propertyState)
+      .eq('category', 'rent_increase')
+      .eq('rule_key', 'notice_period')
+      .eq('is_active', true)
+      .limit(1);
+
+    if (noticeRules?.[0]) {
+      const requiredDays = noticeRules[0].notice_days || 0;
+      const effectiveDate = new Date(input.effective_date as string);
+      const now = new Date();
+      const daysUntilEffective = Math.floor((effectiveDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysUntilEffective < requiredDays) {
+        warnings.push(`${propertyState} requires ${requiredDays} days written notice for rent increases. Effective date is only ${daysUntilEffective} days away — the effective date should be at least ${new Date(now.getTime() + requiredDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}. ${noticeRules[0].legislation_ref || ''}`);
+      }
+    }
+  }
 
   const { data, error } = await sb
     .from('rent_increases')
@@ -821,7 +1089,14 @@ export async function handle_create_rent_increase(input: ToolInput, userId: stri
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+  return {
+    success: true,
+    data: {
+      ...data,
+      regulatory_state: propertyState,
+      ...(warnings.length > 0 ? { regulatory_warnings: warnings } : {}),
+    },
+  };
 }
 
 export async function handle_change_rent_amount(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -848,24 +1123,65 @@ export async function handle_record_compliance(input: ToolInput, userId: string,
   if (!await verifyPropertyOwnership(input.property_id as string, userId, sb))
     return { success: false, error: 'Property not found or access denied' };
 
-  // Record as an inspection with compliance type
+  const complianceType = input.compliance_type as string;
+  const completedDate = input.completed_date as string;
+  const nextDueDate = input.next_due_date as string | undefined;
+  const evidenceUrl = input.evidence_url as string | undefined;
+
+  // Find the matching property_compliance record by property and compliance category
+  const { data: complianceItems, error: findError } = await sb
+    .from('property_compliance')
+    .select('id, requirement_id, compliance_requirements(name, category, frequency_months)')
+    .eq('property_id', input.property_id as string)
+    .limit(50);
+
+  if (findError) return { success: false, error: findError.message };
+
+  // Match by compliance category (compliance_type maps to compliance_requirements.category)
+  const matchingItem = (complianceItems || []).find((item: any) => {
+    const req = item.compliance_requirements;
+    return req?.category === complianceType;
+  });
+
+  if (!matchingItem) {
+    return { success: false, error: `No compliance requirement of type '${complianceType}' found for this property. Available types can be seen in the Compliance dashboard.` };
+  }
+
+  // Calculate next due date from frequency if not provided
+  const freq = (matchingItem as any).compliance_requirements?.frequency_months;
+  let calculatedNextDue = nextDueDate;
+  if (!calculatedNextDue && freq && freq > 0) {
+    const next = new Date(completedDate);
+    next.setMonth(next.getMonth() + freq);
+    calculatedNextDue = next.toISOString().split('T')[0];
+  }
+
+  // Update the property_compliance record
+  const updatePayload: Record<string, unknown> = {
+    status: 'compliant',
+    last_completed_at: completedDate,
+    completed_by: userId,
+    notes: `Recorded via agent tool on ${new Date().toISOString().split('T')[0]}`,
+  };
+  if (calculatedNextDue) updatePayload.next_due_date = calculatedNextDue;
+  if (evidenceUrl) updatePayload.evidence_urls = [evidenceUrl];
+
   const { data, error } = await sb
-    .from('inspections')
-    .insert({
-      property_id: input.property_id as string,
-      inspector_id: userId,
-      inspection_type: 'maintenance',
-      scheduled_date: input.completed_date as string,
-      actual_date: input.completed_date as string,
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      summary_notes: `Compliance: ${input.compliance_type} completed. Next due: ${input.next_due_date || 'N/A'}`,
-    })
-    .select('id, inspection_type, actual_date, status, summary_notes')
+    .from('property_compliance')
+    .update(updatePayload)
+    .eq('id', matchingItem.id)
+    .select('id, status, last_completed_at, next_due_date')
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+  return {
+    success: true,
+    data: {
+      ...data,
+      compliance_type: complianceType,
+      requirement_name: (matchingItem as any).compliance_requirements?.name,
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -974,12 +1290,97 @@ export async function handle_lodge_bond(input: ToolInput, userId: string, sb: Su
   if (!await verifyTenancyOwnership(input.tenancy_id as string, userId, sb))
     return { success: false, error: 'Tenancy not found or access denied' };
 
+  // Get tenancy details to check bond limits
+  const { data: tenancy } = await sb.from('tenancies').select('rent_amount, property_id').eq('id', input.tenancy_id as string).single();
+
+  // Auto-detect state from property if not provided
+  let bondState = (input.state as string || '').toUpperCase();
+  if (!bondState && (tenancy as any)?.property_id) {
+    const { data: prop } = await sb.from('properties').select('state').eq('id', (tenancy as any).property_id).single();
+    bondState = (prop?.state || '').toUpperCase();
+  }
+
+  const warnings: string[] = [];
+  const bondAmount = input.amount as number;
+  const weeklyRent = (tenancy as any)?.rent_amount || 0;
+
+  // Check bond maximum from tenancy_law_rules
+  if (bondState) {
+    const { data: maxRules } = await sb
+      .from('tenancy_law_rules')
+      .select('max_amount, rule_text, legislation_ref, conditions')
+      .eq('state', bondState)
+      .eq('category', 'bond')
+      .eq('rule_key', 'max_amount')
+      .eq('is_active', true)
+      .limit(1);
+
+    if (maxRules?.[0]?.max_amount && weeklyRent > 0) {
+      // max_amount is TEXT like "4 weeks rent" or "1 month rent" or "4 weeks rent (6 weeks if rent > $1,250/week)"
+      const maxAmountText = maxRules[0].max_amount as string;
+      let maxBond = 0;
+      const monthMatch = maxAmountText.match(/^(\d+)\s*month/i);
+      const weekMatch = maxAmountText.match(/^(\d+)\s*week/i);
+      if (monthMatch) {
+        maxBond = weeklyRent * parseFloat(monthMatch[1]) * (52 / 12);
+      } else if (weekMatch) {
+        maxBond = weeklyRent * parseFloat(weekMatch[1]);
+      }
+
+      // Handle special NSW case: higher bond threshold for expensive properties
+      const thresholdMatch = maxAmountText.match(/(\d+)\s*weeks?\s+if\s+rent\s*>\s*\$?([\d,]+)/i);
+      if (thresholdMatch && weeklyRent > parseFloat(thresholdMatch[2].replace(',', ''))) {
+        maxBond = weeklyRent * parseFloat(thresholdMatch[1]);
+      }
+
+      // Handle SA furnished property case: "4 weeks rent (6 weeks furnished)"
+      const furnishedMatch = maxAmountText.match(/(\d+)\s*weeks?\s+furnished/i);
+      if (furnishedMatch && (tenancy as any)?.property_id) {
+        const { data: listing } = await sb
+          .from('listings')
+          .select('furnished')
+          .eq('property_id', (tenancy as any).property_id)
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle();
+        if (listing?.furnished) {
+          maxBond = weeklyRent * parseFloat(furnishedMatch[1]);
+        }
+      }
+
+      if (maxBond > 0 && bondAmount > maxBond) {
+        return {
+          success: false,
+          error: `REGULATORY BLOCK: ${bondState} law limits bond to ${maxAmountText} ($${maxBond.toFixed(2)} based on $${weeklyRent}/week rent). Requested amount $${bondAmount.toFixed(2)} exceeds this limit. ${maxRules[0].legislation_ref || ''}`,
+        };
+      }
+    }
+
+    // Check lodgement deadline
+    const { data: lodgeRules } = await sb
+      .from('tenancy_law_rules')
+      .select('notice_days, notice_business_days, rule_text, legislation_ref')
+      .eq('state', bondState)
+      .eq('category', 'bond')
+      .eq('rule_key', 'lodgement_deadline')
+      .eq('is_active', true)
+      .limit(1);
+
+    if (lodgeRules?.[0]) {
+      const deadlineDays = lodgeRules[0].notice_days || lodgeRules[0].notice_business_days || 0;
+      const dayType = lodgeRules[0].notice_business_days ? 'business days' : 'days';
+      if (deadlineDays > 0) {
+        warnings.push(`${bondState} requires bond lodgement within ${deadlineDays} ${dayType} of receipt. ${lodgeRules[0].legislation_ref || ''}`);
+      }
+    }
+  }
+
   const { data, error } = await sb
     .from('bond_lodgements')
     .insert({
       tenancy_id: input.tenancy_id as string,
-      state: input.state as string,
-      amount: input.amount as number,
+      state: bondState || input.state as string,
+      amount: bondAmount,
       status: 'pending',
     })
     .select('id, amount, state, status')
@@ -988,9 +1389,17 @@ export async function handle_lodge_bond(input: ToolInput, userId: string, sb: Su
   if (error) return { success: false, error: error.message };
 
   // Update tenancy bond status
-  await sb.from('tenancies').update({ bond_status: 'pending', bond_amount: input.amount }).eq('id', input.tenancy_id as string);
+  await sb.from('tenancies').update({ bond_status: 'pending', bond_amount: bondAmount }).eq('id', input.tenancy_id as string);
 
-  return { success: true, data };
+  return {
+    success: true,
+    data: {
+      ...data,
+      regulatory_state: bondState,
+      weekly_rent: weeklyRent,
+      ...(warnings.length > 0 ? { regulatory_warnings: warnings } : {}),
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

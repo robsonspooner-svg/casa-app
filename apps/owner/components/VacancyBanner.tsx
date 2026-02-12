@@ -60,11 +60,11 @@ export function VacancyBanner({ property, compact = false }: VacancyBannerProps)
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 12,
+    backgroundColor: THEME.colors.warningBg,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: THEME.colors.warning + '40',
   },
   bannerHeader: {
     flexDirection: 'row',
@@ -75,25 +75,25 @@ const styles = StyleSheet.create({
   bannerTitle: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#92400E',
+    color: THEME.colors.warning,
   },
   daysBadge: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#92400E',
-    backgroundColor: '#FDE68A',
+    color: THEME.colors.warning,
+    backgroundColor: THEME.colors.warning + '30',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   primaryButton: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     paddingVertical: 12,
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -101,8 +101,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   secondaryButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.sm,
     paddingVertical: 10,
     alignItems: 'center',
     borderWidth: 1,
@@ -122,11 +122,11 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#F59E0B',
+    backgroundColor: THEME.colors.warning,
   },
   compactText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#92400E',
+    color: THEME.colors.warning,
   },
 });

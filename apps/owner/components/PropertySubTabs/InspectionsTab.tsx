@@ -6,6 +6,9 @@ import Svg, { Path } from 'react-native-svg';
 
 const STATUS_CONFIG = {
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
+  in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
+  tenant_review: { label: 'Tenant Review', color: THEME.colors.brand, bg: THEME.colors.brand + '20' },
+  disputed: { label: 'Disputed', color: THEME.colors.error, bg: THEME.colors.errorBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
   cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   finalized: { label: 'Finalized', color: THEME.colors.success, bg: THEME.colors.successBg },
@@ -38,6 +41,7 @@ export function InspectionsTab({ propertyId }: { propertyId: string }) {
   const { hasScheduledInspection, recentActions } = useCasaPropertyActions(propertyId);
   const inspectionAction = recentActions.find(a => a.type === 'inspection');
 
+  const active = inspections.filter(i => i.status === 'in_progress' || i.status === 'tenant_review' || i.status === 'disputed');
   const upcoming = inspections.filter(i => i.status === 'scheduled');
   const past = inspections.filter(i => i.status === 'completed' || i.status === 'finalized' || i.status === 'cancelled');
 
@@ -80,6 +84,36 @@ export function InspectionsTab({ propertyId }: { propertyId: string }) {
         </Svg>
         <Text style={styles.scheduleTopBtnText}>Schedule New</Text>
       </TouchableOpacity>
+
+      {/* Active — in progress, tenant review, disputed */}
+      {active.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Active</Text>
+          {active.map(insp => {
+            const status = STATUS_CONFIG[insp.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.in_progress;
+            const typeLabel = TYPE_LABELS[insp.inspection_type] || insp.inspection_type;
+            const date = new Date(insp.scheduled_date);
+            return (
+              <TouchableOpacity
+                key={insp.id}
+                style={[styles.inspCard, styles.activeCard]}
+                onPress={() => router.push(`/(app)/inspections/${insp.id}` as any)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.inspHeader}>
+                  <Text style={styles.inspType}>{typeLabel} Inspection</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
+                    <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+                  </View>
+                </View>
+                <Text style={styles.inspDate}>
+                  {date.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       {/* Upcoming */}
       {upcoming.length > 0 && (
@@ -163,7 +197,7 @@ const styles = StyleSheet.create({
     gap: 6,
     height: 40,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     marginBottom: 16,
   },
   scheduleTopBtnText: {
@@ -173,7 +207,7 @@ const styles = StyleSheet.create({
   },
   inspCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
@@ -193,7 +227,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   statusText: {
     fontSize: 11,
@@ -202,6 +236,11 @@ const styles = StyleSheet.create({
   inspDate: {
     fontSize: 13,
     color: THEME.colors.textSecondary,
+  },
+  activeCard: {
+    borderColor: THEME.colors.warningBg,
+    borderLeftWidth: 3,
+    borderLeftColor: THEME.colors.warning,
   },
   pastCard: {
     opacity: 0.7,
@@ -243,7 +282,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingHorizontal: 24,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   scheduleBtnText: {
     fontSize: 14,
@@ -254,7 +293,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.successBg,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     padding: 12,
     marginBottom: 12,
     gap: 10,
@@ -263,7 +302,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },

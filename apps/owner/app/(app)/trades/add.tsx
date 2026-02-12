@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
   categoryChipTextSelected: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   checkboxGroup: {
     gap: THEME.spacing.xs,

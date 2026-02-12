@@ -9,7 +9,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { sendEmail } from '../_shared/sendgrid.ts';
+import { sendEmail } from '../_shared/email.ts';
 
 interface ReminderRequest {
   arrearsRecordId?: string; // For manual send
@@ -230,7 +230,7 @@ serve(async (req: Request) => {
               line.trim() ? `<p style="color: #1B2B4B; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">${line}</p>` : '<br/>'
             ).join('')}
             <div style="margin-top: 24px;">
-              <a href="https://app.usecasa.com.au/pay" style="display: inline-block; background: #1B2B4B; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+              <a href="https://app.casagroup.au/pay" style="display: inline-block; background: #1B2B4B; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
                 Pay Now
               </a>
             </div>

@@ -21,9 +21,12 @@ import {
   useActivityFeed,
   useAgentTasks,
   useAgentInsights,
+  getSupabaseClient,
 } from '@casa/api';
 import type { ActivityFeedItem, PendingApprovalItem, AgentInsight } from '@casa/api';
+import { formatDateCompact, successFeedback, warningFeedback, lightTap } from '@casa/ui';
 import Svg, { Path, Circle } from 'react-native-svg';
+import { NotificationBell } from '../../../components/NotificationBell';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -32,20 +35,7 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-}
+// formatTimeAgo replaced by formatDateCompact from @casa/ui
 
 // Casa Logo — uses actual brand logo PNG
 function CasaLogoMark({ size = 28 }: { size?: number }) {
@@ -90,7 +80,7 @@ function getItemConfig(type: ActivityFeedItem['type']): { bg: string; color: str
     case 'agent_task_completed':
       return { bg: THEME.colors.successBg, color: THEME.colors.success, icon: 'bot' };
     case 'agent_task_in_progress':
-      return { bg: '#F0EFFF', color: THEME.colors.brandIndigo, icon: 'clock' };
+      return { bg: THEME.colors.infoBg, color: THEME.colors.brandIndigo, icon: 'clock' };
     case 'agent_pending_input':
       return { bg: THEME.colors.warningBg, color: THEME.colors.warning, icon: 'alert' };
     case 'reminder_sent':
@@ -156,7 +146,7 @@ function HeroHeader({
       <View style={styles.heroTopRow}>
         <View style={styles.heroBrand}>
           <CasaLogoMark size={32} />
-          <CasaWordmark height={22} color="#FAFAFA" />
+          <CasaWordmark height={22} color={THEME.colors.textInverse} />
         </View>
         <View style={styles.heroActions}>
           <TouchableOpacity
@@ -167,20 +157,21 @@ function HeroHeader({
             <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
               <Path
                 d="M12 15a3 3 0 100-6 3 3 0 000 6z"
-                stroke="#FAFAFA"
+                stroke={THEME.colors.textInverse}
                 strokeWidth={1.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
               <Path
                 d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
-                stroke="#FAFAFA"
+                stroke={THEME.colors.textInverse}
                 strokeWidth={1.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
             </Svg>
           </TouchableOpacity>
+          <NotificationBell size={20} color={THEME.colors.textInverse} />
           <TouchableOpacity
             style={styles.heroIconBtn}
             onPress={() => router.push('/(app)/profile' as any)}
@@ -239,11 +230,16 @@ function NeedsAttentionCard({
   item,
   onApprove,
   onReject,
+  onAcknowledge,
+  onDismiss,
 }: {
   item: PendingApprovalItem;
   onApprove: (taskId: string) => void;
   onReject: (taskId: string) => void;
+  onAcknowledge: (taskId: string) => void;
+  onDismiss: (taskId: string) => void;
 }) {
+  const isAdvisory = item.actionType === 'advisory';
   const [expanded, setExpanded] = useState(false);
   const priorityColor =
     item.priority === 'urgent' ? THEME.colors.error :
@@ -271,7 +267,7 @@ function NeedsAttentionCard({
             </View>
             <Text style={styles.attentionCategory}>{item.category}</Text>
           </View>
-          <Text style={styles.attentionTime}>{formatTimeAgo(item.timestamp)}</Text>
+          <Text style={styles.attentionTime}>{formatDateCompact(item.timestamp)}</Text>
         </View>
         {item.propertyAddress && (
           <View style={styles.attentionPropertyRow}>
@@ -302,8 +298,8 @@ function NeedsAttentionCard({
               </View>
             )}
             {confidenceLabel && (
-              <View style={[styles.contextChip, { backgroundColor: item.confidence! >= 0.8 ? THEME.colors.successBg : '#FFF7ED' }]}>
-                <Text style={[styles.contextChipText, { color: item.confidence! >= 0.8 ? THEME.colors.success : '#C2410C' }]}>
+              <View style={[styles.contextChip, { backgroundColor: item.confidence! >= 0.8 ? THEME.colors.successBg : THEME.colors.warningBg }]}>
+                <Text style={[styles.contextChipText, { color: item.confidence! >= 0.8 ? THEME.colors.success : THEME.colors.warning }]}>
                   {confidenceLabel}
                 </Text>
               </View>
@@ -322,35 +318,69 @@ function NeedsAttentionCard({
             <Text style={styles.attentionRecText} numberOfLines={expanded ? 6 : 2}>{item.recommendation}</Text>
           </View>
         )}
-        <View style={styles.attentionActions}>
-          <TouchableOpacity
-            style={styles.quickApproveBtn}
-            onPress={() => onApprove(item.taskId)}
-            activeOpacity={0.7}
-          >
-            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-              <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-            <Text style={styles.quickApproveBtnText}>Approve</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickRejectBtn}
-            onPress={() => onReject(item.taskId)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.quickRejectBtnText}>Decline</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickDetailBtn}
-            onPress={() => item.deepLink && router.push(item.deepLink as any)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.quickDetailBtnText}>Details</Text>
-            <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-              <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brandIndigo} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-          </TouchableOpacity>
-        </View>
+        {isAdvisory ? (
+          <View style={styles.advisoryActionsContainer}>
+            <View style={styles.advisoryActionRow}>
+              <TouchableOpacity
+                style={[styles.quickApproveBtn, { flex: 1 }]}
+                onPress={() => onAcknowledge(item.taskId)}
+                activeOpacity={0.7}
+              >
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.quickApproveBtnText}>Acknowledge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickRejectBtn, { flex: 1 }]}
+                onPress={() => onDismiss(item.taskId)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.quickRejectBtnText}>Dismiss</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.quickDetailBtn}
+              onPress={() => router.push({ pathname: '/(app)/task-detail', params: { id: item.taskId } } as any)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.quickDetailBtnText}>View Details</Text>
+              <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brandIndigo} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.attentionActions}>
+            <TouchableOpacity
+              style={styles.quickApproveBtn}
+              onPress={() => onApprove(item.taskId)}
+              activeOpacity={0.7}
+            >
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <Text style={styles.quickApproveBtnText}>Approve</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickRejectBtn}
+              onPress={() => onReject(item.taskId)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.quickRejectBtnText}>Decline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickDetailBtn}
+              onPress={() => router.push({ pathname: '/(app)/task-detail', params: { id: item.taskId } } as any)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.quickDetailBtnText}>Details</Text>
+              <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brandIndigo} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -444,7 +474,7 @@ function FeedItem({ item }: { item: ActivityFeedItem }) {
             ${Math.round(item.amount).toLocaleString()}
           </Text>
         )}
-        <Text style={styles.feedItemTime}>{formatTimeAgo(item.timestamp)}</Text>
+        <Text style={styles.feedItemTime}>{formatDateCompact(item.timestamp)}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -535,15 +565,39 @@ function AllClearState({
   );
 }
 
+// ── Error State ───────────────────────────────────────────────────────
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <View style={styles.errorStateContainer}>
+      <View style={styles.errorStateIcon}>
+        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            stroke={THEME.colors.warning}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </View>
+      <Text style={styles.errorStateTitle}>Something went wrong</Text>
+      <Text style={styles.errorStateText}>{message}</Text>
+      <TouchableOpacity style={styles.errorStateButton} onPress={onRetry} activeOpacity={0.7}>
+        <Text style={styles.errorStateButtonText}>Try Again</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── Main Screen ──────────────────────────────────────────────────────
 export default function ActivityScreen() {
   const { user } = useAuth();
   const { firstName } = useProfile();
   const { properties } = useProperties();
   const { pendingCount } = useAgentContext();
-  const { summary, refreshDashboard } = useDashboard();
+  const { summary, error: dashboardError, refreshDashboard } = useDashboard();
   const { insights, refreshInsights } = useAgentInsights();
-  const { feedItems, pendingApprovals, loading, refreshFeed } = useActivityFeed();
+  const { feedItems, pendingApprovals, loading, error: feedError, refreshFeed } = useActivityFeed();
   const { approveTask, rejectTask } = useAgentTasks();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
@@ -585,6 +639,37 @@ export default function ActivityScreen() {
       await refreshFeed();
     },
     [rejectTask, refreshFeed],
+  );
+
+  // Advisory task handlers — these update the task status directly
+  const handleAcknowledge = useCallback(
+    async (taskId: string) => {
+      try {
+        const supabase = getSupabaseClient();
+        await (supabase.from('agent_tasks') as ReturnType<typeof supabase.from>)
+          .update({ status: 'in_progress' })
+          .eq('id', taskId);
+        await refreshFeed();
+      } catch (err) {
+        console.error('Failed to acknowledge task:', err);
+      }
+    },
+    [refreshFeed],
+  );
+
+  const handleDismiss = useCallback(
+    async (taskId: string) => {
+      try {
+        const supabase = getSupabaseClient();
+        await (supabase.from('agent_tasks') as ReturnType<typeof supabase.from>)
+          .update({ status: 'cancelled' })
+          .eq('id', taskId);
+        await refreshFeed();
+      } catch (err) {
+        console.error('Failed to dismiss task:', err);
+      }
+    },
+    [refreshFeed],
   );
 
   // Portfolio snapshot data
@@ -640,7 +725,12 @@ export default function ActivityScreen() {
           />
         }
       >
-        {isNewUser && !loading ? (
+        {(dashboardError || feedError) && !loading ? (
+          <ErrorState
+            message={dashboardError || feedError || 'Unable to load your dashboard. Please check your connection and try again.'}
+            onRetry={handleRefresh}
+          />
+        ) : isNewUser && !loading ? (
           <WelcomeEmpty />
         ) : (
           <>
@@ -687,6 +777,8 @@ export default function ActivityScreen() {
                     item={item}
                     onApprove={handleApprove}
                     onReject={handleReject}
+                    onAcknowledge={handleAcknowledge}
+                    onDismiss={handleDismiss}
                   />
                 ))}
               </View>
@@ -786,7 +878,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroWordmark: {
-    tintColor: '#FAFAFA',
+    tintColor: THEME.colors.textInverse,
   },
   heroActions: {
     flexDirection: 'row',
@@ -796,7 +888,7 @@ const styles = StyleSheet.create({
   heroIconBtn: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -804,7 +896,7 @@ const styles = StyleSheet.create({
   heroAvatarText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FAFAFA',
+    color: THEME.colors.textInverse,
   },
   heroBody: {
     gap: 4,
@@ -812,12 +904,12 @@ const styles = StyleSheet.create({
   heroGreeting: {
     fontSize: 26,
     fontWeight: '800',
-    color: '#FAFAFA',
+    color: THEME.colors.textInverse,
     letterSpacing: -0.5,
   },
   heroStatus: {
     fontSize: 14,
-    color: 'rgba(250,250,250,0.7)',
+    color: THEME.colors.textInverse + 'B3',
     fontWeight: '500',
   },
 
@@ -834,7 +926,7 @@ const styles = StyleSheet.create({
   snapshotCard: {
     flexDirection: 'row',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 16,
+    borderRadius: THEME.radius.lg,
     padding: 18,
     marginBottom: 20,
     ...THEME.shadow.md,
@@ -897,11 +989,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.errorBg,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: THEME.colors.error + '30',
   },
   urgentDot: {
     width: 8,
@@ -920,7 +1012,7 @@ const styles = StyleSheet.create({
   },
   urgentDesc: {
     fontSize: 12,
-    color: '#991B1B',
+    color: THEME.colors.error,
     marginTop: 1,
   },
   urgentAmount: {
@@ -934,7 +1026,7 @@ const styles = StyleSheet.create({
   attentionCard: {
     flexDirection: 'row',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     marginBottom: 10,
     overflow: 'hidden',
     ...THEME.shadow.sm,
@@ -960,7 +1052,7 @@ const styles = StyleSheet.create({
   attentionPriorityPill: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   attentionPriorityText: {
     fontSize: 11,
@@ -998,8 +1090,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    backgroundColor: '#F0EFFF',
-    borderRadius: 8,
+    backgroundColor: THEME.colors.infoBg,
+    borderRadius: THEME.radius.sm,
     padding: 10,
     marginBottom: 10,
   },
@@ -1014,6 +1106,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  advisoryActionsContainer: {
+    gap: 8,
+  },
+  advisoryActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   quickApproveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1022,7 +1121,7 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 16,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   quickApproveBtnText: {
     fontSize: 13,
@@ -1034,7 +1133,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: 36,
     paddingHorizontal: 14,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     borderWidth: 1.5,
     borderColor: THEME.colors.border,
   },
@@ -1072,7 +1171,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.subtle,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
   },
   contextChipText: {
     fontSize: 11,
@@ -1089,7 +1188,7 @@ const styles = StyleSheet.create({
   // ── List Card (shared) ──
   listCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     overflow: 'hidden',
     ...THEME.shadow.sm,
   },
@@ -1137,7 +1236,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F0EFFF',
+    backgroundColor: THEME.colors.infoBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -1218,7 +1317,7 @@ const styles = StyleSheet.create({
     padding: 28,
     alignItems: 'center',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     ...THEME.shadow.sm,
   },
   emptyFeedIcon: {
@@ -1258,7 +1357,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingHorizontal: 28,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
   },
   welcomeButtonText: {
     fontSize: 16,
@@ -1272,7 +1371,7 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     paddingHorizontal: 24,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 16,
+    borderRadius: THEME.radius.lg,
     marginBottom: 20,
     ...THEME.shadow.md,
   },
@@ -1331,5 +1430,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: THEME.colors.textTertiary,
     fontWeight: '500',
+  },
+
+  // ── Error State ──
+  errorStateContainer: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+  },
+  errorStateIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.warningBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  errorStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    marginBottom: 8,
+  },
+  errorStateText: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  errorStateButton: {
+    backgroundColor: THEME.colors.brand,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+  },
+  errorStateButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: THEME.colors.textInverse,
   },
 });

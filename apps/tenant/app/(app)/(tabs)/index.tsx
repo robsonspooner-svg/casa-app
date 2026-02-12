@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
   // Rent Status Card
   rentCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     padding: 20,
     alignItems: 'center',
     borderWidth: 1,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingVertical: 10,
     paddingHorizontal: 32,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   payButtonText: {
     fontSize: 15,
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.errorBg,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 16,
     gap: 12,
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,

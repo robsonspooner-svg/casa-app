@@ -19,6 +19,7 @@ export { ConditionBadge, type ConditionBadgeProps, type ConditionRatingValue } f
 
 // Feature Gating Components
 export { FeatureGate, UpgradePrompt, type FeatureGateProps, type UpgradePromptProps } from './components/FeatureGate';
+export { ComingSoon, type ComingSoonProps } from './components/ComingSoon';
 
 // Application Components
 export { ProgressSteps, type ProgressStepsProps } from './components/ProgressSteps';
@@ -33,9 +34,27 @@ export { CurrencyDisplay, type CurrencyDisplayProps } from './components/Currenc
 // Inspection Components
 export { SignatureCapture, type SignatureCaptureProps } from './components/SignatureCapture';
 
+// Loading Components
+export {
+  Skeleton,
+  SkeletonText,
+  SkeletonAvatar,
+  SkeletonCard,
+  SkeletonList,
+  type SkeletonProps,
+  type SkeletonTextProps,
+  type SkeletonAvatarProps,
+  type SkeletonCardProps,
+  type SkeletonListProps,
+} from './components/Skeleton';
+
 // Layout Components
 export { ScreenContainer, type ScreenContainerProps } from './components/ScreenContainer';
 export { StepIndicator, type StepIndicatorProps } from './components/StepIndicator';
+
+// Utilities
+export { lightTap, mediumTap, heavyTap, successFeedback, warningFeedback, errorFeedback, selectionFeedback } from './utils/haptics';
+export { formatDate, formatDateCompact, formatDateRange } from './utils/formatDate';
 
 // Re-export theme for convenience
 export { THEME, type Theme } from '@casa/config';

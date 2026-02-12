@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   filterPill: {
     paddingHorizontal: THEME.spacing.md,
     paddingVertical: THEME.spacing.sm,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.subtle,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   filterPillTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   listContent: {
     padding: THEME.spacing.base,
@@ -388,6 +388,6 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 });

@@ -7,7 +7,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { sendEmail } from '../_shared/sendgrid.ts';
+import { sendEmail } from '../_shared/email.ts';
 
 serve(async (req: Request) => {
   const corsResponse = handleCors(req);

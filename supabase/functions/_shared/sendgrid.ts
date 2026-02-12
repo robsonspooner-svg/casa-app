@@ -18,7 +18,7 @@ export async function sendEmail(params: EmailParams): Promise<{ success: boolean
     return { success: false, error: 'Email service not configured' };
   }
 
-  const fromEmail = Deno.env.get('SENDGRID_FROM_EMAIL') || 'noreply@usecasa.com.au';
+  const fromEmail = Deno.env.get('SENDGRID_FROM_EMAIL') || 'noreply@casagroup.au';
   const fromName = Deno.env.get('SENDGRID_FROM_NAME') || 'Casa';
 
   const payload: any = {

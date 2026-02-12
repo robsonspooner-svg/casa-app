@@ -13,6 +13,7 @@ import {
   useMyArrears,
   formatDollars,
 } from '@casa/api';
+import { NotificationBell } from '../../../components/NotificationBell';
 
 function QuickAction({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
   return (
@@ -77,6 +78,7 @@ export default function MyHomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Home</Text>
+        <NotificationBell size={22} />
       </View>
 
       <ScrollView
@@ -99,16 +101,16 @@ export default function MyHomeScreen() {
                 <Text style={styles.metaItem}>{property.bedrooms} bed</Text>
               )}
               {property.bathrooms != null && (
-                <>
-                  <Text style={styles.metaDot}>·</Text>
-                  <Text style={styles.metaItem}>{property.bathrooms} bath</Text>
-                </>
+                <Text style={styles.metaDot}>·</Text>
+              )}
+              {property.bathrooms != null && (
+                <Text style={styles.metaItem}>{property.bathrooms} bath</Text>
               )}
               {property.parking_spaces != null && (
-                <>
-                  <Text style={styles.metaDot}>·</Text>
-                  <Text style={styles.metaItem}>{property.parking_spaces} car</Text>
-                </>
+                <Text style={styles.metaDot}>·</Text>
+              )}
+              {property.parking_spaces != null && (
+                <Text style={styles.metaItem}>{property.parking_spaces} car</Text>
               )}
             </View>
           </View>
@@ -229,6 +231,9 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.canvas,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: THEME.colors.surface,
@@ -251,7 +256,7 @@ const styles = StyleSheet.create({
   // Property Card
   propertyCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -285,7 +290,7 @@ const styles = StyleSheet.create({
   // Card
   card: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 14,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -328,7 +333,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
@@ -375,7 +380,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
@@ -428,7 +433,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.brand,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
   },
   searchButtonText: {
     fontSize: 15,

@@ -32,6 +32,7 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="onboarding" />
       <Stack.Screen name="search" />
       <Stack.Screen name="applications" />
       <Stack.Screen name="tenancy" />
@@ -42,6 +43,10 @@ export default function AppLayout() {
       <Stack.Screen name="arrears" />
       <Stack.Screen name="connect" />
       <Stack.Screen name="profile" />
+      <Stack.Screen name="settings" />
+      <Stack.Screen name="documents" />
+      <Stack.Screen name="notifications" />
+      <Stack.Screen name="support" />
     </Stack>
   );
 }

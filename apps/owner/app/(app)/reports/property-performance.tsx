@@ -50,7 +50,7 @@ export default function PropertyPerformanceScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Property Performance</Text>
@@ -191,7 +191,7 @@ const ppStyles = StyleSheet.create({
   badge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
   },
   badgeText: {
     fontSize: 12,
@@ -210,14 +210,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.textInverse },
   scrollView: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
 
   overviewGrid: {
     flexDirection: 'row',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     padding: 16,
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
 
   propertyCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     padding: 16,

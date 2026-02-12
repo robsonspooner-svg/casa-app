@@ -10,7 +10,7 @@ export {
 
 // Export hooks
 export { useAuth, useAuthProvider, AuthProvider } from './hooks/useAuth';
-export type { AuthState, AuthActions, AuthContextValue } from './hooks/useAuth';
+export type { AuthState, AuthActions, AuthContextValue, OAuthOptions } from './hooks/useAuth';
 
 export { useProfile } from './hooks/useProfile';
 export type { ProfileState, ProfileActions, ProfileContextValue } from './hooks/useProfile';
@@ -218,6 +218,27 @@ export type { LeaseData } from './services/leaseGenerator';
 
 export { generateConditionReportHTML, getDefaultRooms } from './services/conditionReportGenerator';
 export type { ConditionRating as ReportConditionRating, RoomItem, RoomReport, ConditionReportData } from './services/conditionReportGenerator';
+
+// Condition Report PDF Template
+export { generateConditionReportPDF } from './services/conditionReportTemplate';
+export type {
+  ConditionReportPhoto,
+  ConditionReportItem,
+  ConditionReportRoom,
+  ConditionReportSignature,
+  ConditionReportSubmission,
+  ConditionReportData as ConditionReportPDFData,
+} from './services/conditionReportTemplate';
+
+// State-specific legislation references
+export { getDetailedStateLegislation } from './services/documentTemplates';
+export type {
+  StateLegislation,
+  LegislationSection,
+  BondInfo,
+  NoticePeriods,
+  PrescribedForm,
+} from './services/documentTemplates';
 
 // Mission 06: Rent increase rules
 export {
@@ -432,6 +453,33 @@ export type {
   InspectionAssignmentUpdate,
   InspectorAccessTokenRow,
   InspectorAccessTokenInsert,
+  TenantSubmissionType,
+  SubmissionStatus,
+  DisputeStatus,
+  InspectionTenantSubmissionRow,
+  InspectionTenantSubmissionInsert,
+  InspectionRoomAcknowledgmentRow,
+  InspectionRoomAcknowledgmentInsert,
+  InspectionItemDisputeRow,
+  InspectionItemDisputeInsert,
+} from './types/database';
+
+// Inspection Review (Tenant review workflow)
+export { useInspectionReview } from './hooks/useInspectionReview';
+export type { InspectionReviewState } from './hooks/useInspectionReview';
+
+// Authority Submissions (compliance/regulatory)
+export { useAuthoritySubmissions } from './hooks/useAuthoritySubmissions';
+export type { AuthoritySubmissionsState, UseAuthoritySubmissionsReturn } from './hooks/useAuthoritySubmissions';
+
+export type {
+  AuthoritySubmissionType,
+  AuthoritySubmissionMethod,
+  AuthoritySubmissionStatus,
+  ProofOfServiceType,
+  AuthoritySubmissionRow,
+  AuthoritySubmissionInsert,
+  AuthoritySubmissionUpdate,
 } from './types/database';
 
 // Mission 11 Phase K: Inspection Outsourcing
@@ -536,13 +584,59 @@ export type {
 // Mission 14: AI Agent Hooks (implemented)
 export { useAgentChat } from './hooks/useAgentChat';
 export type { AgentChatState, UseAgentChatReturn } from './hooks/useAgentChat';
-export type { AgentMessage, AgentConversation } from './types/database';
+export type { AgentMessage, AgentConversation, InlineAction, AgentDecision, AgentCorrection, AgentTrajectory, ToolGenome, ConfidenceFactors, ErrorType, AgentOutcome, OutcomeType } from './types/database';
+
+// Document Hub & E-Signing
+export { useDocuments } from './hooks/useDocuments';
+export type { DocumentsState, DocumentsFilter, UseDocumentsReturn } from './hooks/useDocuments';
+
+export { useDocument } from './hooks/useDocument';
+export type { DocumentState, UseDocumentReturn } from './hooks/useDocument';
+
+export { useDocumentFolders } from './hooks/useDocumentFolders';
+export type { DocumentFoldersState, UseDocumentFoldersReturn } from './hooks/useDocumentFolders';
+
+export { useDocumentUpload } from './hooks/useDocumentUpload';
+export type { UploadProgress, UseDocumentUploadReturn } from './hooks/useDocumentUpload';
+
+export { useDocumentShares } from './hooks/useDocumentShares';
+export type { DocumentSharesState, UseDocumentSharesReturn } from './hooks/useDocumentShares';
+
+export type {
+  CasaDocumentType,
+  CasaDocumentStatus,
+  DocumentRow,
+  DocumentInsert,
+  DocumentUpdate,
+  DocumentSignatureRow,
+  DocumentSignatureInsert,
+  SavedSignatureRow,
+  SavedSignatureInsert,
+  DocumentWithSignatures,
+  DocumentFolderRow,
+  DocumentFolderInsert,
+  DocumentFolderUpdate,
+  ShareType,
+  DocumentShareRow,
+  DocumentShareInsert,
+  DocumentAccessAction,
+  DocumentAccessLogRow,
+  LeaseTemplateRow,
+  DocumentWithFolder,
+  DocumentShareWithDocument,
+  AnnotationType,
+  DocumentAnnotationRow,
+  DocumentAnnotationInsert,
+} from './types/database';
 
 export { useAgentTasks } from './hooks/useAgentTasks';
 export type { AgentTasksState, UseAgentTasksReturn } from './hooks/useAgentTasks';
 
 export { useAutonomySettings } from './hooks/useAutonomySettings';
 export type { AutonomySettingsState, UseAutonomySettingsReturn } from './hooks/useAutonomySettings';
+
+export { useGenerateListing } from './hooks/useGenerateListing';
+export type { GenerateListingResult, UseGenerateListingReturn } from './hooks/useGenerateListing';
 
 export { useAgentInsights } from './hooks/useAgentInsights';
 export type { AgentInsight, AgentInsightsState, UseAgentInsightsReturn } from './hooks/useAgentInsights';
@@ -552,11 +646,71 @@ export type { AgentContextValue } from './providers/AgentProvider';
 
 // Activity Feed (UX Redesign)
 export { useActivityFeed } from './hooks/useActivityFeed';
-export type { ActivityFeedItem, PendingApprovalItem, ActivityFeedState, ActivityItemType } from './hooks/useActivityFeed';
+export type { ActivityFeedItem, PendingApprovalItem, ApprovalActionType, ActivityFeedState, ActivityItemType } from './hooks/useActivityFeed';
 
 // Casa Property Actions (AI-first UX layer)
 export { useCasaPropertyActions } from './hooks/useCasaPropertyActions';
 export type { CasaPropertyAction, UseCasaPropertyActionsReturn } from './hooks/useCasaPropertyActions';
+
+// Mission 15: Learning & Compliance
+export { useAgentRules } from './hooks/useAgentRules';
+export type { UseAgentRulesReturn } from './hooks/useAgentRules';
+
+export type {
+  AgentRule,
+  AgentRuleInsert,
+  AgentRuleUpdate,
+  RuleCategory,
+  RuleSource,
+  AutonomyGraduationTracking,
+} from './types/database';
+
+export { useCompliance } from './hooks/useCompliance';
+export type { UseComplianceReturn, ComplianceSummary } from './hooks/useCompliance';
+
+export { useAutonomyGraduation } from './hooks/useAutonomyGraduation';
+export type { UseAutonomyGraduationReturn } from './hooks/useAutonomyGraduation';
+
+// =============================================================================
+// Mission 17: Push Notifications & Alerts
+// =============================================================================
+
+export { useNotifications } from './hooks/useNotifications';
+export type { NotificationsState, UseNotificationsReturn } from './hooks/useNotifications';
+
+export { useUnreadCount } from './hooks/useUnreadCount';
+export type { UseUnreadCountReturn } from './hooks/useUnreadCount';
+
+export { usePushToken } from './hooks/usePushToken';
+export type { UsePushTokenReturn } from './hooks/usePushToken';
+
+export { useNotificationSettings } from './hooks/useNotificationSettings';
+export type { NotificationSettingsState, UseNotificationSettingsReturn } from './hooks/useNotificationSettings';
+
+export type {
+  NotificationType,
+  PushTokenPlatform,
+  PushTokenRow,
+  PushTokenInsert,
+  PushTokenUpdate,
+  NotificationRow,
+  NotificationInsert,
+  NotificationUpdate,
+  EmailDigestFrequency,
+  NotificationSettingsRow,
+  NotificationSettingsInsert,
+  NotificationSettingsUpdate,
+  ScheduledNotificationStatus,
+  ScheduledNotificationRow,
+  ScheduledNotificationInsert,
+  ScheduledNotificationUpdate,
+} from './types/database';
+
+export { useLearningContent } from './hooks/useLearningContent';
+export type { LearningArticle, UserLearningProgress, UseLearningContentReturn } from './hooks/useLearningContent';
+
+export { useRegulatoryUpdates } from './hooks/useRegulatoryUpdates';
+export type { RegulatoryUpdate, RegulatoryUpdateNotification, UseRegulatoryUpdatesReturn } from './hooks/useRegulatoryUpdates';
 
 // Mission 17: Notifications
 export { useNotificationsGateway, getNotificationRoute } from './hooks/gateways';
@@ -606,15 +760,77 @@ export type {
   AgentMessage as GatewayAgentMessage,
   AgentPendingAction as GatewayAgentPendingAction,
   AgentAutonomyLevel,
-  // Mission 17: Notifications
-  Notification,
-  NotificationPreference,
-  NotificationSettings,
-  NotificationType,
+  // Mission 17: Notifications (gateway versions)
+  Notification as GatewayNotification,
+  NotificationPreference as GatewayNotificationPreference,
+  NotificationSettings as GatewayNotificationSettings,
+  NotificationType as GatewayNotificationType,
   // Gateway state helpers
   GatewayState,
   GatewayListState,
 } from './types/gateways';
+
+// =============================================================================
+// Mission 18: Security Audit — Sessions, Alerts, Audit Log, Consent, Data Export
+// =============================================================================
+
+export { useUserSessions } from './hooks/useUserSessions';
+export type { UserSession, UserSessionsState, UseUserSessionsReturn } from './hooks/useUserSessions';
+
+export { useSecurityAlerts } from './hooks/useSecurityAlerts';
+export type { SecurityAlert, SecurityAlertsState, UseSecurityAlertsReturn } from './hooks/useSecurityAlerts';
+
+export { useAuditLog } from './hooks/useAuditLog';
+export type { AuditLogEntry, AuditLogState, UseAuditLogReturn } from './hooks/useAuditLog';
+
+export { useConsent } from './hooks/useConsent';
+export type { UserConsent, ConsentState, UseConsentReturn } from './hooks/useConsent';
+
+export { useDataExport } from './hooks/useDataExport';
+export type { DataRequest, DataExportState, UseDataExportReturn } from './hooks/useDataExport';
+
+// Mission 20: Support Tickets
+export { useSupportTickets } from './hooks/useSupportTickets';
+export type {
+  SupportTicket,
+  SupportMessage,
+  SupportTicketsState,
+  UseSupportTicketsReturn,
+  TicketCategory,
+  TicketStatus,
+  TicketPriority,
+} from './hooks/useSupportTickets';
+
+export { useMFA } from './hooks/useMFA';
+export type { MFAState, UseMFAReturn } from './hooks/useMFA';
+
+// =============================================================================
+// Beyond-PM Intelligence Types
+// =============================================================================
+
+export type {
+  PropertyHealthScore,
+  PortfolioSnapshot,
+  TenantSatisfaction,
+  MarketIntelligence,
+} from './types/database';
+
+// =============================================================================
+// Cache Configuration
+// =============================================================================
+
+export { CACHE_CONFIG } from './cache';
+export type { CacheKey } from './cache';
+
+// In-memory cache utilities (Mission 19: Performance Optimization)
+export { getCached, setCache, invalidateCache, MEMORY_CACHE_CONFIG } from './cache';
+
+// =============================================================================
+// Pagination Utilities (Mission 19: Performance Optimization)
+// =============================================================================
+
+export { encodeCursor, decodeCursor, paginatedQuery } from './pagination';
+export type { PaginationParams, PaginatedResult } from './pagination';
 
 // Re-export Supabase types
 export type { SupabaseClient, User, Session } from '@supabase/supabase-js';

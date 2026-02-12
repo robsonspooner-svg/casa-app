@@ -1,14 +1,16 @@
 // Mission 13: Generated Reports Screen
 // View generated reports, create new ones, manage scheduled reports
 
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { useState, useCallback } from 'react';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '@casa/config';
 import { useReports, useProperties } from '@casa/api';
-import type { ReportType, ReportFormat } from '@casa/api';
+import type { ReportType, ReportFormat, GeneratedReportRow } from '@casa/api';
 import Svg, { Path } from 'react-native-svg';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-AU', {
@@ -73,6 +75,45 @@ export default function GeneratedReportsScreen() {
     }
   }, [genType, genFormat, generateReport]);
 
+  const [sharingId, setSharingId] = useState<string | null>(null);
+
+  const handleOpenReport = useCallback(async (report: GeneratedReportRow) => {
+    if (report.status !== 'completed') return;
+
+    // If this report has a linked document record, open in document viewer
+    if ((report as any).document_id) {
+      router.push(`/(app)/documents/${(report as any).document_id}`);
+      return;
+    }
+
+    // Otherwise share the file directly from file_url
+    if (!report.file_url) {
+      Alert.alert('Unavailable', 'Report file is not available.');
+      return;
+    }
+
+    try {
+      setSharingId(report.id);
+      const ext = report.format === 'pdf' ? 'pdf' : report.format === 'csv' ? 'csv' : 'xlsx';
+      const mimeTypes: Record<string, string> = {
+        pdf: 'application/pdf',
+        csv: 'text/csv',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      };
+      const localUri = `${FileSystem.cacheDirectory}report_${report.id}.${ext}`;
+      const { uri } = await FileSystem.downloadAsync(report.file_url, localUri);
+      await Sharing.shareAsync(uri, {
+        mimeType: mimeTypes[ext] || 'application/octet-stream',
+        dialogTitle: report.title,
+      });
+    } catch (err: any) {
+      if (err?.message?.includes('cancel')) return;
+      Alert.alert('Share Error', err?.message || 'Failed to share report.');
+    } finally {
+      setSharingId(null);
+    }
+  }, []);
+
   const handleDeleteReport = useCallback((id: string) => {
     Alert.alert('Delete Report', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
@@ -93,13 +134,13 @@ export default function GeneratedReportsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reports</Text>
         <TouchableOpacity onPress={() => setShowGenerate(!showGenerate)} style={styles.addButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M12 5v14M5 12h14" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+            <Path d="M12 5v14M5 12h14" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
           </Svg>
         </TouchableOpacity>
       </View>
@@ -169,12 +210,15 @@ export default function GeneratedReportsScreen() {
         )}
         {generatedReports.map(report => {
           const statusConfig = STATUS_CONFIG[report.status] || STATUS_CONFIG.failed;
+          const isCompleted = report.status === 'completed';
+          const isSharing = sharingId === report.id;
           return (
             <TouchableOpacity
               key={report.id}
               style={styles.reportItem}
+              onPress={isCompleted ? () => handleOpenReport(report) : undefined}
               onLongPress={() => handleDeleteReport(report.id)}
-              activeOpacity={0.7}
+              activeOpacity={isCompleted ? 0.7 : 1}
             >
               <View style={styles.reportIcon}>
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -188,6 +232,19 @@ export default function GeneratedReportsScreen() {
                   {report.format.toUpperCase()} · {formatDate(report.date_from)} - {formatDate(report.date_to)}
                 </Text>
               </View>
+              {isSharing ? (
+                <ActivityIndicator size="small" color={THEME.colors.brand} style={{ marginRight: 4 }} />
+              ) : isCompleted ? (
+                <TouchableOpacity
+                  style={styles.shareIconButton}
+                  onPress={() => handleOpenReport(report)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                </TouchableOpacity>
+              ) : null}
               <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
                 <Text style={[styles.statusText, { color: statusConfig.color }]}>{statusConfig.label}</Text>
               </View>
@@ -230,7 +287,7 @@ export default function GeneratedReportsScreen() {
         ))}
 
         {generatedReports.length > 0 && (
-          <Text style={styles.hintText}>Long press a report to delete it</Text>
+          <Text style={styles.hintText}>Tap a report to view & share · Long press to delete</Text>
         )}
       </ScrollView>
     </View>
@@ -249,7 +306,7 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   addButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.textInverse },
   scrollView: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
 
@@ -260,7 +317,7 @@ const styles = StyleSheet.create({
 
   // Form
   formCard: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 16,
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16,
     borderWidth: 1, borderColor: THEME.colors.border, marginBottom: 8,
   },
   formTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 12 },
@@ -270,48 +327,49 @@ const styles = StyleSheet.create({
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.canvas, borderWidth: 1, borderColor: THEME.colors.border,
   },
   chipActive: { backgroundColor: THEME.colors.brandIndigo, borderColor: THEME.colors.brandIndigo },
   chipText: { fontSize: 13, color: THEME.colors.textSecondary },
-  chipTextActive: { color: '#FFFFFF' },
+  chipTextActive: { color: THEME.colors.textInverse },
   generateButton: {
-    backgroundColor: THEME.colors.brand, borderRadius: 10, paddingVertical: 14,
+    backgroundColor: THEME.colors.brand, borderRadius: THEME.radius.md, paddingVertical: 14,
     alignItems: 'center', marginTop: 20,
   },
-  generateButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  generateButtonText: { fontSize: 15, fontWeight: '700', color: THEME.colors.textInverse },
 
   // Report items
   reportItem: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.colors.surface,
-    borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: THEME.colors.border,
   },
   reportIcon: {
-    width: 36, height: 36, borderRadius: 8, backgroundColor: THEME.colors.subtle,
+    width: 36, height: 36, borderRadius: THEME.radius.sm, backgroundColor: THEME.colors.subtle,
     alignItems: 'center', justifyContent: 'center', marginRight: 12,
   },
   reportContent: { flex: 1, marginRight: 8 },
   reportTitle: { fontSize: 14, fontWeight: '600', color: THEME.colors.textPrimary },
   reportMeta: { fontSize: 12, color: THEME.colors.textTertiary, marginTop: 2 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  shareIconButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: THEME.radius.md },
   statusText: { fontSize: 11, fontWeight: '600' },
 
   // Schedule items
   scheduleItem: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.colors.surface,
-    borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: THEME.colors.border,
   },
   scheduleContent: { flex: 1 },
   scheduleTitle: { fontSize: 14, fontWeight: '600', color: THEME.colors.textPrimary },
   scheduleMeta: { fontSize: 12, color: THEME.colors.textTertiary, marginTop: 2 },
   scheduleActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  toggleBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  toggleBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: THEME.radius.md },
   toggleText: { fontSize: 11, fontWeight: '600' },
 
   // Empty
   emptyCard: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 24,
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 24,
     alignItems: 'center', borderWidth: 1, borderColor: THEME.colors.border,
   },
   emptyText: { fontSize: 14, fontWeight: '600', color: THEME.colors.textSecondary },

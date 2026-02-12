@@ -48,7 +48,7 @@ export default function CashFlowForecastScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Cash Flow Forecast</Text>
@@ -271,26 +271,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.textInverse },
   scrollView: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
 
   periodRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   periodButton: {
-    flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: THEME.colors.surface,
+    flex: 1, paddingVertical: 10, borderRadius: THEME.radius.md, backgroundColor: THEME.colors.surface,
     borderWidth: 1, borderColor: THEME.colors.border, alignItems: 'center',
   },
   periodButtonActive: { backgroundColor: THEME.colors.brand, borderColor: THEME.colors.brand },
   periodText: { fontSize: 13, fontWeight: '600', color: THEME.colors.textSecondary },
-  periodTextActive: { color: '#FFFFFF' },
+  periodTextActive: { color: THEME.colors.textInverse },
 
   summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  summaryCard: { flex: 1, padding: 14, borderRadius: 12, alignItems: 'center' },
+  summaryCard: { flex: 1, padding: 14, borderRadius: THEME.radius.md, alignItems: 'center' },
   summaryLabel: { fontSize: 11, fontWeight: '600', color: THEME.colors.textSecondary, letterSpacing: 0.3 },
   summaryValue: { fontSize: 18, fontWeight: '700', marginTop: 4 },
 
   netCard: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 14, alignItems: 'center',
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 14, alignItems: 'center',
     borderWidth: 1, borderColor: THEME.colors.border, marginBottom: 16,
   },
   netLabel: { fontSize: 13, color: THEME.colors.textSecondary },
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
   },
 
   chartCard: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, padding: 16,
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16,
     borderWidth: 1, borderColor: THEME.colors.border, marginBottom: 16,
   },
   chartContainer: { paddingVertical: 8 },
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   emptySubtext: { fontSize: 13, color: THEME.colors.textTertiary, marginTop: 4, textAlign: 'center' },
 
   breakdownCard: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, borderWidth: 1,
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, borderWidth: 1,
     borderColor: THEME.colors.border, overflow: 'hidden', marginBottom: 16,
   },
   breakdownHeader: {
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
   breakdownCell: { flex: 1, fontSize: 12, color: THEME.colors.textPrimary, textAlign: 'right' },
 
   card: {
-    backgroundColor: THEME.colors.surface, borderRadius: 12, borderWidth: 1,
+    backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, borderWidth: 1,
     borderColor: THEME.colors.border, overflow: 'hidden', marginBottom: 16,
   },
   assumptionRow: {
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
   riskContent: { flex: 1, marginRight: 12 },
   riskDescription: { fontSize: 14, fontWeight: '500', color: THEME.colors.textPrimary },
   riskImpact: { fontSize: 12, color: THEME.colors.textTertiary, marginTop: 2 },
-  riskBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  riskBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: THEME.radius.sm },
   riskBadgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
 
   disclaimerText: {

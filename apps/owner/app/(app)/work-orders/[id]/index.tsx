@@ -22,20 +22,20 @@ import { useWorkOrder, useTradeMutations } from '@casa/api';
 import type { WorkOrderStatus } from '@casa/api';
 
 const STATUS_CONFIG: Record<WorkOrderStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: 'Draft', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  draft: { label: 'Draft', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   sent: { label: 'Sent', color: THEME.colors.info, bg: THEME.colors.infoBg },
   quoted: { label: 'Quoted', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   approved: { label: 'Approved', color: THEME.colors.success, bg: THEME.colors.successBg },
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
 };
 
 const URGENCY_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   emergency: { label: 'Emergency', color: THEME.colors.error, bg: THEME.colors.errorBg },
   urgent: { label: 'Urgent', color: THEME.colors.warning, bg: THEME.colors.warningBg },
-  routine: { label: 'Routine', color: THEME.colors.textSecondary, bg: '#F5F5F5' },
+  routine: { label: 'Routine', color: THEME.colors.textSecondary, bg: THEME.colors.subtle },
 };
 
 function formatCategory(category: string): string {

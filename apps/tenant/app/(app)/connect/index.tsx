@@ -126,7 +126,7 @@ export default function ConnectScreen() {
               disabled={code.length !== 6 || connecting}
             >
               {connecting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={THEME.colors.textInverse} />
               ) : (
                 <Text style={styles.buttonText}>Validate Code</Text>
               )}
@@ -207,7 +207,7 @@ export default function ConnectScreen() {
                 disabled={connecting}
               >
                 {connecting ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={THEME.colors.textInverse} />
                 ) : (
                   <Text style={styles.buttonText}>Connect</Text>
                 )}
@@ -221,7 +221,7 @@ export default function ConnectScreen() {
             <View style={styles.successContainer}>
               <View style={styles.successIcon}>
                 <Svg width={32} height={32} viewBox="0 0 24 24" fill="none">
-                  <Path d="M20 6L9 17l-5-5" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
                 </Svg>
               </View>
               <Text style={styles.successTitle}>Connected!</Text>
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderWidth: 2,
     borderColor: THEME.colors.border,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 20,
     fontSize: 32,
     fontWeight: '700',
@@ -294,14 +294,14 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: THEME.colors.brand,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
     flex: 1,
   },
   validateButton: {
     backgroundColor: THEME.colors.brand,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
     minHeight: 52,
   },
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.textTertiary,
   },
   buttonText: {
-    color: '#fff',
+    color: THEME.colors.textInverse,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
     marginTop: 48,
     padding: 20,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
   },
   helpTitle: {
     fontSize: 16,
@@ -337,13 +337,13 @@ const styles = StyleSheet.create({
   requestCodeButton: {
     backgroundColor: THEME.colors.brand,
     padding: 14,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
   },
   requestCodeButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: THEME.colors.textInverse,
   },
   linkButton: {
     paddingVertical: 12,
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
   confirmCard: {
     backgroundColor: THEME.colors.surface,
     padding: 20,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     marginBottom: 24,
   },
   confirmLabel: {
@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
   secondaryButton: {
     flex: 1,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   },
   successEmoji: {
     fontSize: 40,
-    color: '#fff',
+    color: THEME.colors.textInverse,
   },
   successTitle: {
     fontSize: 28,

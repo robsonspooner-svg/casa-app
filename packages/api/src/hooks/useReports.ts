@@ -101,11 +101,11 @@ export function useReports() {
           .eq('id', reportRow.id);
       }
     } catch (invokeErr: any) {
-      // If Edge Function is not deployed yet, mark as completed with a note
+      // Mark as failed when the Edge Function invocation throws
       await (supabase.from('generated_reports') as ReturnType<typeof supabase.from>)
         .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
+          status: 'failed',
+          error_message: invokeErr.message || 'Report generation failed',
         })
         .eq('id', reportRow.id);
     }

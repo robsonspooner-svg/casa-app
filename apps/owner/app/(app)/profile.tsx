@@ -157,8 +157,8 @@ export default function ProfileScreen() {
               <Text style={styles.avatarOverlayText}>...</Text>
             ) : (
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="#FFFFFF" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-                <Circle cx="12" cy="13" r="4" stroke="#FFFFFF" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={THEME.colors.textInverse} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                <Circle cx="12" cy="13" r="4" stroke={THEME.colors.textInverse} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
             )}
           </View>

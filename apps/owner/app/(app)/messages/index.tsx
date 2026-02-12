@@ -94,7 +94,7 @@ function SearchResultCard({ item }: { item: MessageSearchResult }) {
     >
       <View style={[styles.avatar, { backgroundColor: THEME.colors.textTertiary }]}>
         <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-          <Path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#FFFFFF" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          <Path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={THEME.colors.textInverse} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </View>
       <View style={styles.cardContent}>
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardContent: {
     flex: 1,
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     minWidth: 20,
     height: 20,
     alignItems: 'center',
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
   unreadText: {
     fontSize: 11,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardProperty: {
     fontSize: THEME.fontSize.caption,
@@ -441,6 +441,6 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 });

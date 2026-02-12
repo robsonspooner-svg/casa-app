@@ -136,7 +136,7 @@ export default function TerminateTenancyScreen() {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
             <Text style={styles.terminateButtonText}>End Tenancy</Text>
           )}
@@ -156,20 +156,20 @@ const styles = StyleSheet.create({
   headerRight: { width: 40 },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
-  noticeBox: { backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#FDE68A' },
-  noticeTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 8 },
-  noticeText: { fontSize: 13, color: '#92400E', marginBottom: 4 },
+  noticeBox: { backgroundColor: THEME.colors.warningBg, borderRadius: THEME.radius.md, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: THEME.colors.warning + '40' },
+  noticeTitle: { fontSize: 14, fontWeight: '700', color: THEME.colors.warning, marginBottom: 8 },
+  noticeText: { fontSize: 13, color: THEME.colors.warning, marginBottom: 4 },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: THEME.colors.textPrimary, marginBottom: 12 },
-  reasonOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, marginBottom: 8, backgroundColor: THEME.colors.surface, borderWidth: 1, borderColor: THEME.colors.border },
+  reasonOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, borderRadius: THEME.radius.md, marginBottom: 8, backgroundColor: THEME.colors.surface, borderWidth: 1, borderColor: THEME.colors.border },
   reasonOptionActive: { borderColor: THEME.colors.brand, backgroundColor: `${THEME.colors.brand}08` },
   radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: THEME.colors.border, marginRight: 12 },
   radioActive: { borderColor: THEME.colors.brand, backgroundColor: THEME.colors.brand },
   reasonText: { fontSize: 15, color: THEME.colors.textPrimary },
   reasonTextActive: { fontWeight: '600' },
-  input: { backgroundColor: THEME.colors.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border, marginTop: 12, minHeight: 60, textAlignVertical: 'top' },
+  input: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: THEME.colors.textPrimary, borderWidth: 1, borderColor: THEME.colors.border, marginTop: 12, minHeight: 60, textAlignVertical: 'top' },
   footer: { padding: 20, borderTopWidth: 1, borderTopColor: THEME.colors.border },
-  terminateButton: { backgroundColor: '#EF4444', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
+  terminateButton: { backgroundColor: THEME.colors.error, borderRadius: THEME.radius.md, paddingVertical: 16, alignItems: 'center' },
   buttonDisabled: { opacity: 0.6 },
-  terminateButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  terminateButtonText: { color: THEME.colors.textInverse, fontSize: 16, fontWeight: '700' },
 });

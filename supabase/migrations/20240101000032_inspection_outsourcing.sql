@@ -132,7 +132,7 @@ CREATE POLICY "Service role manages inspector tokens"
 CREATE TRIGGER set_inspection_assignments_updated_at
   BEFORE UPDATE ON inspection_assignments
   FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+  EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
 -- ADD INSPECTION CATEGORY TO MAINTENANCE_CATEGORY ENUM

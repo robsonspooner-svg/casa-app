@@ -591,6 +591,160 @@ export async function handle_get_documents(input: ToolInput, userId: string, sb:
   return { success: true, data: [] };
 }
 
+export async function handle_get_document(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.document_id) return { success: false, error: 'document_id is required' };
+
+  const { data: doc, error: docErr } = await sb
+    .from('documents')
+    .select('*')
+    .eq('id', input.document_id as string)
+    .single();
+
+  if (docErr || !doc) return { success: false, error: docErr?.message || 'Document not found' };
+  if (doc.owner_id !== userId && doc.tenant_id !== userId) {
+    // Check if shared with user
+    const { data: share } = await sb
+      .from('document_shares')
+      .select('id')
+      .eq('document_id', input.document_id as string)
+      .eq('shared_with_id', userId)
+      .limit(1);
+    if (!share?.length) return { success: false, error: 'Access denied' };
+  }
+
+  // Fetch signatures
+  const { data: sigs } = await sb
+    .from('document_signatures')
+    .select('id, signer_name, signer_role, signed_at')
+    .eq('document_id', input.document_id as string)
+    .order('signed_at', { ascending: true });
+
+  // Fetch shares
+  const { data: shares } = await sb
+    .from('document_shares')
+    .select('id, share_type, shared_with_id, expires_at, access_count, created_at')
+    .eq('document_id', input.document_id as string);
+
+  return { success: true, data: { ...doc, signatures: sigs || [], shares: shares || [] } };
+}
+
+export async function handle_upload_document(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.title) return { success: false, error: 'title is required' };
+  if (!input.document_type) return { success: false, error: 'document_type is required' };
+
+  const insertData: Record<string, unknown> = {
+    owner_id: userId,
+    title: input.title,
+    document_type: input.document_type,
+    html_content: '',
+    created_by: 'agent',
+    property_id: input.property_id || null,
+    folder_id: input.folder_id || null,
+    description: input.description || null,
+    tags: input.tags || null,
+    expiry_date: input.expiry_date || null,
+    storage_path: input.storage_path || null,
+    file_url: input.storage_path || null,
+    uploaded_by: userId,
+    is_archived: false,
+  };
+
+  const { data, error } = await sb
+    .from('documents')
+    .insert(insertData)
+    .select('id, title, document_type, property_id, folder_id, created_at')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data };
+}
+
+export async function handle_share_document(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.document_id) return { success: false, error: 'document_id is required' };
+  if (!input.tenant_id) return { success: false, error: 'tenant_id is required' };
+
+  // Verify ownership
+  const { data: doc } = await sb
+    .from('documents')
+    .select('id, owner_id')
+    .eq('id', input.document_id as string)
+    .single();
+
+  if (!doc || doc.owner_id !== userId) return { success: false, error: 'Document not found or access denied' };
+
+  const expiresAt = input.expiry_days && Number(input.expiry_days) > 0
+    ? new Date(Date.now() + Number(input.expiry_days) * 24 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  const { data: share, error } = await sb
+    .from('document_shares')
+    .insert({
+      document_id: input.document_id,
+      share_type: 'user',
+      shared_with_id: input.tenant_id,
+      shared_by: userId,
+      can_download: input.can_download !== false,
+      can_print: true,
+      expires_at: expiresAt,
+    })
+    .select('id, document_id, shared_with_id, expires_at, created_at')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: share };
+}
+
+export async function handle_search_documents(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.query) return { success: false, error: 'query is required' };
+
+  const { data, error } = await sb.rpc('search_documents', {
+    p_user_id: userId,
+    p_query: input.query as string,
+    p_property_id: (input.property_id as string) || null,
+    p_document_type: (input.document_type as string) || null,
+    p_limit: Math.min(Number(input.limit) || 20, 50),
+  });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data || [] };
+}
+
+export async function handle_get_document_folders(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.property_id) return { success: false, error: 'property_id is required' };
+
+  const { data, error } = await sb
+    .from('document_folders')
+    .select('id, name, icon, is_system, parent_id')
+    .eq('owner_id', userId)
+    .eq('property_id', input.property_id as string)
+    .order('is_system', { ascending: false })
+    .order('name', { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data || [] };
+}
+
+export async function handle_move_document_to_folder(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  if (!input.document_id) return { success: false, error: 'document_id is required' };
+
+  // Verify ownership
+  const { data: doc } = await sb
+    .from('documents')
+    .select('id, owner_id')
+    .eq('id', input.document_id as string)
+    .single();
+
+  if (!doc || doc.owner_id !== userId) return { success: false, error: 'Document not found or access denied' };
+
+  const { error } = await sb
+    .from('documents')
+    .update({ folder_id: input.folder_id || null })
+    .eq('id', input.document_id as string);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: { document_id: input.document_id, folder_id: input.folder_id || null } };
+}
+
 export async function handle_get_background_tasks(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
   let query = sb
     .from('agent_background_tasks')
@@ -640,14 +794,186 @@ export async function handle_check_maintenance_threshold(input: ToolInput, userI
   };
 }
 
-export async function handle_check_regulatory_requirements(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
-  // Return state + action for Claude to reason about (it has regulatory knowledge)
+export async function handle_check_regulatory_requirements(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const state = (input.state as string || '').toUpperCase();
+  const actionType = input.action_type as string;
+
+  // Map action_type to tenancy_law_rules categories
+  const categoryMap: Record<string, string[]> = {
+    'rent_increase': ['rent_increase'],
+    'entry': ['entry_notice'],
+    'inspection': ['entry_notice'],
+    'notice': ['entry_notice', 'termination'],
+    'terminate': ['termination'],
+    'eviction': ['termination'],
+    'bond': ['bond'],
+    'maintenance': ['repairs'],
+    'repairs': ['repairs'],
+    'discrimination': ['discrimination', 'general'],
+    'minimum_standards': ['minimum_standards'],
+    'general': ['general'],
+  };
+
+  // Find matching categories (fuzzy match on action_type)
+  let categories: string[] = [];
+  const actionLower = actionType.toLowerCase();
+  for (const [key, cats] of Object.entries(categoryMap)) {
+    if (actionLower.includes(key)) {
+      categories = [...categories, ...cats];
+    }
+  }
+  // If no match, return all rules for the state
+  if (categories.length === 0) categories = [];
+
+  let query = sb
+    .from('tenancy_law_rules')
+    .select('*')
+    .in('state', state ? [state, 'ALL'] : ['ALL'])
+    .eq('is_active', true);
+
+  if (categories.length > 0) {
+    query = query.in('category', categories);
+  }
+
+  const { data: rules, error } = await query.order('category').order('rule_key');
+
+  if (error) return { success: false, error: error.message };
+
+  // Also get property-specific compliance status if property_id provided
+  let propertyState = state;
+  if (input.property_id && !state) {
+    const { data: prop } = await sb.from('properties').select('state').eq('id', input.property_id as string).single();
+    if (prop?.state) propertyState = prop.state;
+  }
+
   return {
     success: true,
     data: {
-      state: input.state,
-      action_type: input.action_type,
-      instruction: `Based on your knowledge of Australian ${input.state} residential tenancy law, provide the regulatory requirements for "${input.action_type}". Include notice periods, form requirements, and any relevant legislation references.`,
+      state: propertyState,
+      action_type: actionType,
+      rules_found: (rules || []).length,
+      rules: (rules || []).map((r: any) => ({
+        category: r.category,
+        rule_key: r.rule_key,
+        rule_text: r.rule_text,
+        notice_days: r.notice_days,
+        notice_business_days: r.notice_business_days,
+        max_frequency_months: r.max_frequency_months,
+        max_amount: r.max_amount,
+        legislation_ref: r.legislation_ref,
+        enforcement_level: r.enforcement_level,
+        penalty_info: r.penalty_info,
+        agent_action: r.agent_action,
+        conditions: r.conditions,
+      })),
+      instruction: `These are the legally binding rules from ${propertyState} tenancy law for "${actionType}". You MUST follow these rules when advising the owner or taking action. Never suggest actions that violate these requirements.`,
     },
   };
+}
+
+export async function handle_get_tenancy_law(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const state = (input.state as string || '').toUpperCase();
+  const category = input.category as string | undefined;
+  const ruleKey = input.rule_key as string | undefined;
+
+  let query = sb
+    .from('tenancy_law_rules')
+    .select('*')
+    .eq('is_active', true);
+
+  if (state) query = query.in('state', [state, 'ALL']);
+  if (category) query = query.eq('category', category);
+  if (ruleKey) query = query.eq('rule_key', ruleKey);
+
+  const { data: rules, error } = await query.order('state').order('category').order('rule_key');
+
+  if (error) return { success: false, error: error.message };
+
+  return {
+    success: true,
+    data: {
+      state: state || 'ALL',
+      category: category || 'all',
+      rules_found: (rules || []).length,
+      rules: (rules || []).map((r: any) => ({
+        state: r.state,
+        category: r.category,
+        rule_key: r.rule_key,
+        rule_text: r.rule_text,
+        notice_days: r.notice_days,
+        notice_business_days: r.notice_business_days,
+        max_frequency_months: r.max_frequency_months,
+        max_amount: r.max_amount,
+        legislation_ref: r.legislation_ref,
+        applies_to: r.applies_to,
+        enforcement_level: r.enforcement_level,
+        penalty_info: r.penalty_info,
+        agent_action: r.agent_action,
+        conditions: r.conditions,
+      })),
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BEYOND-PM INTELLIGENCE QUERIES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_get_property_health(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { data, error } = await sb
+    .from('property_health_scores')
+    .select('*, properties!inner(address_line_1, suburb, state)')
+    .eq('property_id', input.property_id as string)
+    .eq('owner_id', userId)
+    .single();
+
+  if (error) return { success: false, error: 'No health score available for this property yet. Health scores are calculated weekly by the heartbeat system.' };
+  return { success: true, data };
+}
+
+export async function handle_get_tenant_satisfaction(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { data, error } = await sb
+    .from('tenant_satisfaction')
+    .select('*, tenancies!inner(lease_start_date, lease_end_date, rent_amount, tenancy_tenants(profiles:tenant_id(full_name))), properties!inner(address_line_1, suburb, state)')
+    .eq('tenancy_id', input.tenancy_id as string)
+    .eq('owner_id', userId)
+    .single();
+
+  if (error) return { success: false, error: 'No satisfaction data available for this tenancy yet. Scores are calculated fortnightly.' };
+  return { success: true, data };
+}
+
+export async function handle_get_market_intelligence(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { data, error } = await sb
+    .from('market_intelligence')
+    .select('*')
+    .eq('suburb', input.suburb as string)
+    .eq('state', (input.state as string).toUpperCase());
+
+  if (error || !data || data.length === 0) {
+    return { success: true, data: { suburb: input.suburb, state: input.state, message: 'No market data cached yet. Data is collected weekly from internal listings. For immediate analysis, use the analyze_rent or get_market_data tools.', results: [] } };
+  }
+  return { success: true, data: { suburb: input.suburb, state: input.state, results: data } };
+}
+
+export async function handle_get_portfolio_snapshot(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const includeHistory = (input.include_history as boolean) || false;
+
+  let query = sb
+    .from('portfolio_snapshots')
+    .select('*')
+    .eq('owner_id', userId)
+    .order('snapshot_date', { ascending: false });
+
+  if (includeHistory) {
+    query = query.limit(12); // Last 12 months
+  } else {
+    query = query.limit(1);
+  }
+
+  const { data, error } = await query;
+  if (error) return { success: false, error: error.message };
+  if (!data || data.length === 0) return { success: true, data: { message: 'No portfolio snapshot available yet. Snapshots are generated monthly by the heartbeat system.', snapshots: [] } };
+
+  return { success: true, data: { latest: data[0], history: includeHistory ? data : undefined, total_snapshots: data.length } };
 }

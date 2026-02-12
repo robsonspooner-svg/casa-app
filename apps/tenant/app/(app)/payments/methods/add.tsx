@@ -1,23 +1,68 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Card, Button, Input } from '@casa/ui';
+import { Card, Button } from '@casa/ui';
+import { getSupabaseClient } from '@casa/api';
 
 type MethodType = 'card' | 'becs';
 
 export default function AddPaymentMethodScreen() {
   const [selectedType, setSelectedType] = useState<MethodType>('card');
+  const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams<{ setup?: string }>();
 
-  const handleAddMethod = () => {
-    // In production, this would open the Stripe payment sheet
-    // or collect card/BECS details via Stripe Elements
-    Alert.alert(
-      'Stripe Integration Required',
-      'Payment method collection requires Stripe SDK integration. This will open the Stripe payment sheet when Stripe keys are configured.',
-      [{ text: 'OK', onPress: () => router.back() }]
+  // Handle return from Stripe Checkout
+  if (params.setup === 'success') {
+    return (
+      <View style={[styles.container, styles.centeredContent]}>
+        <View style={styles.successIcon}>
+          <Svg width={32} height={32} viewBox="0 0 24 24" fill="none">
+            <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+        <Text style={styles.successTitle}>Payment Method Added</Text>
+        <Text style={styles.successText}>Your payment method has been saved successfully.</Text>
+        <Button
+          title="Done"
+          onPress={() => router.back()}
+          style={styles.addButton}
+        />
+      </View>
     );
+  }
+
+  const handleAddMethod = async () => {
+    setLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+
+      const { data, error } = await supabase.functions.invoke('stripe-setup-session', {
+        body: {
+          paymentMethodTypes: [selectedType === 'card' ? 'card' : 'au_becs_debit'],
+          successUrl: 'casa-tenant://payments/methods/add?setup=success',
+          cancelUrl: 'casa-tenant://payments/methods/add?setup=cancelled',
+        },
+      });
+
+      if (error) {
+        const errMsg = data?.error || error.message || 'Failed to start payment setup';
+        throw new Error(errMsg);
+      }
+
+      if (!data?.sessionUrl) {
+        throw new Error('No checkout URL returned');
+      }
+
+      // Open Stripe Checkout in an in-app browser
+      await WebBrowser.openBrowserAsync(data.sessionUrl);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to set up payment method. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -28,6 +73,7 @@ export default function AddPaymentMethodScreen() {
         <TouchableOpacity
           style={[styles.typeCard, selectedType === 'card' && styles.typeCardSelected]}
           onPress={() => setSelectedType('card')}
+          disabled={loading}
         >
           <View style={styles.typeIcon}>
             <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
@@ -44,6 +90,7 @@ export default function AddPaymentMethodScreen() {
         <TouchableOpacity
           style={[styles.typeCard, selectedType === 'becs' && styles.typeCardSelected]}
           onPress={() => setSelectedType('becs')}
+          disabled={loading}
         >
           <View style={styles.typeIcon}>
             <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
@@ -73,10 +120,14 @@ export default function AddPaymentMethodScreen() {
       )}
 
       <Button
-        title={selectedType === 'card' ? 'Add Card' : 'Add Bank Account'}
+        title={loading ? '' : (selectedType === 'card' ? 'Add Card' : 'Add Bank Account')}
         onPress={handleAddMethod}
         style={styles.addButton}
+        disabled={loading}
       />
+      {loading && (
+        <ActivityIndicator size="small" color={THEME.colors.brand} style={styles.loader} />
+      )}
 
       <Text style={styles.securityNote}>
         Your payment details are securely handled by Stripe. Casa never stores your full card number or bank details.
@@ -93,6 +144,11 @@ const styles = StyleSheet.create({
   content: {
     padding: THEME.spacing.base,
     paddingBottom: THEME.spacing['2xl'],
+  },
+  centeredContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: THEME.spacing.xl,
   },
   sectionTitle: {
     fontSize: THEME.fontSize.h3,
@@ -116,7 +172,7 @@ const styles = StyleSheet.create({
   },
   typeCardSelected: {
     borderColor: THEME.colors.brand,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: THEME.colors.brand + '08',
   },
   typeIcon: {
     marginBottom: THEME.spacing.sm,
@@ -168,10 +224,35 @@ const styles = StyleSheet.create({
   addButton: {
     marginBottom: THEME.spacing.base,
   },
+  loader: {
+    marginTop: -THEME.spacing.md,
+    marginBottom: THEME.spacing.base,
+  },
   securityNote: {
     fontSize: THEME.fontSize.caption,
     color: THEME.colors.textTertiary,
     textAlign: 'center',
     lineHeight: 16,
+  },
+  successIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.successBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: THEME.spacing.md,
+  },
+  successTitle: {
+    fontSize: THEME.fontSize.h2,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.sm,
+  },
+  successText: {
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: THEME.spacing.xl,
   },
 });

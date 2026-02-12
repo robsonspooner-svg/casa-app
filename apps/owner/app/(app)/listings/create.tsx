@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Href } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -24,6 +26,7 @@ import {
   useProperties,
   useListingMutations,
   useFeatureOptions,
+  useGenerateListing,
   PropertyWithImages,
   LeaseTerm,
   PaymentFrequency,
@@ -50,6 +53,7 @@ export default function CreateListingScreen() {
   const { properties, loading: propertiesLoading } = useProperties();
   const { createListing } = useListingMutations();
   const { features: featureOptions, featuresByCategory } = useFeatureOptions();
+  const { generating, generateListing } = useGenerateListing();
 
   const [step, setStep] = useState<Step>(params.propertyId ? 'details' : 'property');
   const [submitting, setSubmitting] = useState(false);
@@ -203,7 +207,7 @@ export default function CreateListingScreen() {
   // Details Step
   if (step === 'details') {
     return (
-      <View style={styles.container}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => setStep('property')} style={styles.backButton}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
@@ -214,7 +218,7 @@ export default function CreateListingScreen() {
           <View style={styles.headerRight} />
         </View>
 
-        <ScrollView style={styles.flex} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.flex} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {selectedProperty && (
             <View style={styles.selectedPropertyBanner}>
               <Text style={styles.selectedPropertyText}>
@@ -241,6 +245,32 @@ export default function CreateListingScreen() {
             numberOfLines={4}
             inputStyle={styles.textArea}
           />
+
+          {selectedProperty && (
+            <TouchableOpacity
+              style={styles.generateButton}
+              onPress={async () => {
+                const result = await generateListing(selectedProperty.id, title || undefined);
+                if (result) {
+                  if (!title && result.title) setTitle(result.title);
+                  if (result.description) setDescription(result.description);
+                }
+              }}
+              disabled={generating}
+              activeOpacity={0.7}
+            >
+              {generating ? (
+                <ActivityIndicator size="small" color={THEME.colors.brand} />
+              ) : (
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              )}
+              <Text style={styles.generateButtonText}>
+                {generating ? 'Generating...' : 'Generate with AI'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.fieldGap} />
 
@@ -312,14 +342,14 @@ export default function CreateListingScreen() {
             disabled={!canProceedToPolicies}
           />
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 
   // Policies & Features Step
   if (step === 'policies') {
     return (
-      <View style={styles.container}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => setStep('details')} style={styles.backButton}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
@@ -399,7 +429,7 @@ export default function CreateListingScreen() {
             onPress={() => setStep('review')}
           />
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 
@@ -639,6 +669,24 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
     paddingTop: THEME.spacing.md,
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: THEME.spacing.sm,
+    paddingVertical: THEME.spacing.md,
+    marginTop: THEME.spacing.sm,
+    backgroundColor: THEME.colors.subtle,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderStyle: 'dashed',
+  },
+  generateButtonText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.brand,
   },
   sectionTitle: {
     fontSize: THEME.fontSize.h3,

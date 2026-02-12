@@ -299,7 +299,7 @@ export default function CreateTenancyScreen() {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
             <Text style={styles.createButtonText}>Create Tenancy</Text>
           )}
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -386,7 +386,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -406,7 +406,7 @@ const styles = StyleSheet.create({
   optionChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -421,7 +421,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   optionTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   footer: {
     padding: 20,
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     paddingVertical: 16,
     alignItems: 'center',
   },
@@ -438,12 +438,12 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   createButtonText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontSize: 16,
     fontWeight: '700',
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: THEME.colors.error,
   },
 });

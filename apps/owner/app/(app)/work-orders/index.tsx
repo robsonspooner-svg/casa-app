@@ -20,14 +20,14 @@ import type { WorkOrderStatus } from '@casa/api';
 import type { WorkOrderListItem } from '@casa/api';
 
 const STATUS_CONFIG: Record<WorkOrderStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: 'Draft', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  draft: { label: 'Draft', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   sent: { label: 'Sent', color: THEME.colors.info, bg: THEME.colors.infoBg },
   quoted: { label: 'Quoted', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   approved: { label: 'Approved', color: THEME.colors.success, bg: THEME.colors.successBg },
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
 };
 
 type FilterValue = 'active' | 'draft' | 'quoted' | 'in_progress' | 'completed';
@@ -200,7 +200,7 @@ export default function WorkOrdersScreen() {
         activeOpacity={0.8}
       >
         <Svg width={THEME.components.fab.iconSize} height={THEME.components.fab.iconSize} viewBox="0 0 24 24" fill="none">
-          <Path d="M12 5v14M5 12h14" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <Path d="M12 5v14M5 12h14" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </TouchableOpacity>
     </SafeAreaView>
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   list: {
     padding: THEME.spacing.base,

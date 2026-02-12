@@ -8,6 +8,7 @@ import {
   Animated,
 } from 'react-native';
 import { THEME } from '@casa/config';
+import { lightTap } from '../utils/haptics';
 
 export interface CardProps {
   children: React.ReactNode;
@@ -42,6 +43,7 @@ export function Card({
 
   const handlePressIn = () => {
     if (!onPress) return;
+    lightTap();
     Animated.timing(scaleAnim, {
       toValue: 0.98,
       duration: THEME.animation.fast,

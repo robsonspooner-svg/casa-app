@@ -1,5 +1,7 @@
 // Generate, External, Workflow, Memory & Planning Tool Handlers
 
+import { generateEmbedding, buildPreferenceEmbeddingText, formatEmbeddingForStorage } from './embeddings.ts';
+
 type SupabaseClient = any;
 type ToolResult = { success: boolean; data?: unknown; error?: string };
 type ToolInput = Record<string, unknown>;
@@ -195,35 +197,278 @@ export async function handle_compare_quotes(input: ToolInput, userId: string, sb
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BEYOND-PM INTELLIGENCE — Generate Tools
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_generate_wealth_report(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const period = input.period as string;
+  const includeProjections = (input.include_projections as boolean) || false;
+
+  const [snapshotsResult, healthResult, propertiesResult, satisfactionResult] = await Promise.all([
+    sb.from('portfolio_snapshots').select('*').eq('owner_id', userId).order('snapshot_date', { ascending: false }).limit(12),
+    sb.from('property_health_scores').select('*, properties!inner(address_line_1, suburb, state, rent_amount)').eq('owner_id', userId),
+    sb.from('properties').select('id, address_line_1, suburb, state, rent_amount, status, year_built').eq('owner_id', userId).is('deleted_at', null),
+    sb.from('tenant_satisfaction').select('*, tenancies!inner(rent_amount, property_id)').eq('owner_id', userId),
+  ]);
+
+  return {
+    success: true,
+    data: {
+      snapshots: snapshotsResult.data || [],
+      health_scores: healthResult.data || [],
+      properties: propertiesResult.data || [],
+      tenant_satisfaction: satisfactionResult.data || [],
+      period,
+      include_projections: includeProjections,
+      instruction: `Generate a comprehensive portfolio wealth report for the ${period} period. Include:\n1. Executive summary with total portfolio value, yield, and growth\n2. Per-property performance breakdown with health scores\n3. Tenant stability analysis with retention risks\n4. Market positioning for each suburb\n5. Risk assessment and mitigation recommendations\n${includeProjections ? '6. 12-month forward projections for income, expenses, and growth\n' : ''}Format as a professional investment report. Use Australian English and AUD amounts.`,
+    },
+  };
+}
+
+export async function handle_generate_property_action_plan(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const propertyId = input.property_id as string;
+
+  const [healthResult, maintenanceResult, complianceResult, tenancyResult] = await Promise.all([
+    sb.from('property_health_scores').select('*').eq('property_id', propertyId).eq('owner_id', userId).single(),
+    sb.from('maintenance_requests').select('title, category, urgency, status, actual_cost, created_at').eq('property_id', propertyId).order('created_at', { ascending: false }).limit(20),
+    sb.from('property_compliance').select('*').eq('property_id', propertyId),
+    sb.from('tenancies').select('*, tenant_satisfaction(*)').eq('property_id', propertyId).eq('status', 'active').limit(1),
+  ]);
+
+  const { data: property } = await sb.from('properties').select('*').eq('id', propertyId).eq('owner_id', userId).single();
+  if (!property) return { success: false, error: 'Property not found' };
+
+  return {
+    success: true,
+    data: {
+      property,
+      health_score: healthResult.data,
+      maintenance_history: maintenanceResult.data || [],
+      compliance: complianceResult.data || [],
+      tenancy: tenancyResult.data?.[0] || null,
+      instruction: `Generate a specific, actionable improvement plan for this property. Current health score: ${healthResult.data?.overall_score || 'unknown'}/100. For each risk factor identified, provide:\n1. The specific action to take\n2. Estimated cost and time\n3. Expected impact on the health score\n4. Priority (do now / next month / next quarter)\nOrder by impact-to-effort ratio. Format as an actionable checklist.`,
+    },
+  };
+}
+
+export async function handle_predict_vacancy_risk(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const propertyId = input.property_id as string;
+
+  const [healthResult, satisfactionResult, marketResult, tenancyResult] = await Promise.all([
+    sb.from('property_health_scores').select('predicted_vacancy_risk, overall_score').eq('property_id', propertyId).single(),
+    sb.from('tenant_satisfaction').select('renewal_probability, satisfaction_score, risk_flags').eq('property_id', propertyId).limit(1),
+    sb.from('properties').select('suburb, state, rent_amount, status').eq('id', propertyId).single(),
+    sb.from('tenancies').select('lease_end_date, status, rent_amount').eq('property_id', propertyId).eq('status', 'active').limit(1),
+  ]);
+
+  let marketData = null;
+  if (marketResult.data) {
+    const { data } = await sb.from('market_intelligence').select('vacancy_rate, median_rent_weekly, demand_score').eq('suburb', marketResult.data.suburb).eq('state', marketResult.data.state).limit(1).maybeSingle();
+    marketData = data;
+  }
+
+  return {
+    success: true,
+    data: {
+      health: healthResult.data,
+      satisfaction: satisfactionResult.data?.[0] || null,
+      property: marketResult.data,
+      tenancy: tenancyResult.data?.[0] || null,
+      market: marketData,
+      instruction: 'Analyse vacancy risk for this property. Consider: tenant satisfaction, lease timeline, market conditions, property health. Provide: 1) Risk level (low/medium/high/critical), 2) Probability of vacancy in next 6 months, 3) Estimated cost of vacancy (lost rent + re-letting costs), 4) Specific actions to reduce risk. Return as a structured assessment.',
+    },
+  };
+}
+
+export async function handle_calculate_roi_metrics(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const propertyId = input.property_id as string;
+  const purchasePrice = (input.purchase_price as number) || null;
+
+  const [propertyResult, tenancyResult, expensesResult, maintenanceResult] = await Promise.all([
+    sb.from('properties').select('*, property_metrics(*)').eq('id', propertyId).eq('owner_id', userId).single(),
+    sb.from('tenancies').select('rent_amount, rent_frequency, lease_start_date').eq('property_id', propertyId).eq('status', 'active').limit(1),
+    sb.from('manual_expenses').select('amount, is_tax_deductible').eq('property_id', propertyId).gte('expense_date', new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0]),
+    sb.from('maintenance_requests').select('actual_cost').eq('property_id', propertyId).in('status', ['completed']).gte('created_at', new Date(Date.now() - 365 * 86400000).toISOString()),
+  ]);
+
+  if (!propertyResult.data) return { success: false, error: 'Property not found' };
+
+  return {
+    success: true,
+    data: {
+      property: propertyResult.data,
+      tenancy: tenancyResult.data?.[0] || null,
+      annual_expenses: expensesResult.data || [],
+      maintenance_costs: maintenanceResult.data || [],
+      purchase_price: purchasePrice,
+      instruction: `Calculate detailed ROI metrics for this property. Include:\n1. Gross rental yield (annual rent / property value)\n2. Net rental yield (after expenses)\n3. Cash-on-cash return (if purchase price provided)\n4. Break-even occupancy rate\n5. Cost per square metre analysis\n6. Comparison to typical Australian property investment returns (4-6% gross yield)\n${purchasePrice ? '7. Capital growth estimate since purchase\n8. Total return (income + growth)\n' : ''}Return as a structured financial analysis with numbers and percentages.`,
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXTERNAL / INTEGRATION TOOLS
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function handle_web_search(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
-  // This will be backed by a real search API (e.g. Brave, Google) when deployed
-  // For now, return the query for Claude to reason about from its training data
-  return { success: true, data: { query: input.query, region: input.region || 'Australia', instruction: `The user's agent is searching for: "${input.query}" in ${input.region || 'Australia'}. Based on your knowledge, provide the most relevant and current information. Note: in production this will use a live search API.` } };
+  const query = input.query as string;
+  const region = (input.region as string) || 'au-en';
+  if (!query) return { success: false, error: 'Missing required field: query' };
+
+  try {
+    // DuckDuckGo Instant Answer API (free, no key needed)
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1&skip_disambig=1&kl=${region}`;
+    const ddgResponse = await fetch(ddgUrl, { headers: { 'User-Agent': 'CasaPropertyAgent/1.0' } });
+
+    let instantAnswer: { abstract: string | null; answer: string | null; source: string; url: string | null; related: { text: string; url: string }[] } | null = null;
+    if (ddgResponse.ok) {
+      const ddgData = await ddgResponse.json();
+      if (ddgData.AbstractText || ddgData.Answer) {
+        instantAnswer = {
+          abstract: ddgData.AbstractText || null,
+          answer: ddgData.Answer || null,
+          source: ddgData.AbstractSource || 'DuckDuckGo',
+          url: ddgData.AbstractURL || null,
+          related: (ddgData.RelatedTopics || []).slice(0, 5).map((t: any) => ({ text: t.Text || '', url: t.FirstURL || '' })),
+        };
+      }
+    }
+
+    // DuckDuckGo HTML scrape for organic results (free, no key needed)
+    const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=${region}`;
+    const htmlResponse = await fetch(htmlUrl, { headers: { 'User-Agent': 'CasaPropertyAgent/1.0' } });
+
+    const searchResults: { title: string; snippet: string; url: string }[] = [];
+    if (htmlResponse.ok) {
+      const html = await htmlResponse.text();
+      const resultPattern = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+      let match;
+      while ((match = resultPattern.exec(html)) !== null && searchResults.length < 8) {
+        const rawUrl = match[1].replace(/.*uddg=/, '').split('&')[0];
+        const title = match[2].replace(/<[^>]*>/g, '').trim();
+        const snippet = match[3].replace(/<[^>]*>/g, '').trim();
+        if (title && snippet) searchResults.push({ title, snippet, url: decodeURIComponent(rawUrl) });
+      }
+    }
+
+    if (!instantAnswer && searchResults.length === 0) {
+      return { success: true, data: { query, region, results: [], instruction: `Web search returned no results for "${query}". Use your training knowledge to provide the best available information.` } };
+    }
+
+    return { success: true, data: { query, region, instant_answer: instantAnswer, results: searchResults, result_count: searchResults.length, instruction: 'Analyze these search results and provide a comprehensive answer. Cite specific sources where relevant.' } };
+  } catch (err: any) {
+    return { success: true, data: { query, region, results: [], instruction: `Web search error (${err.message}). Use your training knowledge to answer "${query}".` } };
+  }
 }
 
 export async function handle_find_local_trades(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
-  // First check our own database
-  let query = sb.from('trades').select('id, business_name, contact_name, phone, email, categories, service_areas, average_rating, total_reviews, total_jobs, status').eq('status', 'active');
-  if (input.trade_type) query = query.contains('categories', [input.trade_type as string]);
+  const tradeType = (input.trade_type as string) || '';
+  const suburb = (input.suburb as string) || '';
+  const state = (input.state as string) || '';
 
-  // If property_id given, get the suburb
+  // 1. Check internal database first
+  let dbQuery = sb.from('trades').select('id, business_name, contact_name, phone, email, categories, service_areas, average_rating, total_reviews, total_jobs, status').eq('status', 'active');
+  if (tradeType) dbQuery = dbQuery.contains('categories', [tradeType]);
   if (input.property_id) {
     const { data: prop } = await sb.from('properties').select('suburb, postcode').eq('id', input.property_id as string).single();
-    if (prop) query = query.contains('service_areas', [(prop as any).postcode || (prop as any).suburb]);
-  } else if (input.suburb) {
-    query = query.contains('service_areas', [input.suburb as string]);
+    if (prop) dbQuery = dbQuery.contains('service_areas', [(prop as any).postcode || (prop as any).suburb]);
+  } else if (suburb) {
+    dbQuery = dbQuery.contains('service_areas', [suburb]);
   }
+  const { data: localTrades } = await dbQuery.order('average_rating', { ascending: false }).limit((input.max_results as number) || 10);
 
-  const { data: localTrades } = await query.order('average_rating', { ascending: false }).limit((input.max_results as number) || 10);
+  // 2. Search externally via DuckDuckGo for more options
+  const externalResults: { title: string; snippet: string; url: string }[] = [];
+  try {
+    const searchQuery = `${tradeType} ${suburb} ${state} Australia reviews`;
+    const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}&kl=au-en`;
+    const htmlResponse = await fetch(htmlUrl, { headers: { 'User-Agent': 'CasaPropertyAgent/1.0' } });
+    if (htmlResponse.ok) {
+      const html = await htmlResponse.text();
+      const resultPattern = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+      let match;
+      while ((match = resultPattern.exec(html)) !== null && externalResults.length < 5) {
+        const rawUrl = match[1].replace(/.*uddg=/, '').split('&')[0];
+        const title = match[2].replace(/<[^>]*>/g, '').trim();
+        const snippet = match[3].replace(/<[^>]*>/g, '').trim();
+        if (title && snippet) externalResults.push({ title, snippet, url: decodeURIComponent(rawUrl) });
+      }
+    }
+  } catch { /* external search is best-effort */ }
 
-  return { success: true, data: { trades_in_network: localTrades || [], trade_type: input.trade_type, suburb: input.suburb, urgency: input.urgency, instruction: localTrades && localTrades.length > 0 ? 'Here are trades from the owner\'s network. Present these first, then offer to search externally for more options.' : `No ${input.trade_type} found in the owner's network for this area. In production, this would search external directories. Suggest the owner add tradespeople to their network.` } };
+  const hasInternal = localTrades && localTrades.length > 0;
+  const hasExternal = externalResults.length > 0;
+
+  return {
+    success: true,
+    data: {
+      trades_in_network: localTrades || [],
+      external_search_results: externalResults,
+      trade_type: tradeType,
+      suburb,
+      urgency: input.urgency,
+      instruction: hasInternal
+        ? `Found ${localTrades!.length} trades in the owner's network. Present these first.${hasExternal ? ` External search also found ${externalResults.length} new options. For each external result, call create_service_provider with the business_name, trade_type="${tradeType}", and phone (extract from snippet if available) to add them to the network. If a result has a URL, call parse_business_details first to get full contact details before creating the service provider.` : ''}`
+        : hasExternal
+          ? `No trades in the owner's network yet. Found ${externalResults.length} external results. For each result, call create_service_provider to add them to the owner's network as service provider cards. Use business_name from the title, trade_type="${tradeType}", suburb="${suburb}", and extract phone numbers from snippets. If a result has a URL, call parse_business_details first for full details (ABN, email, license). Then present the added trades to the owner.`
+          : `No ${tradeType} found locally or online for ${suburb}. Suggest broader search terms or ask the owner if they know anyone.`,
+    },
+  };
 }
 
 export async function handle_parse_business_details(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
-  return { success: true, data: { url: input.url, business_name: input.business_name || '', instruction: `Extract structured business details from this URL: ${input.url}. Return JSON: { "business_name": "...", "abn": "...", "license_number": "...", "phone": "...", "email": "...", "address": "...", "rating": N, "insurance_status": "...", "services": [...] }. Note: in production this will use web scraping.` } };
+  const url = input.url as string;
+  if (!url) return { success: false, error: 'Missing required field: url' };
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'CasaPropertyAgent/1.0', 'Accept': 'text/html' },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      return { success: true, data: { url, error: `HTTP ${response.status}`, instruction: `Could not fetch ${url} (${response.status}). Ask the user for the business details manually or try a web_search for the business name.` } };
+    }
+
+    const html = await response.text();
+    // Extract useful text content (strip tags, limit size for Claude)
+    const textContent = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 8000); // Limit to ~8K chars for Claude to parse
+
+    // Extract phone numbers (Australian format)
+    const phones = html.match(/(?:(?:\+61|0)[2-578]\s?\d{4}\s?\d{4}|(?:13|1[38]00)\s?\d{3}\s?\d{3})/g) || [];
+    // Extract emails
+    const emails = html.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+    // Extract ABN (11 digits)
+    const abns = html.match(/ABN[:\s]*(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})/gi) || [];
+    // Extract title
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+
+    return {
+      success: true,
+      data: {
+        url,
+        page_title: pageTitle,
+        extracted: {
+          phones: [...new Set(phones)].slice(0, 3),
+          emails: [...new Set(emails)].slice(0, 3),
+          abns: [...new Set(abns)].slice(0, 1),
+        },
+        page_text: textContent,
+        instruction: 'Extract business details from this scraped page content. Return the business_name, phone, email, ABN, services offered, address, and any ratings/reviews you can find. The extracted fields above are auto-detected — verify them against the full text.',
+      },
+    };
+  } catch (err: any) {
+    return { success: true, data: { url, instruction: `Could not scrape ${url} (${err.message}). Ask the user for the business details or try a web_search instead.` } };
+  }
 }
 
 export async function handle_create_service_provider(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -327,9 +572,7 @@ export async function handle_check_maintenance_threshold(input: ToolInput, userI
   return { success: true, data: { estimated_cost: cost, threshold, within_threshold: cost <= threshold, requires_approval: cost > threshold } };
 }
 
-export async function handle_check_regulatory_requirements(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
-  return { success: true, data: { state: input.state, action_type: input.action_type, instruction: `Based on your knowledge of Australian ${input.state} residential tenancy law, provide the regulatory requirements for "${input.action_type}". Include notice periods, required forms, and relevant legislation references.` } };
-}
+// check_regulatory_requirements handler is now in tool-handlers.ts (queries tenancy_law_rules table)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // WORKFLOW TOOLS — orchestrate multi-step processes
@@ -383,6 +626,15 @@ export async function handle_remember(input: ToolInput, userId: string, sb: Supa
   const [category, ...keyParts] = (input.key as string).split('.');
   const prefKey = keyParts.join('.') || input.key as string;
 
+  // Generate semantic embedding for this preference
+  let embedding: number[] | null = null;
+  try {
+    const embeddingText = buildPreferenceEmbeddingText(category, prefKey, input.value);
+    embedding = await generateEmbedding(embeddingText);
+  } catch {
+    // Don't block on embedding failure
+  }
+
   const { data, error } = await sb
     .from('agent_preferences')
     .upsert({
@@ -394,6 +646,7 @@ export async function handle_remember(input: ToolInput, userId: string, sb: Supa
       source: 'inferred',
       confidence: (input.confidence as number) || 0.8,
       updated_at: new Date().toISOString(),
+      ...(embedding ? { embedding: formatEmbeddingForStorage(embedding) } : {}),
     }, { onConflict: 'user_id,property_id,category,preference_key' })
     .select('id, category, preference_key, preference_value')
     .single();
@@ -403,6 +656,31 @@ export async function handle_remember(input: ToolInput, userId: string, sb: Supa
 }
 
 export async function handle_recall(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // If context is provided, use semantic search for relevance-ranked results
+  if (input.context && typeof input.context === 'string') {
+    try {
+      const contextEmbedding = await generateEmbedding(input.context as string);
+      const { data: semanticResults, error: rpcError } = await sb.rpc('search_similar_preferences', {
+        query_embedding: formatEmbeddingForStorage(contextEmbedding),
+        match_user_id: userId,
+        match_threshold: 0.4,
+        match_count: 20,
+      });
+
+      if (!rpcError && semanticResults && semanticResults.length > 0) {
+        // If category filter also provided, apply it
+        let filtered = semanticResults;
+        if (input.category) {
+          filtered = semanticResults.filter((p: any) => p.category === input.category);
+        }
+        return { success: true, data: { context: input.context, preferences: filtered, search_type: 'semantic' } };
+      }
+    } catch {
+      // Fall through to category-based search on semantic failure
+    }
+  }
+
+  // Fallback: category-based filtering (original behavior)
   let query = sb
     .from('agent_preferences')
     .select('category, preference_key, preference_value, source, confidence, updated_at')
@@ -414,10 +692,37 @@ export async function handle_recall(input: ToolInput, userId: string, sb: Supaba
 
   const { data, error } = await query.limit(20);
   if (error) return { success: false, error: error.message };
-  return { success: true, data: { context: input.context, preferences: data || [] } };
+  return { success: true, data: { context: input.context, preferences: data || [], search_type: 'category' } };
 }
 
 export async function handle_search_precedent(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const limit = (input.limit as number) || 10;
+
+  // If a query string is provided, use semantic vector search
+  if (input.query && typeof input.query === 'string') {
+    try {
+      const queryEmbedding = await generateEmbedding(input.query as string);
+      const { data: semanticResults, error: rpcError } = await sb.rpc('search_similar_decisions', {
+        query_embedding: formatEmbeddingForStorage(queryEmbedding),
+        match_user_id: userId,
+        match_threshold: 0.4,
+        match_count: limit,
+      });
+
+      if (!rpcError && semanticResults && semanticResults.length > 0) {
+        // If tool_name filter also provided, apply it
+        let filtered = semanticResults;
+        if (input.tool_name) {
+          filtered = semanticResults.filter((p: any) => p.tool_name === input.tool_name);
+        }
+        return { success: true, data: { query: input.query, precedents: filtered, search_type: 'semantic' } };
+      }
+    } catch {
+      // Fall through to recency-based search on semantic failure
+    }
+  }
+
+  // Fallback: recency-based search (original behavior)
   let query = sb
     .from('agent_decisions')
     .select('id, decision_type, tool_name, input_data, output_data, reasoning, confidence, owner_feedback, created_at')
@@ -427,9 +732,9 @@ export async function handle_search_precedent(input: ToolInput, userId: string, 
 
   if (input.tool_name) query = query.eq('tool_name', input.tool_name as string);
 
-  const { data, error } = await query.limit((input.limit as number) || 10);
+  const { data, error } = await query.limit(limit);
   if (error) return { success: false, error: error.message };
-  return { success: true, data: { query: input.query, precedents: data || [] } };
+  return { success: true, data: { query: input.query, precedents: data || [], search_type: 'recency' } };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -486,22 +791,700 @@ export async function handle_replan(input: ToolInput, _userId: string, _sb: Supa
 // directing the user to configure the integration.
 // ═══════════════════════════════════════════════════════════════════════════
 
-function integrationStub(toolName: string, service: string): (input: ToolInput, userId: string, sb: SupabaseClient) => Promise<ToolResult> {
+// User-friendly fallback messages for each stub (in case a stub is called despite
+// being filtered from Claude's tool list via isStub in TOOL_META).
+const STUB_MESSAGES: Record<string, string> = {
+  syndicate_listing_domain: 'Listing syndication to Domain.com.au is coming soon. For now, you can create your listing in Casa and manually post it to Domain.',
+  syndicate_listing_rea: 'Listing syndication to realestate.com.au is coming soon. For now, you can create your listing in Casa and manually post it to REA.',
+  run_credit_check: 'Automated credit checks via Equifax are coming soon. For now, you can request credit reports directly from equifax.com.au.',
+  run_tica_check: 'Automated TICA tenancy checks are coming soon. For now, you can check tenant history directly at tica.com.au.',
+  collect_rent_stripe: 'Automated rent collection is coming soon. Tenants can currently make payments through the tenant app.',
+  refund_payment_stripe: 'Automated refunds are coming soon. For now, refunds need to be processed manually through your bank.',
+  send_docusign_envelope: 'DocuSign integration is coming soon. You can still collect signatures using the in-app signature feature on any document.',
+  lodge_bond_state: 'Automated bond lodgement with your state authority is coming soon. You can lodge bonds manually through your state fair trading website.',
+  send_sms_twilio: 'SMS notifications are coming soon. You can still reach tenants via in-app messages, email, and push notifications.',
+  search_trades_hipages: 'hipages integration is coming soon. I can still search the web to find local tradespeople for you.',
+};
+
+function integrationStub(toolName: string): (input: ToolInput, userId: string, sb: SupabaseClient) => Promise<ToolResult> {
   return async (_input, _userId, _sb) => ({
     success: false,
-    error: `The "${toolName}" tool requires ${service} integration to be configured. This integration is not yet active. Please configure the ${service} API credentials in your environment to enable this feature.`,
+    error: STUB_MESSAGES[toolName] || 'This feature is coming soon.',
   });
 }
 
-export const handle_syndicate_listing_domain = integrationStub('syndicate_listing_domain', 'Domain.com.au API');
-export const handle_syndicate_listing_rea = integrationStub('syndicate_listing_rea', 'REA Group API');
-export const handle_run_credit_check = integrationStub('run_credit_check', 'Equifax credit check');
-export const handle_run_tica_check = integrationStub('run_tica_check', 'TICA tenancy database');
-export const handle_collect_rent_stripe = integrationStub('collect_rent_stripe', 'Stripe Connect');
-export const handle_refund_payment_stripe = integrationStub('refund_payment_stripe', 'Stripe Connect');
-export const handle_send_docusign_envelope = integrationStub('send_docusign_envelope', 'DocuSign');
-export const handle_lodge_bond_state = integrationStub('lodge_bond_state', 'state bond authority');
-export const handle_send_sms_twilio = integrationStub('send_sms_twilio', 'Twilio SMS');
-export const handle_send_email_sendgrid = integrationStub('send_email_sendgrid', 'SendGrid email');
-export const handle_send_push_expo = integrationStub('send_push_expo', 'Expo Push Notifications');
-export const handle_search_trades_hipages = integrationStub('search_trades_hipages', 'hipages API');
+export const handle_syndicate_listing_domain = integrationStub('syndicate_listing_domain');
+export const handle_syndicate_listing_rea = integrationStub('syndicate_listing_rea');
+export const handle_run_credit_check = integrationStub('run_credit_check');
+export const handle_run_tica_check = integrationStub('run_tica_check');
+export const handle_collect_rent_stripe = integrationStub('collect_rent_stripe');
+export const handle_refund_payment_stripe = integrationStub('refund_payment_stripe');
+export const handle_send_docusign_envelope = integrationStub('send_docusign_envelope');
+export const handle_lodge_bond_state = integrationStub('lodge_bond_state');
+export const handle_send_sms_twilio = integrationStub('send_sms_twilio');
+export const handle_search_trades_hipages = integrationStub('search_trades_hipages');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENT LIFECYCLE TOOLS — create, submit, and manage documents
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_create_document(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const title = input.title as string;
+  const documentType = input.document_type as string;
+  const htmlContent = input.html_content as string;
+  const propertyId = (input.property_id as string) || null;
+  const tenancyId = (input.tenancy_id as string) || null;
+  const tenantId = (input.tenant_id as string) || null;
+  const requiresSignature = (input.requires_signature as boolean) || false;
+
+  if (!title || !documentType || !htmlContent) {
+    return { success: false, error: 'Missing required fields: title, document_type, html_content' };
+  }
+
+  const validTypes = ['lease', 'notice', 'financial_report', 'tax_report', 'compliance_certificate', 'inspection_report', 'property_summary', 'portfolio_report', 'cash_flow_forecast', 'other'];
+  if (!validTypes.includes(documentType)) {
+    return { success: false, error: `Invalid document_type. Must be one of: ${validTypes.join(', ')}` };
+  }
+
+  const status = requiresSignature ? 'pending_owner_signature' : 'draft';
+
+  const folderId = (input.folder_id as string) || null;
+  const tags = (input.tags as string[]) || null;
+  const expiryDate = (input.expiry_date as string) || null;
+
+  const { data: doc, error } = await sb
+    .from('documents')
+    .insert({
+      owner_id: userId,
+      property_id: propertyId,
+      tenancy_id: tenancyId,
+      tenant_id: tenantId,
+      document_type: documentType,
+      title,
+      html_content: htmlContent,
+      status,
+      requires_signature: requiresSignature,
+      folder_id: folderId,
+      tags,
+      expiry_date: expiryDate,
+    })
+    .select('id, title, document_type, status, requires_signature, created_at')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  return {
+    success: true,
+    data: {
+      document_id: doc.id,
+      title: doc.title,
+      document_type: doc.document_type,
+      status: doc.status,
+      requires_signature: doc.requires_signature,
+      created_at: doc.created_at,
+      view_route: `/(app)/documents/${doc.id}`,
+    },
+  };
+}
+
+export async function handle_submit_document_email(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const documentId = input.document_id as string;
+  const toEmail = input.to_email as string;
+  const toName = (input.to_name as string) || '';
+  const subject = (input.subject as string) || '';
+  const bodyMessage = (input.body_message as string) || '';
+
+  if (!documentId || !toEmail) {
+    return { success: false, error: 'Missing required fields: document_id, to_email' };
+  }
+
+  // Fetch document and verify ownership
+  const { data: doc, error: docError } = await sb
+    .from('documents')
+    .select('id, title, html_content, document_type, owner_id')
+    .eq('id', documentId)
+    .eq('owner_id', userId)
+    .single();
+
+  if (docError || !doc) return { success: false, error: 'Document not found or access denied' };
+
+  // Get owner profile for sender name
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id', userId)
+    .single();
+
+  const ownerName = profile?.full_name || 'Casa Property Management';
+  const emailSubject = subject || `Document: ${doc.title}`;
+
+  // Wrap the document HTML in an email template
+  const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0A0A0A; max-width: 680px; margin: 0 auto; padding: 20px;">
+  <div style="background: #F5F2EB; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+    <h2 style="margin: 0 0 8px; font-size: 20px; color: #0A0A0A;">${doc.title}</h2>
+    <p style="margin: 0; color: #525252; font-size: 14px;">Sent by ${ownerName} via Casa</p>
+  </div>
+  ${bodyMessage ? `<div style="padding: 16px 0; color: #525252; font-size: 15px; line-height: 1.6; border-bottom: 1px solid #E5E5E5; margin-bottom: 20px;">${bodyMessage}</div>` : ''}
+  <div style="border: 1px solid #E5E5E5; border-radius: 8px; padding: 24px; background: #fff;">
+    ${doc.html_content}
+  </div>
+  <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #E5E5E5; text-align: center;">
+    <p style="margin: 0; color: #A3A3A3; font-size: 12px;">Sent via Casa — Smart Property Management</p>
+  </div>
+</body>
+</html>`;
+
+  // Send via Resend
+  const resendApiKey = Deno.env.get('RESEND_API_KEY');
+  if (!resendApiKey) {
+    return { success: false, error: 'RESEND_API_KEY not configured. Cannot send email.' };
+  }
+
+  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+  const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `${fromName} <${fromEmail}>`,
+        to: [toEmail],
+        reply_to: `${ownerName} <${fromEmail}>`,
+        subject: emailSubject,
+        html: emailHtml,
+        text: `${doc.title}\n\n${bodyMessage}\n\nSent via Casa Property Management`,
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      return { success: false, error: `Resend error ${response.status}: ${errBody}` };
+    }
+
+    // Update document status to indicate it's been submitted
+    await sb
+      .from('documents')
+      .update({ status: doc.document_type === 'notice' ? 'submitted' : 'draft' })
+      .eq('id', documentId);
+
+    return {
+      success: true,
+      data: {
+        sent: true,
+        document_id: documentId,
+        to_email: toEmail,
+        subject: emailSubject,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: `Email send failed: ${err.message}` };
+  }
+}
+
+export async function handle_request_document_signature(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const documentId = input.document_id as string;
+  const signerType = (input.signer_type as string) || 'owner';
+  const message = (input.message as string) || '';
+
+  if (!documentId) return { success: false, error: 'Missing required field: document_id' };
+
+  // Fetch and verify document
+  const { data: doc, error: docError } = await sb
+    .from('documents')
+    .select('id, title, owner_id, tenant_id, property_id, status, requires_signature')
+    .eq('id', documentId)
+    .eq('owner_id', userId)
+    .single();
+
+  if (docError || !doc) return { success: false, error: 'Document not found or access denied' };
+
+  // Update document status and ensure requires_signature is true
+  const newStatus = signerType === 'tenant' ? 'pending_tenant_signature' : 'pending_owner_signature';
+  await sb
+    .from('documents')
+    .update({ status: newStatus, requires_signature: true })
+    .eq('id', documentId);
+
+  // Create a pending action so it appears in the activity/tasks page
+  const targetUserId = signerType === 'tenant' && doc.tenant_id ? doc.tenant_id : userId;
+  const { data: pendingAction, error: paError } = await sb
+    .from('agent_pending_actions')
+    .insert({
+      user_id: targetUserId,
+      action_type: 'document_signature',
+      title: `Sign: ${doc.title}`,
+      description: message || `Please review and sign "${doc.title}".`,
+      tool_name: 'request_document_signature',
+      tool_params: { document_id: documentId, signer_type: signerType },
+      status: 'pending',
+      recommendation: `View and sign this document`,
+    })
+    .select('id')
+    .single();
+
+  if (paError) return { success: false, error: paError.message };
+
+  // Notify the signer via push notification if available
+  try {
+    const { data: tokenRow } = await sb
+      .from('push_tokens')
+      .select('token')
+      .eq('user_id', targetUserId)
+      .eq('is_active', true)
+      .order('last_used_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (tokenRow?.token) {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: tokenRow.token,
+          title: 'Document Signature Required',
+          body: `Please sign: ${doc.title}`,
+          data: { route: `/(app)/documents/${documentId}` },
+          sound: 'default',
+        }),
+      });
+    }
+  } catch { /* push is best-effort */ }
+
+  return {
+    success: true,
+    data: {
+      document_id: documentId,
+      pending_action_id: pendingAction?.id,
+      signer_type: signerType,
+      status: newStatus,
+      view_route: `/(app)/documents/${documentId}`,
+    },
+  };
+}
+
+export async function handle_update_document_status(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const documentId = input.document_id as string;
+  const status = input.status as string;
+
+  if (!documentId || !status) return { success: false, error: 'Missing required fields: document_id, status' };
+
+  const validStatuses = ['draft', 'pending_owner_signature', 'pending_tenant_signature', 'signed', 'submitted', 'archived'];
+  if (!validStatuses.includes(status)) {
+    return { success: false, error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` };
+  }
+
+  const { data: doc, error } = await sb
+    .from('documents')
+    .update({ status })
+    .eq('id', documentId)
+    .eq('owner_id', userId)
+    .select('id, title, status')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: doc };
+}
+
+// ── REAL INTEGRATION: Resend Email ────────────────────────────────────────
+export async function handle_send_email_sendgrid(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const resendApiKey = Deno.env.get('RESEND_API_KEY');
+  if (!resendApiKey) {
+    return { success: false, error: 'RESEND_API_KEY not configured. Set it in Supabase secrets to enable email sending.' };
+  }
+
+  const to = input.to as string;
+  const subject = input.subject as string;
+  const htmlContent = input.html_content as string;
+
+  if (!to || !subject || !htmlContent) {
+    return { success: false, error: 'Missing required fields: to, subject, html_content' };
+  }
+
+  // Validate recipient: must be the owner themselves or a tenant linked to one of their properties
+  const { data: ownProfile } = await sb.from('profiles').select('email').eq('id', userId).single();
+  const isOwnerEmail = ownProfile?.email?.toLowerCase() === to.toLowerCase();
+
+  if (!isOwnerEmail) {
+    // Check if recipient is a tenant associated with the owner's properties
+    const { data: tenantProfile, error: tpErr } = await sb
+      .from('profiles')
+      .select('id, email, tenancies!inner(property_id, properties!inner(owner_id))')
+      .eq('email', to)
+      .eq('tenancies.properties.owner_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (tpErr || !tenantProfile) {
+      return { success: false, error: 'Recipient email is not associated with any of your properties. You can only email your own tenants.' };
+    }
+  }
+
+  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+  const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `${fromName} <${fromEmail}>`,
+        to: [to],
+        subject,
+        html: htmlContent,
+        text: htmlContent.replace(/<[^>]*>/g, ''),
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return { success: true, data: { sent: true, to, subject, messageId: data.id || undefined } };
+    }
+    const errorBody = await response.text();
+    return { success: false, error: `Resend error ${response.status}: ${errorBody}` };
+  } catch (err: any) {
+    return { success: false, error: `Email send failed: ${err.message}` };
+  }
+}
+
+// ── REAL INTEGRATION: Expo Push Notifications ─────────────────────────────
+export async function handle_send_push_expo(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const targetUserId = input.user_id as string;
+  const title = input.title as string;
+  const body = input.body as string;
+  const data = (input.data as Record<string, unknown>) || {};
+
+  if (!targetUserId || !title || !body) {
+    return { success: false, error: 'Missing required fields: user_id, title, body' };
+  }
+
+  // Validate recipient: must be the owner themselves or a tenant linked to their properties
+  if (targetUserId !== userId) {
+    const { data: tenantLink, error: tlErr } = await sb
+      .from('tenancies')
+      .select('id, properties!inner(owner_id)')
+      .eq('tenant_id', targetUserId)
+      .eq('properties.owner_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (tlErr || !tenantLink) {
+      return { success: false, error: 'Target user is not associated with any of your properties. You can only send push notifications to your own tenants.' };
+    }
+  }
+
+  // Look up the user's push token from push_tokens table (not profiles)
+  const { data: tokenRow, error: tokenError } = await sb
+    .from('push_tokens')
+    .select('token')
+    .eq('user_id', targetUserId)
+    .eq('is_active', true)
+    .order('last_used_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (tokenError || !tokenRow?.token) {
+    return { success: false, error: 'User does not have a push token registered. They may not have enabled push notifications.' };
+  }
+
+  const pushToken = tokenRow.token as string;
+
+  // Validate Expo push token format
+  if (!pushToken.startsWith('ExponentPushToken[') && !pushToken.startsWith('ExpoPushToken[')) {
+    return { success: false, error: 'Invalid push token format' };
+  }
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: pushToken,
+        title,
+        body,
+        data,
+        sound: 'default',
+        priority: 'high',
+      }),
+    });
+
+    const result = await response.json();
+
+    if (result.data?.status === 'ok') {
+      return { success: true, data: { sent: true, to: targetUserId, title, ticketId: result.data.id } };
+    }
+    return { success: false, error: `Push notification failed: ${JSON.stringify(result.data)}` };
+  } catch (err: any) {
+    return { success: false, error: `Push send failed: ${err.message}` };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPLIANCE / AUTHORITY TOOLS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_check_compliance_requirements(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const state = input.state as string;
+  const category = (input.category as string) || 'all';
+
+  // Get state requirements from compliance_requirements table
+  let query = sb
+    .from('compliance_requirements')
+    .select('id, state, name, description, category, frequency_months, is_mandatory, conditions, legislation_section, prescribed_form_number, authority_name, submission_url')
+    .eq('state', state.toUpperCase());
+
+  if (category !== 'all') {
+    query = query.eq('category', category);
+  }
+
+  const { data: requirements, error } = await query;
+  if (error) return { success: false, error: error.message };
+
+  // If property_id provided, also get property compliance status
+  let propertyCompliance = null;
+  if (input.property_id) {
+    const { data: compliance } = await sb
+      .from('property_compliance')
+      .select('id, requirement_id, status, last_completed_at, next_due_date, certificate_url, notes')
+      .eq('property_id', input.property_id as string);
+    propertyCompliance = compliance;
+  }
+
+  // State legislation details (hardcoded for comprehensive coverage)
+  const legislationMap: Record<string, { name: string; tribunalName: string; authorityName: string }> = {
+    NSW: { name: 'Residential Tenancies Act 2010 (NSW)', tribunalName: 'NCAT', authorityName: 'NSW Fair Trading' },
+    VIC: { name: 'Residential Tenancies Act 1997 (Vic)', tribunalName: 'VCAT', authorityName: 'Consumer Affairs Victoria' },
+    QLD: { name: 'Residential Tenancies and Rooming Accommodation Act 2008 (Qld)', tribunalName: 'QCAT', authorityName: 'RTA Queensland' },
+    SA: { name: 'Residential Tenancies Act 1995 (SA)', tribunalName: 'SACAT', authorityName: 'Consumer and Business Services' },
+    WA: { name: 'Residential Tenancies Act 1987 (WA)', tribunalName: 'Magistrates Court', authorityName: 'Department of Commerce' },
+    TAS: { name: 'Residential Tenancy Act 1997 (Tas)', tribunalName: 'Residential Tenancy Commissioner', authorityName: 'CBOS Tasmania' },
+    NT: { name: 'Residential Tenancies Act 1999 (NT)', tribunalName: 'NTCAT', authorityName: 'NT Consumer Affairs' },
+    ACT: { name: 'Residential Tenancies Act 1997 (ACT)', tribunalName: 'ACAT', authorityName: 'Access Canberra' },
+  };
+
+  return {
+    success: true,
+    data: {
+      state: state.toUpperCase(),
+      legislation: legislationMap[state.toUpperCase()] || null,
+      requirements: requirements || [],
+      propertyCompliance: propertyCompliance || [],
+      instruction: 'Use this compliance data to inform the owner about their obligations. Reference specific legislation sections when advising on requirements.',
+    },
+  };
+}
+
+export async function handle_track_authority_submission(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Update existing submission
+  if (input.submission_id) {
+    const updates: Record<string, unknown> = {};
+    if (input.status) updates.status = input.status;
+    if (input.reference_number) updates.reference_number = input.reference_number;
+    if (input.notes) updates.notes = input.notes;
+    if (input.status === 'submitted') updates.submitted_at = new Date().toISOString();
+    if (input.status === 'acknowledged') updates.acknowledged_at = new Date().toISOString();
+
+    const { data, error } = await sb
+      .from('authority_submissions')
+      .update(updates)
+      .eq('id', input.submission_id as string)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { submission: data, action: 'updated' } };
+  }
+
+  // Create new submission
+  const insertData: Record<string, unknown> = {
+    owner_id: userId,
+    property_id: input.property_id,
+    submission_type: input.submission_type,
+    authority_name: input.authority_name || 'Unknown Authority',
+    authority_state: (input.authority_state as string).toUpperCase(),
+    submission_method: input.submission_method,
+    status: (input.status as string) || 'pending',
+    reference_number: input.reference_number || null,
+    document_id: input.document_id || null,
+    tenancy_id: input.tenancy_id || null,
+    notes: input.notes || null,
+  };
+
+  if (insertData.status === 'submitted') {
+    insertData.submitted_at = new Date().toISOString();
+  }
+
+  const { data, error } = await sb
+    .from('authority_submissions')
+    .insert(insertData)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: { submission: data, action: 'created' } };
+}
+
+export async function handle_generate_proof_of_service(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const serviceMethod = input.service_method as string;
+  const serviceDate = input.service_date as string;
+  const servedTo = input.served_to as string;
+  const state = (input.state as string).toUpperCase();
+  const propertyAddress = (input.property_address as string) || '';
+
+  // Get the document details
+  const { data: document } = await sb
+    .from('documents')
+    .select('id, title, document_type')
+    .eq('id', input.document_id as string)
+    .single();
+
+  // Get owner profile
+  const { data: owner } = await sb
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', userId)
+    .single();
+
+  const ownerName = owner?.full_name || 'Owner';
+  const documentTitle = document?.title || 'Document';
+
+  // Build proof of service HTML
+  const formattedDate = new Date(serviceDate).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+
+  let methodDescription = '';
+  let proofType = '';
+  switch (serviceMethod) {
+    case 'email':
+      methodDescription = `sent by email to the recipient's email address`;
+      proofType = 'email_receipt';
+      break;
+    case 'registered_post':
+      methodDescription = `sent by registered post${input.tracking_number ? ` (tracking number: ${input.tracking_number})` : ''}`;
+      proofType = 'registered_post_tracking';
+      break;
+    case 'hand_delivery':
+      methodDescription = `delivered by hand${input.witness_name ? ` in the presence of ${input.witness_name}` : ''}`;
+      proofType = 'hand_delivery_witness';
+      break;
+    case 'online_portal':
+      methodDescription = 'submitted through the relevant state authority online portal';
+      proofType = 'portal_confirmation';
+      break;
+    default:
+      methodDescription = `delivered via ${serviceMethod}`;
+      proofType = 'statutory_declaration';
+  }
+
+  const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Proof of Service</title>
+<style>
+  body { font-family: -apple-system, sans-serif; font-size: 11pt; line-height: 1.6; color: #0A0A0A; padding: 40px; }
+  h1 { font-size: 16pt; color: #1B1464; text-align: center; border-bottom: 2px solid #1B1464; padding-bottom: 8px; }
+  .section { margin-top: 20px; }
+  .section h2 { font-size: 12pt; color: #1B1464; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 10px; border: 1px solid #E5E5E5; }
+  td.label { width: 35%; font-weight: 600; background: #F5F5F4; color: #525252; }
+  .declaration { margin-top: 24px; padding: 16px; border: 1px solid #E5E5E5; background: #FAFAFA; }
+  .sig-block { margin-top: 32px; }
+  .sig-line { border-bottom: 1px solid #000; height: 40px; width: 300px; margin-bottom: 4px; }
+  .sig-label { font-size: 9pt; color: #525252; }
+  .footer { margin-top: 32px; text-align: center; font-size: 8pt; color: #A3A3A3; }
+</style></head>
+<body>
+<h1>PROOF OF SERVICE</h1>
+<p style="text-align:center;color:#525252;font-size:10pt">Statutory Declaration</p>
+
+<div class="section">
+  <h2>Service Details</h2>
+  <table>
+    <tr><td class="label">Document Served</td><td>${documentTitle}</td></tr>
+    <tr><td class="label">Served To</td><td>${servedTo}</td></tr>
+    <tr><td class="label">Property Address</td><td>${propertyAddress}</td></tr>
+    <tr><td class="label">State</td><td>${state}</td></tr>
+    <tr><td class="label">Date of Service</td><td>${formattedDate}</td></tr>
+    <tr><td class="label">Method of Service</td><td>${serviceMethod.replace('_', ' ').toUpperCase()}</td></tr>
+    ${input.tracking_number ? `<tr><td class="label">Tracking Number</td><td>${input.tracking_number}</td></tr>` : ''}
+    ${input.witness_name ? `<tr><td class="label">Witness</td><td>${input.witness_name}</td></tr>` : ''}
+  </table>
+</div>
+
+<div class="declaration">
+  <p>I, <strong>${ownerName}</strong>, solemnly declare that on <strong>${formattedDate}</strong>,
+  I served the document titled "<strong>${documentTitle}</strong>" upon
+  <strong>${servedTo}</strong> by ${methodDescription}.</p>
+  <p>This declaration is made in accordance with the requirements of the applicable
+  residential tenancies legislation of ${state}.</p>
+</div>
+
+<div class="sig-block">
+  <div class="sig-line"></div>
+  <div class="sig-label">Signature of ${ownerName}</div>
+  <br/>
+  <div class="sig-line"></div>
+  <div class="sig-label">Date</div>
+</div>
+
+<div class="footer">
+  <p>Generated by Casa — AI-powered property management</p>
+</div>
+</body></html>`;
+
+  // Create the proof of service document
+  const { data: proofDoc, error: docError } = await sb
+    .from('documents')
+    .insert({
+      owner_id: userId,
+      title: `Proof of Service — ${documentTitle}`,
+      document_type: 'other',
+      html_content: htmlContent,
+      status: 'draft',
+      property_id: input.property_id || null,
+    })
+    .select('id')
+    .single();
+
+  if (docError) return { success: false, error: docError.message };
+
+  // Update the authority submission with proof details
+  if (input.submission_id) {
+    await sb
+      .from('authority_submissions')
+      .update({
+        proof_type: proofType,
+        proof_url: null, // Will be set when document is signed
+        tracking_number: input.tracking_number || null,
+      })
+      .eq('id', input.submission_id as string)
+      .eq('owner_id', userId);
+  }
+
+  return {
+    success: true,
+    data: {
+      proofDocumentId: proofDoc?.id,
+      proofType,
+      serviceDetails: {
+        method: serviceMethod,
+        date: serviceDate,
+        servedTo,
+        trackingNumber: input.tracking_number || null,
+        witnessName: input.witness_name || null,
+      },
+    },
+  };
+}

@@ -36,6 +36,8 @@ export interface ActivityFeedItem {
   metadata?: Record<string, unknown>;
 }
 
+export type ApprovalActionType = 'advisory' | 'tool_execution';
+
 export interface PendingApprovalItem {
   id: string;
   taskId: string;
@@ -43,6 +45,7 @@ export interface PendingApprovalItem {
   description: string;
   category: string;
   priority: string;
+  actionType: ApprovalActionType;
   recommendation?: string;
   confidence?: number;
   previewData?: Record<string, unknown>;
@@ -85,8 +88,85 @@ const CATEGORY_LABELS: Record<string, string> = {
   rent_collection: 'Rent Collection',
   maintenance: 'Maintenance',
   compliance: 'Compliance',
+  inspections: 'Inspections',
+  listings: 'Listings',
+  financial: 'Financial',
+  insurance: 'Insurance',
+  communication: 'Communication',
   general: 'General',
 };
+
+// Map raw tool names to user-friendly action descriptions
+const TOOL_NAME_LABELS: Record<string, string> = {
+  search_trades_hipages: 'Find a tradesperson',
+  send_rent_reminder: 'Send rent reminder',
+  send_email: 'Send email',
+  send_sms: 'Send SMS',
+  create_maintenance_request: 'Create maintenance request',
+  update_maintenance_request: 'Update maintenance request',
+  assign_trade: 'Assign tradesperson',
+  schedule_inspection: 'Schedule inspection',
+  create_listing: 'Create listing',
+  update_listing: 'Update listing',
+  generate_lease: 'Generate lease',
+  record_payment: 'Record payment',
+  create_arrears_record: 'Create arrears record',
+  send_arrears_notice: 'Send arrears notice',
+  send_lease_renewal: 'Send lease renewal',
+  create_work_order: 'Create work order',
+  approve_application: 'Approve application',
+  reject_application: 'Reject application',
+  send_tenant_notice: 'Send tenant notice',
+  update_property: 'Update property details',
+  create_payment_plan: 'Create payment plan',
+  lodge_bond: 'Lodge bond',
+  generate_report: 'Generate report',
+};
+
+// Strip UUIDs and raw technical identifiers from user-facing text
+const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function humanizeTitle(title: string, toolName?: string): string {
+  // If title is just a tool name or starts with a tool_name pattern, use the friendly label
+  if (toolName && TOOL_NAME_LABELS[toolName]) {
+    // If the title is literally the tool name or tool_name: ..., use friendly version
+    if (title === toolName || title.startsWith(`${toolName}:`)) {
+      return TOOL_NAME_LABELS[toolName];
+    }
+  }
+
+  // Check if the title itself is a known tool name
+  const trimmedTitle = title.split(':')[0].trim();
+  if (TOOL_NAME_LABELS[trimmedTitle]) {
+    return TOOL_NAME_LABELS[trimmedTitle];
+  }
+
+  // Strip UUIDs from the title
+  let cleaned = title.replace(UUID_REGEX, '').trim();
+
+  // Clean up residual formatting: "property_id: " → "", "tenancy_id: " → ""
+  cleaned = cleaned.replace(/\b\w+_id:\s*/gi, '').trim();
+
+  // Remove trailing colons, commas, or leftover formatting
+  cleaned = cleaned.replace(/[,:]+\s*$/, '').trim();
+
+  // If nothing meaningful is left, fall back to a generic label
+  if (!cleaned || cleaned.length < 3) {
+    if (toolName && TOOL_NAME_LABELS[toolName]) return TOOL_NAME_LABELS[toolName];
+    return 'Action requires approval';
+  }
+
+  return cleaned;
+}
+
+function humanizeDescription(desc: string): string {
+  // Strip UUIDs from descriptions
+  let cleaned = desc.replace(UUID_REGEX, '').trim();
+  cleaned = cleaned.replace(/\b\w+_id:\s*/gi, '').trim();
+  cleaned = cleaned.replace(/[,:]+\s*$/, '').trim();
+  if (!cleaned || cleaned.length < 3) return 'Needs your approval';
+  return cleaned;
+}
 
 export function useActivityFeed(): UseActivityFeedReturn {
   const { user, isAuthenticated } = useAuth();
@@ -197,13 +277,14 @@ export function useActivityFeed(): UseActivityFeedReturn {
           .order('updated_at', { ascending: false })
           .limit(5),
 
-        // Pending actions with rich context
+        // Pending actions with rich context (exclude expired)
         (supabase.from('agent_pending_actions') as ReturnType<typeof supabase.from>)
-          .select('id, user_id, property_id, action_type, title, description, preview_data, tool_name, autonomy_level, status, recommendation, confidence, task_id, created_at')
+          .select('id, user_id, property_id, action_type, title, description, preview_data, tool_name, tool_params, autonomy_level, status, recommendation, confidence, task_id, created_at, expires_at')
           .eq('user_id', user.id)
           .eq('status', 'pending')
+          .gte('expires_at', new Date().toISOString())
           .order('created_at', { ascending: false })
-          .limit(10),
+          .limit(20),
 
         // Recent proactive actions (Casa handled autonomously)
         (supabase.from('agent_proactive_actions') as ReturnType<typeof supabase.from>)
@@ -384,10 +465,11 @@ export function useActivityFeed(): UseActivityFeedReturn {
           pendingApprovals.push({
             id: `pending-${task.id}`,
             taskId: task.id,
-            title: task.title,
-            description: task.description || 'Needs your input',
+            title: humanizeTitle(task.title || '', task.tool_name),
+            description: humanizeDescription(task.description || 'Needs your input'),
             category: CATEGORY_LABELS[task.category] || task.category,
             priority: task.priority,
+            actionType: 'advisory' as ApprovalActionType,
             recommendation: task.recommendation,
             timestamp: task.updated_at || task.created_at,
             deepLink: task.deep_link,
@@ -397,20 +479,30 @@ export function useActivityFeed(): UseActivityFeedReturn {
       }
 
       // Process pending actions (from agent_pending_actions - richer than tasks)
+      // Deduplicate by tool_name + key params to avoid showing the same action multiple times
       if (pendingActionsResult.data) {
         const existingTaskIds = new Set(pendingApprovals.map(p => p.taskId));
+        const seenActionKeys = new Set<string>();
         (pendingActionsResult.data as any[]).forEach(action => {
           // Skip if we already have this task from pending_tasks
           if (action.task_id && existingTaskIds.has(action.task_id)) return;
+
+          // Dedup: build a key from tool_name + serialised params to skip identical actions
+          const params = action.tool_params || {};
+          const dedupKey = `${action.tool_name}:${JSON.stringify(params)}`;
+          if (seenActionKeys.has(dedupKey)) return;
+          seenActionKeys.add(dedupKey);
+
           const actionAddress = action.property_id ? addressMap.get(action.property_id) : undefined;
           const preview = action.preview_data as Record<string, unknown> | null;
           pendingApprovals.push({
             id: `action-${action.id}`,
             taskId: action.task_id || action.id,
-            title: action.title,
-            description: action.description || 'Needs your approval',
+            title: humanizeTitle(action.title || '', action.tool_name),
+            description: humanizeDescription(action.description || 'Needs your approval'),
             category: CATEGORY_LABELS[action.action_type] || action.action_type,
             priority: action.autonomy_level <= 1 ? 'high' : 'normal',
+            actionType: 'tool_execution' as ApprovalActionType,
             recommendation: action.recommendation || undefined,
             confidence: action.confidence ? Number(action.confidence) : undefined,
             previewData: preview || undefined,
@@ -428,7 +520,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
           feedItems.push({
             id: `task-done-${task.id}`,
             type: 'agent_task_completed',
-            title: `Casa completed: ${task.title}`,
+            title: `Casa completed: ${humanizeTitle(task.title || '')}`,
             description: CATEGORY_LABELS[task.category] || task.category,
             timestamp: task.completed_at || task.updated_at,
             severity: 'success',
@@ -443,8 +535,8 @@ export function useActivityFeed(): UseActivityFeedReturn {
           feedItems.push({
             id: `task-active-${task.id}`,
             type: 'agent_task_in_progress',
-            title: `Working on: ${task.title}`,
-            description: task.description || CATEGORY_LABELS[task.category] || 'In progress',
+            title: `Working on: ${humanizeTitle(task.title || '')}`,
+            description: humanizeDescription(task.description || CATEGORY_LABELS[task.category] || 'In progress'),
             timestamp: task.updated_at,
             severity: 'info',
             metadata: { agentHandled: true },
@@ -458,8 +550,8 @@ export function useActivityFeed(): UseActivityFeedReturn {
           feedItems.push({
             id: `proactive-${action.id}`,
             type: 'casa_proactive',
-            title: `Casa handled: ${action.action_taken}`,
-            description: `Triggered by ${action.trigger_type.replace(/_/g, ' ')}`,
+            title: `Casa handled: ${humanizeTitle(action.action_taken || '')}`,
+            description: `Triggered by ${(action.trigger_type || '').replace(/_/g, ' ')}`,
             timestamp: action.created_at,
             severity: 'success',
             metadata: { agentHandled: true },

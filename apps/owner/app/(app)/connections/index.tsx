@@ -239,7 +239,7 @@ export default function ConnectionCodesScreen() {
                 disabled={creating}
               >
                 {creating ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={THEME.colors.textInverse} size="small" />
                 ) : (
                   <Text style={styles.submitButtonText}>Create Code</Text>
                 )}
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   inviteButton: {
     backgroundColor: THEME.colors.surface,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: THEME.colors.brand,
@@ -369,19 +369,19 @@ const styles = StyleSheet.create({
   createButton: {
     backgroundColor: THEME.colors.brand,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     alignItems: 'center',
     marginBottom: 24,
   },
   createButtonText: {
-    color: '#fff',
+    color: THEME.colors.textInverse,
     fontSize: 16,
     fontWeight: '600',
   },
   createForm: {
     backgroundColor: THEME.colors.surface,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     marginBottom: 24,
   },
   formTitle: {
@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
   pickerOption: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.canvas,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -420,14 +420,14 @@ const styles = StyleSheet.create({
   },
   pickerTextSelected: {
     fontSize: 14,
-    color: '#fff',
+    color: THEME.colors.textInverse,
     fontWeight: '500',
   },
   input: {
     backgroundColor: THEME.colors.canvas,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     padding: 12,
     fontSize: 16,
     color: THEME.colors.textPrimary,
@@ -440,7 +440,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     flex: 1,
     padding: 14,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.canvas,
     alignItems: 'center',
   },
@@ -451,14 +451,14 @@ const styles = StyleSheet.create({
   submitButton: {
     flex: 1,
     padding: 14,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.brand,
     alignItems: 'center',
   },
   submitButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: THEME.colors.textInverse,
   },
   sectionTitle: {
     fontSize: 18,
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
   codeCard: {
     backgroundColor: THEME.colors.surface,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     marginBottom: 12,
   },
   codeHeader: {
@@ -544,19 +544,19 @@ const styles = StyleSheet.create({
   shareButton: {
     flex: 1,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.brand,
     alignItems: 'center',
   },
   shareButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: THEME.colors.textInverse,
   },
   revokeButton: {
     flex: 1,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.canvas,
     alignItems: 'center',
     borderWidth: 1,

@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   ownerAvatarText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   ownerInfo: {
     flex: 1,

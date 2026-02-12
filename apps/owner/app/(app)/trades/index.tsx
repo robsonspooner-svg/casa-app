@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   list: {
     padding: THEME.spacing.base,
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: THEME.fontSize.h2,
     fontWeight: THEME.fontWeight.bold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardContent: {
     flex: 1,

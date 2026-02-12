@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardContent: {
     flex: 1,
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.full,
     minWidth: 20,
     height: 20,
     alignItems: 'center',
@@ -278,7 +278,7 @@ const styles = StyleSheet.create({
   unreadText: {
     fontSize: 11,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardProperty: {
     fontSize: THEME.fontSize.caption,
@@ -318,6 +318,6 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold as any,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 });

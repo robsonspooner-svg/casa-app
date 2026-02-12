@@ -23,8 +23,8 @@ const STATUS_CONFIG: Record<InspectionStatus, { label: string; color: string; bg
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
-  tenant_review: { label: 'Tenant Review', color: THEME.colors.brand, bg: '#EDE9FE' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
+  tenant_review: { label: 'Tenant Review', color: THEME.colors.brand, bg: THEME.colors.brand + '20' },
   disputed: { label: 'Disputed', color: THEME.colors.error, bg: THEME.colors.errorBg },
   finalized: { label: 'Finalized', color: THEME.colors.success, bg: THEME.colors.successBg },
 };
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium as any,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   list: {
     padding: THEME.spacing.base,

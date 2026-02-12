@@ -8,6 +8,9 @@
 ## Success Criteria
 
 ### Phase A: Authentication Hardening
+- [ ] Implement Google OAuth sign-in (via Supabase Auth provider)
+- [ ] Configure Google Cloud Console OAuth consent screen for Casa
+- [ ] Add Google Sign-In button to login/signup screens (both owner and tenant apps)
 - [ ] Implement MFA (TOTP)
 - [ ] Session management improvements
 - [ ] Login attempt rate limiting
@@ -639,6 +642,9 @@ Mission-18: Security & Data Protection
 - [ ] Log retention policies configured (auto-cleanup of old audit logs)
 
 ### Feature Verification (Mission-Specific)
+- [ ] Google OAuth sign-in works end-to-end (both owner and tenant apps)
+- [ ] Google OAuth creates profile correctly on first sign-in
+- [ ] Google OAuth links to existing account if email matches
 - [ ] MFA (TOTP) enrollment flow works end-to-end
 - [ ] MFA verification required on login when enabled
 - [ ] Session management: user can view and revoke active sessions

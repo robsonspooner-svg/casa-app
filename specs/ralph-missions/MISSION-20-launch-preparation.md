@@ -7,7 +7,25 @@
 
 ## Success Criteria
 
-### Phase A: UI/UX Polish
+### Phase A0: Combined App Entry Point & Onboarding
+- [ ] Create role selection screen shown on first launch: "I'm a Property Owner" / "I'm a Tenant"
+- [ ] Store selected role in user profile (`user_role` field) and route to appropriate app experience
+- [ ] Build onboarding intro screens (3-4 swipeable screens explaining how Casa works for their role)
+- [ ] Owner onboarding: "AI Property Manager" → "Automate Everything" → "Full Control" → "Get Started"
+- [ ] Tenant onboarding: "Pay Rent Easily" → "Report Issues Instantly" → "Stay Informed" → "Get Started"
+- [ ] Skip option on all onboarding screens
+- [ ] Only show onboarding once (store `has_completed_onboarding` in AsyncStorage)
+
+### Phase A1: Subscription Payment Website
+- [ ] Create payment landing page at casapm.com.au/pricing (or within marketing site)
+- [ ] Display 3 tiers: Starter ($49/mo), Pro ($89/mo), Hands-Off ($149/mo) with feature comparison
+- [ ] Integrate Stripe Checkout for subscription creation
+- [ ] After successful payment, redirect user to app download / deep link back into app
+- [ ] Sync subscription status to Supabase `profiles.subscription_tier` via Stripe webhook
+- [ ] In-app upgrade flow: "Upgrade" buttons throughout the app link to the payment website
+- [ ] Feature gate upgrade prompts show plan comparison and link to payment page
+
+### Phase A2: UI/UX Polish
 - [ ] Design system audit
 - [ ] Consistent spacing and typography
 - [ ] Animation and transitions
@@ -858,7 +876,15 @@ Mission-20: Launch Preparation
 - [ ] Seed data removed (no test/dummy data in production)
 
 ### Feature Verification (Mission-Specific)
-- [ ] Onboarding flow guides new users through key setup steps
+- [ ] Role selection screen appears on first launch (owner vs tenant)
+- [ ] Selected role persists and routes to correct app experience
+- [ ] Onboarding intro screens display correctly for each role (3-4 screens)
+- [ ] Onboarding can be skipped and only shows once
+- [ ] Subscription payment website displays tier comparison correctly
+- [ ] Stripe Checkout flow works end-to-end on payment website
+- [ ] Successful payment syncs subscription tier to app via webhook
+- [ ] In-app upgrade buttons link to payment website correctly
+- [ ] Onboarding flow guides new users through key setup steps (PM transition wizard)
 - [ ] Onboarding can be skipped and resumed later
 - [ ] All empty states display friendly copy with actionable CTAs
 - [ ] All loading states show skeleton/spinner (no blank screens)

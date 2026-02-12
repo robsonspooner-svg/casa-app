@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
   segmentedControl: {
     flexDirection: 'row',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     overflow: 'hidden',
@@ -322,22 +322,22 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   segmentTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: '600',
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: THEME.colors.error,
     marginBottom: 12,
   },
   retryButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   retryText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: '600',
   },
 });

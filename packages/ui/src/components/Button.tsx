@@ -9,6 +9,7 @@ import {
   Animated,
 } from 'react-native';
 import { THEME } from '@casa/config';
+import { lightTap } from '../utils/haptics';
 
 export interface ButtonProps {
   title: string;
@@ -46,6 +47,7 @@ export function Button({
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
+    lightTap();
     Animated.timing(scaleAnim, {
       toValue: 0.98,
       duration: THEME.animation.fast,

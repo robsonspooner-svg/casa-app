@@ -13,6 +13,8 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -24,13 +26,13 @@ import type { MaintenanceStatus, MaintenanceComment } from '@casa/api';
 
 const STATUS_CONFIG: Record<MaintenanceStatus, { label: string; color: string; bg: string }> = {
   submitted: { label: 'Submitted', color: THEME.colors.info, bg: THEME.colors.infoBg },
-  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: '#EDE9FE' },
+  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: THEME.colors.brand + '20' },
   awaiting_quote: { label: 'Awaiting Quote', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   approved: { label: 'Approved', color: THEME.colors.success, bg: THEME.colors.successBg },
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   on_hold: { label: 'On Hold', color: THEME.colors.warning, bg: THEME.colors.warningBg },
 };
 
@@ -306,6 +308,35 @@ export default function OwnerMaintenanceDetailScreen() {
           <Text style={styles.descriptionText}>{request.description}</Text>
         </View>
 
+        {/* Tenant Photos */}
+        {request.images && request.images.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Photos ({request.images.length})
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.imageScroll}
+            >
+              {request.images.map((img) => (
+                <View key={img.id} style={styles.imageCard}>
+                  <Image
+                    source={{ uri: img.url }}
+                    style={styles.maintenanceImage}
+                    resizeMode="cover"
+                  />
+                  {img.caption && (
+                    <Text style={styles.imageCaption} numberOfLines={2}>
+                      {img.caption}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Status Actions */}
         {transitions.length > 0 && (
           <View style={styles.section}>
@@ -519,10 +550,10 @@ export default function OwnerMaintenanceDetailScreen() {
               disabled={!newComment.trim() || sendingComment}
             >
               {sendingComment ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={THEME.colors.textInverse} />
               ) : (
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                  <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                 </Svg>
               )}
             </TouchableOpacity>
@@ -574,7 +605,7 @@ const styles = StyleSheet.create({
     marginBottom: THEME.spacing.md,
   },
   emergencyBannerText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
     textAlign: 'center',
@@ -812,7 +843,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   toggleTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   commentInputRow: {
     flexDirection: 'row',
@@ -840,6 +871,26 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  imageScroll: {
+    gap: THEME.spacing.sm,
+  },
+  imageCard: {
+    width: Dimensions.get('window').width * 0.6,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
+    backgroundColor: THEME.colors.canvas,
+  },
+  maintenanceImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: THEME.radius.md,
+  },
+  imageCaption: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    paddingHorizontal: THEME.spacing.xs,
+    paddingVertical: THEME.spacing.xs,
   },
   centered: {
     flex: 1,

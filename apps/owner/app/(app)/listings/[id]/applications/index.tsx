@@ -81,7 +81,7 @@ function ApplicationCard({ application, onPress, selectMode, selected, onToggle 
           <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
             {selected && (
               <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                <Path d="M20 6L9 17l-5-5" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
             )}
           </View>
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
   },
   bulkButtonText: {
     fontSize: THEME.fontSize.bodySmall,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: THEME.fontWeight.semibold,
   },
   checkbox: {
@@ -377,7 +377,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   listContent: {
     padding: THEME.spacing.base,

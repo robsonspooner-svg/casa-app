@@ -347,7 +347,7 @@ export function useInspectionMutations() {
     }
   }, [user]);
 
-  // Image upload
+  // Image upload with optional spatial metadata
   const uploadImage = useCallback(async (
     inspectionId: string,
     uri: string,
@@ -355,7 +355,13 @@ export function useInspectionMutations() {
     mimeType: string,
     roomId?: string | null,
     itemId?: string | null,
-    caption?: string | null
+    caption?: string | null,
+    compassBearing?: number | null,
+    devicePitch?: number | null,
+    deviceRoll?: number | null,
+    captureSequence?: number | null,
+    isWideShot?: boolean,
+    isCloseup?: boolean,
   ): Promise<boolean> => {
     if (!user) return false;
 
@@ -383,6 +389,12 @@ export function useInspectionMutations() {
         room_id: roomId || null,
         item_id: itemId || null,
         caption: caption || null,
+        compass_bearing: compassBearing ?? null,
+        device_pitch: devicePitch ?? null,
+        device_roll: deviceRoll ?? null,
+        capture_sequence: captureSequence ?? null,
+        is_wide_shot: isWideShot ?? false,
+        is_closeup: isCloseup ?? false,
       };
 
       const { error: insertError } = await (supabase
@@ -393,6 +405,142 @@ export function useInspectionMutations() {
       return true;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Failed to upload image';
+      throw new Error(message);
+    }
+  }, [user]);
+
+  // Review submission management (owner reviewing tenant submissions)
+  const reviewSubmission = useCallback(async (
+    submissionId: string,
+    action: 'approved' | 'rejected',
+    notes?: string | null,
+  ): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await (supabase
+        .from('inspection_tenant_submissions') as ReturnType<typeof supabase.from>)
+        .update({
+          status: action,
+          reviewer_notes: notes || null,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user.id,
+        })
+        .eq('id', submissionId);
+
+      if (error) throw error;
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Failed to review submission';
+      throw new Error(message);
+    }
+  }, [user]);
+
+  // Respond to a dispute
+  const respondToDispute = useCallback(async (
+    disputeId: string,
+    response: string,
+    resolvedCondition?: ConditionRating | null,
+  ): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const supabase = getSupabaseClient();
+      const updates: Record<string, unknown> = {
+        owner_response: response,
+        status: 'owner_responded',
+        updated_at: new Date().toISOString(),
+      };
+      if (resolvedCondition) {
+        updates.resolved_condition = resolvedCondition;
+        updates.status = 'resolved';
+        updates.resolved_at = new Date().toISOString();
+      }
+
+      const { error } = await (supabase
+        .from('inspection_item_disputes') as ReturnType<typeof supabase.from>)
+        .update(updates)
+        .eq('id', disputeId);
+
+      if (error) throw error;
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Failed to respond to dispute';
+      throw new Error(message);
+    }
+  }, [user]);
+
+  // Sign inspection (records signature for owner or tenant)
+  const signInspection = useCallback(async (
+    inspectionId: string,
+    role: 'owner' | 'tenant',
+    signatureUrl: string,
+  ): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const supabase = getSupabaseClient();
+      const updates: Record<string, unknown> = {};
+
+      if (role === 'owner') {
+        updates.owner_signature_url = signatureUrl;
+        updates.owner_signed_at = new Date().toISOString();
+      } else {
+        updates.tenant_signature_url = signatureUrl;
+        updates.tenant_acknowledged = true;
+        updates.tenant_acknowledged_at = new Date().toISOString();
+      }
+
+      const { error } = await (supabase
+        .from('inspections') as ReturnType<typeof supabase.from>)
+        .update(updates)
+        .eq('id', inspectionId);
+
+      if (error) throw error;
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Failed to sign inspection';
+      throw new Error(message);
+    }
+  }, [user]);
+
+  // AI auto-tagging: analyze inspection photos with Claude Vision
+  const analyzePhotos = useCallback(async (
+    inspectionId: string,
+    imageIds?: string[],
+  ): Promise<{ analyzed: number }> => {
+    if (!user) return { analyzed: 0 };
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/analyze-inspection-photos`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            inspection_id: inspectionId,
+            image_ids: imageIds || undefined,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Photo analysis failed');
+      }
+
+      return (await response.json()) as { analyzed: number };
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Failed to analyze photos';
       throw new Error(message);
     }
   }, [user]);
@@ -414,5 +562,9 @@ export function useInspectionMutations() {
     rateItem,
     addRoomsFromTemplate,
     uploadImage,
+    reviewSubmission,
+    respondToDispute,
+    signInspection,
+    analyzePhotos,
   };
 }

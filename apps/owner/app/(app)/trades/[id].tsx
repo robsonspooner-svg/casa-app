@@ -398,10 +398,7 @@ export default function TradeProfile() {
             title="Create Work Order"
             onPress={() =>
               router.push(
-                `/(app)/trades/${id}` as any,
-                // The work order creation screen would be at a different route;
-                // for now navigate to the placeholder path. In production this
-                // would navigate to the work-orders/create screen with trade pre-selected.
+                `/(app)/work-orders/create?tradeId=${id}` as any,
               )
             }
           />
@@ -563,7 +560,7 @@ const styles = StyleSheet.create({
   heroAvatarText: {
     fontSize: THEME.fontSize.display,
     fontWeight: THEME.fontWeight.bold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   heroBusinessName: {
     fontSize: THEME.fontSize.h1,

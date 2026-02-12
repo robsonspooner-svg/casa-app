@@ -123,7 +123,7 @@ export default function TenancyDocumentsScreen() {
                   disabled={deleting === doc.id}
                 >
                   {deleting === doc.id ? (
-                    <ActivityIndicator size="small" color="#EF4444" />
+                    <ActivityIndicator size="small" color={THEME.colors.error} />
                   ) : (
                     <Text style={styles.deleteText}>Delete</Text>
                   )}
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -244,14 +244,14 @@ const styles = StyleSheet.create({
   },
   deleteText: {
     fontSize: 13,
-    color: '#EF4444',
+    color: THEME.colors.error,
     fontWeight: '500',
   },
   uploadSection: {
     marginTop: 24,
     padding: 16,
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
@@ -263,17 +263,17 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: THEME.colors.error,
     marginBottom: 12,
   },
   retryButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: THEME.colors.brand,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
   },
   retryText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: '600',
   },
 });

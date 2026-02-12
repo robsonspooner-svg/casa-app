@@ -21,20 +21,20 @@ import type { MaintenanceListItem } from '@casa/api';
 
 const STATUS_CONFIG: Record<MaintenanceStatus, { label: string; color: string; bg: string }> = {
   submitted: { label: 'Submitted', color: THEME.colors.info, bg: THEME.colors.infoBg },
-  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: '#EDE9FE' },
+  acknowledged: { label: 'Acknowledged', color: THEME.colors.brand, bg: THEME.colors.brand + '20' },
   awaiting_quote: { label: 'Awaiting Quote', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   approved: { label: 'Approved', color: THEME.colors.success, bg: THEME.colors.successBg },
   scheduled: { label: 'Scheduled', color: THEME.colors.info, bg: THEME.colors.infoBg },
   in_progress: { label: 'In Progress', color: THEME.colors.warning, bg: THEME.colors.warningBg },
   completed: { label: 'Completed', color: THEME.colors.success, bg: THEME.colors.successBg },
-  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: '#F5F5F5' },
+  cancelled: { label: 'Cancelled', color: THEME.colors.textTertiary, bg: THEME.colors.subtle },
   on_hold: { label: 'On Hold', color: THEME.colors.warning, bg: THEME.colors.warningBg },
 };
 
 const URGENCY_CONFIG: Record<MaintenanceUrgency, { label: string; color: string; bg: string }> = {
   emergency: { label: 'Emergency', color: THEME.colors.error, bg: THEME.colors.errorBg },
   urgent: { label: 'Urgent', color: THEME.colors.warning, bg: THEME.colors.warningBg },
-  routine: { label: 'Routine', color: THEME.colors.textSecondary, bg: '#F5F5F5' },
+  routine: { label: 'Routine', color: THEME.colors.textSecondary, bg: THEME.colors.subtle },
 };
 
 type FilterStatus = 'active' | MaintenanceStatus;
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   list: {
     padding: THEME.spacing.base,
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
   emergencyText: {
     fontSize: THEME.fontSize.caption,
     fontWeight: THEME.fontWeight.bold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     letterSpacing: 1,
   },
   cardBody: {

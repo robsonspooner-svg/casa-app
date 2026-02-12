@@ -343,7 +343,7 @@ export default function CreateWorkOrderScreen() {
               value={quoteRequired}
               onValueChange={setQuoteRequired}
               trackColor={{ false: THEME.colors.border, true: THEME.colors.brand }}
-              thumbColor="#FFFFFF"
+              thumbColor={THEME.colors.textInverse}
             />
           </View>
 
@@ -372,7 +372,7 @@ export default function CreateWorkOrderScreen() {
               value={tenantContactAllowed}
               onValueChange={setTenantContactAllowed}
               trackColor={{ false: THEME.colors.border, true: THEME.colors.brand }}
-              thumbColor="#FFFFFF"
+              thumbColor={THEME.colors.textInverse}
             />
           </View>
 

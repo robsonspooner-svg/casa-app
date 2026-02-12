@@ -7,7 +7,15 @@ import { useAuth } from './useAuth';
 import type {
   AgentMessage,
   AgentConversation,
+  InlineAction,
 } from '../types/database';
+
+/** Convert snake_case tool names to readable labels (e.g. "send_email" → "Send email") */
+function humaniseToolName(name: string): string {
+  return name
+    .replace(/_/g, ' ')
+    .replace(/\b\w/, c => c.toUpperCase());
+}
 
 export interface AgentChatState {
   messages: AgentMessage[];
@@ -25,6 +33,8 @@ export interface UseAgentChatReturn extends AgentChatState {
   refreshConversations: () => Promise<void>;
   approveAction: (actionId: string) => Promise<boolean>;
   rejectAction: (actionId: string, reason?: string) => Promise<boolean>;
+  submitFeedback: (messageId: string, feedback: 'positive' | 'negative') => Promise<void>;
+  clearError: () => void;
 }
 
 export function useAgentChat(): UseAgentChatReturn {
@@ -53,7 +63,10 @@ export function useAgentChat(): UseAgentChatReturn {
         .from('agent_conversations') as ReturnType<typeof supabase.from>)
         .select('*')
         .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
+        .neq('status', 'archived')
+        .not('title', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(50);
 
       if (error) throw error;
 
@@ -130,36 +143,17 @@ export function useAgentChat(): UseAgentChatReturn {
   const startNewConversation = useCallback(async (): Promise<string | null> => {
     if (!user) return null;
 
-    try {
-      const supabase = getSupabaseClient();
+    // Don't create a DB row here — the edge function creates the conversation
+    // when the first message is sent with no conversationId. This prevents
+    // orphaned empty conversations from cluttering the history.
+    setState(prev => ({
+      ...prev,
+      currentConversation: null,
+      messages: [],
+      error: null,
+    }));
 
-      const { data, error } = await (supabase
-        .from('agent_conversations') as ReturnType<typeof supabase.from>)
-        .insert({
-          user_id: user.id,
-          status: 'active',
-          is_active: true,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      const conversation = data as AgentConversation;
-
-      setState(prev => ({
-        ...prev,
-        currentConversation: conversation,
-        messages: [],
-        conversations: [conversation, ...prev.conversations],
-      }));
-
-      return conversation.id;
-    } catch (caught) {
-      const errorMessage = caught instanceof Error ? caught.message : 'Failed to start conversation';
-      setState(prev => ({ ...prev, error: errorMessage }));
-      return null;
-    }
+    return null;
   }, [user]);
 
   const sendMessage = useCallback(async (content: string, conversationId?: string): Promise<AgentMessage | null> => {
@@ -190,22 +184,92 @@ export function useAgentChat(): UseAgentChatReturn {
     try {
       const supabase = getSupabaseClient();
 
-      const { data, error } = await supabase.functions.invoke('agent-chat', {
-        body: {
-          message: content,
-          conversationId: targetConversationId,
-        },
-      });
+      // Retry loop for rate limiting (429) — up to 3 attempts with backoff
+      const MAX_SEND_RETRIES = 3;
+      let data: any = null;
+      let lastError: any = null;
 
-      if (error) throw error;
+      for (let attempt = 0; attempt < MAX_SEND_RETRIES; attempt++) {
+        if (attempt > 0) {
+          // Show user that we're retrying
+          setState(prev => ({
+            ...prev,
+            error: 'Casa is busy — retrying automatically...',
+          }));
+          await new Promise(r => setTimeout(r, 5000 * Math.pow(2, attempt - 1)));
+        }
+
+        const result = await supabase.functions.invoke('agent-chat', {
+          body: {
+            message: content,
+            conversationId: targetConversationId,
+          },
+        });
+
+        if (!result.error) {
+          data = result.data;
+          lastError = null;
+          break;
+        }
+
+        // Try to extract actual error from response data
+        let errMsg = result.error?.message || '';
+        if (result.data && typeof result.data === 'object' && 'error' in result.data) {
+          errMsg = (result.data as { error: string }).error;
+        }
+        console.warn('[agent-chat] Error:', errMsg, result.error);
+
+        // Check if error is retryable (429 rate limit or overloaded)
+        const isRateLimit = errMsg.includes('429') || errMsg.includes('busy') || errMsg.includes('retry') || errMsg.includes('overloaded');
+        if (isRateLimit && attempt < MAX_SEND_RETRIES - 1) {
+          lastError = result.error;
+          continue;
+        }
+
+        throw new Error(errMsg || 'Edge function error');
+      }
+
+      if (lastError) throw lastError;
+      if (!data) throw new Error('No response from agent');
 
       const response = data as {
         conversationId: string;
         message: string;
         tokensUsed: number;
         toolsUsed: string[];
-        pendingActions?: Array<{ id: string; tool_name: string; description: string; category: string }>;
+        pendingActions?: Array<{ id: string; tool_name: string; tool_params?: Record<string, unknown>; description: string; category: string }>;
+        inlineActions?: Array<{ type: string; label: string; route: string; params?: Record<string, string> }>;
       };
+
+      // Build inline actions from pending actions (autonomy-gated tools)
+      const inlineActions: InlineAction[] = [];
+      if (response.pendingActions && response.pendingActions.length > 0) {
+        for (const pa of response.pendingActions) {
+          inlineActions.push({
+            id: pa.id,
+            type: 'approval',
+            label: humaniseToolName(pa.tool_name),
+            description: pa.description,
+            pendingActionId: pa.id,
+            category: pa.category,
+            status: 'pending',
+          });
+        }
+      }
+
+      // Add navigation actions from tool results (e.g., document creation)
+      if (response.inlineActions && response.inlineActions.length > 0) {
+        for (const ia of response.inlineActions) {
+          inlineActions.push({
+            id: `nav-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: 'navigation',
+            label: ia.label,
+            route: ia.route,
+            params: ia.params,
+            status: 'pending',
+          });
+        }
+      }
 
       // Build the assistant message from the Edge Function response
       const assistantMessage: AgentMessage = {
@@ -217,6 +281,7 @@ export function useAgentChat(): UseAgentChatReturn {
           ? response.toolsUsed.map(name => ({ name }))
           : null,
         tool_results: null,
+        inline_actions: inlineActions.length > 0 ? inlineActions : null,
         feedback: null,
         tokens_used: response.tokensUsed || null,
         created_at: new Date().toISOString(),
@@ -235,11 +300,14 @@ export function useAgentChat(): UseAgentChatReturn {
         // If a new conversation was created by the Edge Function, update state
         let updatedConversation = prev.currentConversation;
         if (!targetConversationId && response.conversationId) {
+          const autoTitle = content.length <= 60
+            ? content
+            : content.substring(0, 57) + '...';
           updatedConversation = {
             id: response.conversationId,
             user_id: user.id,
             property_id: null,
-            title: null,
+            title: autoTitle,
             context_summary: null,
             status: 'active',
             model: null,
@@ -262,9 +330,9 @@ export function useAgentChat(): UseAgentChatReturn {
       return assistantMessage;
     } catch (caught) {
       let errorMessage = caught instanceof Error ? caught.message : 'Failed to send message';
-      // Provide user-friendly error for edge function failures
+      // Make generic edge function errors more readable
       if (errorMessage.includes('non-2xx') || errorMessage.includes('Edge Function')) {
-        errorMessage = 'Casa is temporarily unavailable. The AI service may be starting up — please try again in a moment.';
+        errorMessage = 'Could not reach Casa. Please try again.';
       }
       // Remove optimistic message on failure
       setState(prev => ({
@@ -277,23 +345,57 @@ export function useAgentChat(): UseAgentChatReturn {
     }
   }, [user, state.currentConversation?.id]);
 
+  const updateInlineActionStatus = useCallback((actionId: string, newStatus: 'approved' | 'rejected') => {
+    setState(prev => ({
+      ...prev,
+      messages: prev.messages.map(m => {
+        if (!m.inline_actions) return m;
+        const updated = m.inline_actions.map(a =>
+          a.pendingActionId === actionId ? { ...a, status: newStatus as InlineAction['status'] } : a,
+        );
+        return { ...m, inline_actions: updated };
+      }),
+    }));
+  }, []);
+
   const approveAction = useCallback(async (actionId: string): Promise<boolean> => {
     if (!user) return false;
 
     try {
       const supabase = getSupabaseClient();
 
-      const { error } = await (supabase
-        .from('agent_pending_actions') as ReturnType<typeof supabase.from>)
-        .update({
-          status: 'approved',
-          resolved_at: new Date().toISOString(),
-          resolved_by: user.id,
-        })
-        .eq('id', actionId)
-        .eq('user_id', user.id);
+      // Invoke the Edge Function which handles: DB status update, tool execution,
+      // learning pipeline feedback, and decision logging
+      const { data, error } = await supabase.functions.invoke('agent-chat', {
+        body: {
+          message: 'Approved action',
+          conversationId: state.currentConversation?.id,
+          action: { type: 'approve', pendingActionId: actionId },
+        },
+      });
 
       if (error) throw error;
+
+      updateInlineActionStatus(actionId, 'approved');
+
+      // If the Edge Function returned a message, append it to the conversation
+      if (data?.message) {
+        const resultMessage: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          conversation_id: state.currentConversation?.id || '',
+          role: 'assistant',
+          content: data.message,
+          tool_calls: null,
+          tool_results: null,
+          feedback: null,
+          tokens_used: data.tokensUsed || null,
+          created_at: new Date().toISOString(),
+        };
+        setState(prev => ({
+          ...prev,
+          messages: [...prev.messages, resultMessage],
+        }));
+      }
 
       return true;
     } catch (caught) {
@@ -301,7 +403,7 @@ export function useAgentChat(): UseAgentChatReturn {
       setState(prev => ({ ...prev, error: errorMessage }));
       return false;
     }
-  }, [user]);
+  }, [user, state.currentConversation?.id, updateInlineActionStatus]);
 
   const rejectAction = useCallback(async (actionId: string, reason?: string): Promise<boolean> => {
     if (!user) return false;
@@ -309,23 +411,38 @@ export function useAgentChat(): UseAgentChatReturn {
     try {
       const supabase = getSupabaseClient();
 
-      const updateData: Record<string, unknown> = {
-        status: 'rejected',
-        resolved_at: new Date().toISOString(),
-        resolved_by: user.id,
-      };
-
-      if (reason) {
-        updateData.recommendation = reason;
-      }
-
-      const { error } = await (supabase
-        .from('agent_pending_actions') as ReturnType<typeof supabase.from>)
-        .update(updateData)
-        .eq('id', actionId)
-        .eq('user_id', user.id);
+      // Invoke the Edge Function which handles: DB status update, learning rule creation,
+      // and decision logging for the rejection
+      const { data, error } = await supabase.functions.invoke('agent-chat', {
+        body: {
+          message: reason || 'Rejected action',
+          conversationId: state.currentConversation?.id,
+          action: { type: 'reject', pendingActionId: actionId },
+        },
+      });
 
       if (error) throw error;
+
+      updateInlineActionStatus(actionId, 'rejected');
+
+      // If the Edge Function returned a message, append it to the conversation
+      if (data?.message) {
+        const resultMessage: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          conversation_id: state.currentConversation?.id || '',
+          role: 'assistant',
+          content: data.message,
+          tool_calls: null,
+          tool_results: null,
+          feedback: null,
+          tokens_used: data.tokensUsed || null,
+          created_at: new Date().toISOString(),
+        };
+        setState(prev => ({
+          ...prev,
+          messages: [...prev.messages, resultMessage],
+        }));
+      }
 
       return true;
     } catch (caught) {
@@ -333,7 +450,54 @@ export function useAgentChat(): UseAgentChatReturn {
       setState(prev => ({ ...prev, error: errorMessage }));
       return false;
     }
+  }, [user, state.currentConversation?.id, updateInlineActionStatus]);
+
+  const submitFeedback = useCallback(async (messageId: string, feedback: 'positive' | 'negative') => {
+    if (!user) return;
+
+    // Optimistically update the message feedback in local state
+    setState(prev => ({
+      ...prev,
+      messages: prev.messages.map(m =>
+        m.id === messageId ? { ...m, feedback } : m,
+      ),
+    }));
+
+    try {
+      const supabase = getSupabaseClient();
+
+      // Persist the feedback to the database
+      const { error } = await (supabase
+        .from('agent_messages') as ReturnType<typeof supabase.from>)
+        .update({ feedback })
+        .eq('id', messageId);
+
+      if (error) throw error;
+
+      // Fire-and-forget: feed into the learning pipeline
+      supabase.functions.invoke('agent-learning', {
+        body: {
+          action: 'process_message_feedback',
+          user_id: user.id,
+          message_id: messageId,
+          feedback,
+          category: 'general',
+        },
+      }).catch(() => {});
+    } catch (caught) {
+      // Revert optimistic update on failure
+      setState(prev => ({
+        ...prev,
+        messages: prev.messages.map(m =>
+          m.id === messageId ? { ...m, feedback: null } : m,
+        ),
+      }));
+    }
   }, [user]);
+
+  const clearError = useCallback(() => {
+    setState(prev => ({ ...prev, error: null }));
+  }, []);
 
   return {
     ...state,
@@ -343,5 +507,7 @@ export function useAgentChat(): UseAgentChatReturn {
     refreshConversations,
     approveAction,
     rejectAction,
+    submitFeedback,
+    clearError,
   };
 }

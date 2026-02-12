@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   attributeBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.subtle,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   },
   rentCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     marginBottom: 20,
     borderWidth: 1,
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   },
   detailsCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   },
   notesCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 14,
     borderWidth: 1,
     borderColor: THEME.colors.border,

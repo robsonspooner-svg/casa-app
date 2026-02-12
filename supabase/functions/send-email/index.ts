@@ -7,7 +7,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { sendEmail, EMAIL_TEMPLATES } from '../_shared/sendgrid.ts';
+import { sendEmail, EMAIL_TEMPLATES } from '../_shared/email.ts';
 
 type EmailType =
   | 'application_received'

@@ -2,7 +2,7 @@
 // Mission 02: Authentication & User Profiles
 
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
+import { User, Session, AuthChangeEvent, Provider } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from '../client';
 import type { UserRole } from '../types/database';
 
@@ -13,9 +13,15 @@ export interface AuthState {
   error: string | null;
 }
 
+export interface OAuthOptions {
+  redirectTo?: string;
+  scopes?: string;
+}
+
 export interface AuthActions {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string, role?: UserRole) => Promise<void>;
+  signInWithOAuth: (provider: Provider, options?: OAuthOptions) => Promise<string | null>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
@@ -135,6 +141,34 @@ export function useAuthProvider(): AuthContextValue {
     }
   }, []);
 
+  const signInWithOAuth = useCallback(async (
+    provider: Provider,
+    options?: OAuthOptions
+  ): Promise<string | null> => {
+    setState(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: options?.redirectTo,
+          scopes: options?.scopes,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+
+      setState(prev => ({ ...prev, loading: false }));
+      return data.url;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to sign in with OAuth';
+      setState(prev => ({ ...prev, loading: false, error: message }));
+      throw err;
+    }
+  }, []);
+
   const signUp = useCallback(async (
     email: string,
     password: string,
@@ -221,6 +255,7 @@ export function useAuthProvider(): AuthContextValue {
     ...state,
     isAuthenticated: !!state.session,
     signIn,
+    signInWithOAuth,
     signUp,
     signOut,
     resetPassword,

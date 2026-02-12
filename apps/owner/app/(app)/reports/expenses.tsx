@@ -111,13 +111,13 @@ export default function ExpensesScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M15 18l-6-6 6-6" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Expense Tracker</Text>
         <TouchableOpacity onPress={() => setShowAddForm(!showAddForm)} style={styles.addButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-            <Path d="M12 5v14M5 12h14" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+            <Path d="M12 5v14M5 12h14" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
           </Svg>
         </TouchableOpacity>
       </View>
@@ -212,7 +212,7 @@ export default function ExpensesScreen() {
               <View style={[styles.toggle, formIsTaxDeductible && styles.toggleActive]}>
                 {formIsTaxDeductible && (
                   <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                    <Path d="M20 6L9 17l-5-5" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                    <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 )}
               </View>
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   addButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.textInverse },
 
   totalRow: {
     flexDirection: 'row',
@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
   // Form
   formCard: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: 12,
+    borderRadius: THEME.radius.md,
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: 8,
+    borderRadius: THEME.radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.canvas,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.brandIndigo,
   },
   chipText: { fontSize: 13, color: THEME.colors.textSecondary },
-  chipTextActive: { color: '#FFFFFF' },
+  chipTextActive: { color: THEME.colors.textInverse },
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, gap: 10 },
   toggle: {
@@ -373,12 +373,12 @@ const styles = StyleSheet.create({
 
   saveButton: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 20,
   },
-  saveButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  saveButtonText: { fontSize: 15, fontWeight: '700', color: THEME.colors.textInverse },
 
   // Empty state
   emptyState: {
@@ -396,19 +396,19 @@ const styles = StyleSheet.create({
   },
   emptyButton: {
     backgroundColor: THEME.colors.brand,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     paddingHorizontal: 24,
     paddingVertical: 12,
     marginTop: 20,
   },
-  emptyButtonText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  emptyButtonText: { fontSize: 14, fontWeight: '700', color: THEME.colors.textInverse },
 
   // Expense list items
   expenseItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.colors.surface,
-    borderRadius: 10,
+    borderRadius: THEME.radius.md,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,

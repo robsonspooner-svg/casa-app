@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
     fontWeight: THEME.fontWeight.medium,
   },
   categoryLabelSelected: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   urgencyOption: {
     backgroundColor: THEME.colors.surface,
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
   locationChipTextSelected: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontWeight: THEME.fontWeight.medium,
   },
   submitContainer: {

@@ -96,7 +96,7 @@ function ListingSearchCard({ listing, onPress, isFav, onToggleFav }: { listing: 
           <Svg width={20} height={20} viewBox="0 0 24 24" fill={isFav ? THEME.colors.error : 'none'}>
             <Path
               d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-              stroke={isFav ? THEME.colors.error : '#FFFFFF'}
+              stroke={isFav ? THEME.colors.error : THEME.colors.textInverse}
               strokeWidth={1.5}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -558,7 +558,7 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: THEME.spacing.md,
     paddingVertical: THEME.spacing.sm,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
@@ -573,7 +573,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   resultCount: {
     fontSize: THEME.fontSize.bodySmall,
@@ -617,14 +617,14 @@ const styles = StyleSheet.create({
     top: THEME.spacing.sm,
     left: THEME.spacing.sm,
     backgroundColor: THEME.colors.success,
-    borderRadius: 6,
+    borderRadius: THEME.radius.sm,
     paddingHorizontal: THEME.spacing.sm,
     paddingVertical: 2,
   },
   cardBadgeText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   cardContent: {
     padding: THEME.spacing.base,
@@ -834,7 +834,7 @@ const styles = StyleSheet.create({
   toggleTrack: {
     width: 48,
     height: 28,
-    borderRadius: 14,
+    borderRadius: THEME.radius.full,
     backgroundColor: THEME.colors.border,
     justifyContent: 'center',
     paddingHorizontal: 2,
@@ -846,7 +846,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surface,
   },
   toggleThumbActive: {
     alignSelf: 'flex-end',
@@ -868,7 +868,7 @@ const styles = StyleSheet.create({
   applyButtonText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 
   // Save Search Modal
@@ -895,6 +895,6 @@ const styles = StyleSheet.create({
   saveSearchButtonText: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 });

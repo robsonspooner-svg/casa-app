@@ -32,11 +32,11 @@ import {
 // ---------------------------------------------------------------------------
 
 const CONDITION_OPTIONS: { value: ReportConditionRating; label: string; color: string }[] = [
-  { value: 'new', label: 'New', color: '#16A34A' },
-  { value: 'good', label: 'Good', color: '#2563EB' },
-  { value: 'fair', label: 'Fair', color: '#F59E0B' },
+  { value: 'new', label: 'New', color: THEME.colors.success },
+  { value: 'good', label: 'Good', color: THEME.colors.info },
+  { value: 'fair', label: 'Fair', color: THEME.colors.warning },
   { value: 'poor', label: 'Poor', color: '#F97316' },
-  { value: 'damaged', label: 'Damaged', color: '#EF4444' },
+  { value: 'damaged', label: 'Damaged', color: THEME.colors.error },
 ];
 
 type ReportType = 'entry' | 'exit';
@@ -78,14 +78,14 @@ function DocumentIcon() {
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
-        stroke="#FFFFFF"
+        stroke={THEME.colors.textInverse}
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <Path
         d="M14 2v6h6M16 13H8M16 17H8M10 9H8"
-        stroke="#FFFFFF"
+        stroke={THEME.colors.textInverse}
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -500,7 +500,7 @@ export default function ConditionReportScreen() {
           disabled={generating}
         >
           {generating ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
             <View style={styles.generateButtonContent}>
               <DocumentIcon />
@@ -598,7 +598,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   typeOptionTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
 
   // Room cards
@@ -660,7 +660,7 @@ const styles = StyleSheet.create({
   conditionChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: THEME.radius.full,
     borderWidth: 1.5,
     borderColor: THEME.colors.border,
     backgroundColor: THEME.colors.surface,
@@ -671,7 +671,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   conditionChipTextActive: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
   },
   itemNotes: {
     backgroundColor: THEME.colors.canvas,
@@ -763,7 +763,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   generateButtonText: {
-    color: '#FFFFFF',
+    color: THEME.colors.textInverse,
     fontSize: THEME.fontSize.body + 1,
     fontWeight: THEME.fontWeight.bold,
   },
