@@ -108,13 +108,16 @@ Deno.serve(async (req: Request) => {
             .eq('id', user.id);
         }
 
-        // Create subscription
+        // Create subscription with 14-day free trial.
+        // payment_settings.save_default_payment_method ensures that when the
+        // user eventually adds a card it becomes the default for renewals.
+        // No payment method is required up front during the trial.
         const subscription = await stripeRequest('/subscriptions', 'POST', {
           customer: customerId,
           'items[0][price]': PRICE_MAP[tier],
           'trial_period_days': '14',
-          'payment_behavior': 'default_incomplete',
-          'expand[]': 'latest_invoice.payment_intent',
+          'payment_behavior': 'allow_incomplete',
+          'payment_settings[save_default_payment_method]': 'on_subscription',
         });
 
         // Update profile
@@ -127,8 +130,8 @@ Deno.serve(async (req: Request) => {
         result = {
           success: true,
           subscription_id: subscription.id,
-          client_secret: subscription.latest_invoice?.payment_intent?.client_secret,
           status: subscription.status,
+          trial_end: subscription.trial_end,
         };
         break;
       }
@@ -248,6 +251,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
+    console.error('[manage-subscription] Error:', message, err);
     return new Response(
       JSON.stringify({ error: message }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

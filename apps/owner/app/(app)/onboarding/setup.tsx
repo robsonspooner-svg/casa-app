@@ -296,9 +296,17 @@ export default function OnboardingSetupScreen() {
     } else if (step === 4) {
       await savePropertyAndTenancy();
       await createSubscription();
+      // Mark onboarding complete immediately so the user doesn't loop
+      // back if the app restarts before tapping "Start Managing"
+      if (user) {
+        const supabase = getSupabaseClient();
+        await (supabase.from('profiles') as any)
+          .update({ onboarding_completed: true })
+          .eq('id', user.id);
+      }
       setStep(5);
     }
-  }, [step, validateStep1, validateStep2, savePropertyAndTenancy, createSubscription]);
+  }, [step, validateStep1, validateStep2, savePropertyAndTenancy, createSubscription, user]);
 
   const handleBack = useCallback(() => {
     if (step > 1) {
@@ -313,17 +321,16 @@ export default function OnboardingSetupScreen() {
     if (!user) return;
     setSaving(true);
     try {
+      // Ensure onboarding_completed is set (may already be set from step 4)
       const supabase = getSupabaseClient();
-      await (supabase
-        .from('profiles') as any)
+      await (supabase.from('profiles') as any)
         .update({ onboarding_completed: true })
         .eq('id', user.id);
-      router.replace('/(app)/(tabs)' as never);
     } catch {
-      Alert.alert('Error', 'Failed to complete setup. Please try again.');
-    } finally {
-      setSaving(false);
+      // Non-blocking — the flag was already set in step 4
     }
+    setSaving(false);
+    router.replace('/(app)/(tabs)' as never);
   }, [user]);
 
   const renderStepIndicator = () => (
