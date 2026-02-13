@@ -45,6 +45,7 @@ import {
   handle_process_payment, handle_lodge_bond,
   handle_send_receipt, handle_retry_payment, handle_claim_bond,
   handle_update_autopay, handle_cancel_rent_increase,
+  handle_record_quote_response,
 } from './tool-handlers-actions.ts';
 
 import {
@@ -77,6 +78,7 @@ import {
   handle_generate_proof_of_service,
   handle_generate_wealth_report, handle_generate_property_action_plan,
   handle_predict_vacancy_risk, handle_calculate_roi_metrics,
+  handle_generate_work_order,
 } from './tool-handlers-generate.ts';
 
 import { TOOL_META } from './tool-registry.ts';
@@ -175,6 +177,7 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   claim_bond: handle_claim_bond,
   update_autopay: handle_update_autopay,
   cancel_rent_increase: handle_cancel_rent_increase,
+  record_quote_response: handle_record_quote_response,
 
   // Generate tools
   generate_listing: handle_generate_listing,
@@ -197,6 +200,9 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   generate_lease: handle_generate_lease,
   assess_tenant_damage: handle_assess_tenant_damage,
   compare_quotes: handle_compare_quotes,
+
+  // Work order document generation
+  generate_work_order: handle_generate_work_order,
 
   // Document lifecycle tools
   create_document: handle_create_document,

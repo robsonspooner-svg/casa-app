@@ -249,7 +249,7 @@ export function useArrearsMutations() {
 
       // Call the send-arrears-reminder Edge Function
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-arrears-reminder`,
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/send-arrears-reminder`,
         {
           method: 'POST',
           headers: {
@@ -320,7 +320,7 @@ export function useArrearsMutations() {
 
       // Call the send-breach-notice Edge Function
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-breach-notice`,
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/send-breach-notice`,
         {
           method: 'POST',
           headers: {

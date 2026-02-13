@@ -846,6 +846,49 @@ export async function handle_reject_quote(input: ToolInput, userId: string, sb: 
   return { success: true, data: { quote_id: input.quote_id, rejected: true, reason: input.reason } };
 }
 
+export async function handle_record_quote_response(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const workOrderId = input.work_order_id as string;
+  const quotedAmount = input.quoted_amount as number;
+  const availability = (input.availability as string) || null;
+  const notes = (input.notes as string) || null;
+
+  if (!workOrderId || quotedAmount === undefined) {
+    return { success: false, error: 'Missing required fields: work_order_id, quoted_amount' };
+  }
+
+  const updates: Record<string, unknown> = {
+    quoted_amount: quotedAmount,
+    status: 'quoted',
+    status_changed_at: new Date().toISOString(),
+  };
+  if (availability) updates.scheduled_date = availability;
+  if (notes) updates.completion_notes = notes;
+
+  const { data, error } = await sb
+    .from('work_orders')
+    .update(updates)
+    .eq('id', workOrderId)
+    .eq('owner_id', userId)
+    .select('id, quoted_amount, scheduled_date, status, trade_id, maintenance_request_id')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  // Log to maintenance comments if linked to a request
+  if ((data as any).maintenance_request_id) {
+    const { data: trade } = await sb.from('trades').select('business_name').eq('id', (data as any).trade_id).maybeSingle();
+    await sb.from('maintenance_comments').insert({
+      request_id: (data as any).maintenance_request_id,
+      author_id: userId,
+      content: `💰 Quote received from ${(trade as any)?.business_name || 'tradesperson'}: $${Number(quotedAmount).toFixed(2)}${availability ? ` — available ${availability}` : ''}${notes ? ` — ${notes}` : ''}`,
+      is_internal: true,
+      metadata: { type: 'quote_response', work_order_id: workOrderId, quoted_amount: quotedAmount, availability, notes },
+    });
+  }
+
+  return { success: true, data };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // APPLICATIONS
 // ═══════════════════════════════════════════════════════════════════════════

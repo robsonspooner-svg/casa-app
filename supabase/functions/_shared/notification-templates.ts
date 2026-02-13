@@ -314,6 +314,34 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
     return { subject: `Maintenance update: ${issue}`, title: 'Maintenance Update', headerColour: CASA_NAVY, content };
   },
 
+  quote_request: (data) => {
+    const tradeName = (data.trade_name as string) || 'there';
+    const ownerName = (data.owner_name as string) || 'the property owner';
+    const addr = (data.property_address as string) || '';
+    const issue = (data.issue_title as string) || (data.description as string) || 'Maintenance work required';
+    const urgency = (data.urgency as string) || 'routine';
+    const accessInstructions = (data.access_instructions as string) || '';
+    const scope = (data.scope as string) || '';
+    const urgencyColour = urgency === 'emergency' ? DANGER_RED : urgency === 'urgent' ? WARNING_AMBER : CASA_NAVY;
+    const rows: Array<{ label: string; value: string; colour?: string }> = [
+      { label: 'Property', value: addr },
+      { label: 'Issue', value: issue },
+      { label: 'Urgency', value: urgency.charAt(0).toUpperCase() + urgency.slice(1), colour: urgencyColour },
+    ];
+    if (scope) rows.push({ label: 'Scope of Work', value: scope });
+    if (accessInstructions) rows.push({ label: 'Access', value: accessInstructions });
+    const content = [
+      greeting(tradeName),
+      paragraph(`You have received a quote request from <strong>${ownerName}</strong> via Casa Property Management.`),
+      paragraph('Please review the details below and reply to this email with your quote including estimated cost and availability.'),
+      infoCard(rows),
+      paragraph('Please include in your response:'),
+      paragraph('&bull; Estimated cost (inc. GST)<br/>&bull; Estimated timeframe<br/>&bull; Any additional information or requirements'),
+      paragraph('Simply reply to this email with your quote and we will pass it on to the property owner.'),
+    ].join('');
+    return { subject: `Quote Request: ${issue} at ${addr}`, title: 'Quote Request', headerColour: CASA_NAVY, content };
+  },
+
   maintenance_trade_assigned: (data) => {
     const name = (data.owner_name as string) || 'there';
     const issue = (data.issue_title as string) || 'Maintenance request';

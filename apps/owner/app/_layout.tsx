@@ -6,6 +6,7 @@ import * as Linking from 'expo-linking';
 import { THEME } from '@casa/config';
 import { initializeSupabase, getSupabaseClient, AuthProvider, AgentProvider } from '@casa/api';
 import NotificationProvider from '../components/NotificationProvider';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // Initialize Supabase with environment variables
 // These should be set in .env.local for local development
@@ -56,33 +57,37 @@ export default function RootLayout() {
     // Handle cold-start deep links
     Linking.getInitialURL().then((url) => {
       if (url) handleDeepLink({ url });
+    }).catch(() => {
+      // Silently handle getInitialURL failures — not critical
     });
 
     return () => subscription.remove();
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <AgentProvider>
-          <NotificationProvider>
-            <StatusBar style="dark" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: {
-                  backgroundColor: THEME.colors.canvas,
-                },
-                animation: 'slide_from_right',
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(app)" />
-            </Stack>
-          </NotificationProvider>
-        </AgentProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <AgentProvider>
+            <NotificationProvider>
+              <StatusBar style="dark" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: {
+                    backgroundColor: THEME.colors.canvas,
+                  },
+                  animation: 'slide_from_right',
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="(auth)" />
+                <Stack.Screen name="(app)" />
+              </Stack>
+            </NotificationProvider>
+          </AgentProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

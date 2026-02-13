@@ -7,6 +7,8 @@ export { Card, type CardProps } from './components/Card';
 export { Input, type InputProps } from './components/Input';
 export { Checkbox, type CheckboxProps } from './components/Checkbox';
 export { Chip, type ChipProps } from './components/Chip';
+// DatePicker requires @react-native-community/datetimepicker native module.
+// Both owner and tenant apps must have it in their package.json for autolinking.
 export { DatePicker, type DatePickerProps } from './components/DatePicker';
 export { SearchInput, type SearchInputProps } from './components/SearchInput';
 

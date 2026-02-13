@@ -30,12 +30,20 @@
 
 ### What's Needed for Launch
 1. **12 critical code fixes** (security, functionality, integration — see Part 2)
-2. **Production credentials** (Stripe, SendGrid, Twilio, Expo Push)
-3. **Visual polish** (borderRadius standardization, color tokens — in progress)
+2. **Production credentials** (Stripe keys — account already created)
+3. **Visual polish** (borderRadius standardization, color tokens — DONE, app icons — DONE)
 4. **Feature gating** (Coming Soon for 10 stubbed external integrations)
 5. **Agent system prompt** (updated for launch reality)
 6. **App Store assets** (screenshots, copy, metadata)
 7. **Marketing website** (pricing page, product copy — currently a scaffold)
+
+### Removed from Launch Scope
+- **Twilio SMS** — deferred to post-launch
+- **Google OAuth** — email/password auth only for launch
+
+### Already Working
+- **Email via Resend** — fully integrated, `RESEND_API_KEY` configured, all Edge Functions use Resend API
+- **Stripe** — products, prices, webhook, and all secrets configured (test mode)
 
 ### External Blockers (Long Lead Time)
 | Integration | Status | Lead Time | Impact on Launch |
@@ -46,7 +54,9 @@
 | TICA | Not started | 1-2 weeks | Gate tenancy checks |
 | DocuSign | Not started | 1-2 weeks | Gate e-signatures |
 | Stripe Connect | Sandbox ready | 1-2 days | **Must have for launch** |
-| SendGrid | Key available | 0.5 days | **Must have for launch** |
+| Resend (email) | **DONE** | Configured | Email works via Resend API |
+| Twilio (SMS) | Deferred | Post-launch | Gate — no SMS for v1 |
+| Google OAuth | Deferred | Post-launch | Email/password auth only for v1 |
 
 ---
 
@@ -65,7 +75,7 @@ These are code-level fixes that must be completed before any user touches the ap
 ### Functionality Fixes (Priority 2)
 | # | Fix | Files | Impact |
 |---|-----|-------|--------|
-| 1 | OAuth deep link handler | Both `_layout.tsx` | Google sign-in silently fails |
+| ~~1~~ | ~~OAuth deep link handler~~ | ~~Both `_layout.tsx`~~ | **REMOVED** — no Google OAuth for launch |
 | 2 | approveAction must invoke Edge Function | `useAgentChat.ts` | Approving agent actions does nothing |
 | 3 | Onboarding race condition | Owner `_layout.tsx` | New users bypass onboarding |
 | 4 | Report failure shows "completed" | `useReports.ts` | Failed reports appear successful |
@@ -87,22 +97,23 @@ These are code-level fixes that must be completed before any user touches the ap
 - [x] Apple Developer enrolled
 - [x] EAS builds configured for both apps
 - [x] TestFlight submissions in progress
-- [ ] Stripe production products created (Starter $49, Pro $89, Hands Off $149)
-- [ ] SendGrid sender identity verified
-- [ ] Twilio Australian number obtained
-- [ ] Google OAuth redirect URIs configured
+- [x] Stripe account created (products + webhook need configuration)
+- [x] App icons updated with Casa logo
+- ~~SendGrid~~ — deferred to post-launch
+- ~~Twilio~~ — deferred to post-launch
+- ~~Google OAuth~~ — deferred to post-launch
 - [ ] Single domain chosen and standardized
 
 ### Phase 1: Infrastructure & Secrets (2-3 hours)
 - [ ] Apply all 62 migrations: `npx supabase db push --linked`
-- [ ] Deploy all 42 Edge Functions
-- [ ] Set all secrets (Stripe, SendGrid, Twilio, Anthropic, encryption keys)
+- [ ] Deploy all Edge Functions
+- [ ] Set Stripe secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, 3 price IDs)
+- [ ] Set DATA_ENCRYPTION_KEY
 - [ ] Fix domain references to single production domain
 - [ ] Verify pg_cron heartbeat system
 - [ ] Set maintenance storage bucket to private + RLS
 
 ### Phase 2: Critical Fixes (4-6 hours)
-- [ ] Fix 1: OAuth deep link handler (both apps)
 - [ ] Fix 2: approveAction invokes Edge Function
 - [ ] Fix 3: Onboarding race condition
 - [ ] Fix 4: Report failure status
@@ -116,6 +127,7 @@ These are code-level fixes that must be completed before any user touches the ap
 - [ ] Fix 12: Chat error tap behavior
 - [ ] Fix 13: KeyboardAvoidingView on listing creation
 - [ ] `pnpm typecheck` passes clean
+- ~~Fix 1: OAuth deep link handler~~ — removed (no Google OAuth for launch)
 
 ### Phase 3: Feature Gating & Cohesion (3-4 hours)
 - [ ] Build ComingSoon component (reusable, branded, premium feel)
@@ -136,16 +148,16 @@ These are code-level fixes that must be completed before any user touches the ap
 - [ ] Owner payout onboarding (real Stripe Connect)
 - [ ] Remove dev fallback in manage-subscription
 
-### Phase 5: Email, SMS & Notification Pipeline (2-3 hours)
-- [ ] Email delivery works for all templates (SendGrid)
-- [ ] SMS delivery works (Twilio)
+### Phase 5: Notifications — Push + Email (2-3 hours)
 - [ ] Push notifications arrive on real device
-- [ ] Email queue processes with retry logic
-- [ ] Maintenance submission triggers landlord notification
+- [ ] Email delivery works via Resend (all 5 templates)
+- [ ] Maintenance submission triggers landlord notification (push + email)
 - [ ] Rent reminders fire at configured intervals
 - [ ] Lease expiry warnings fire
+- [ ] Email queue processes with retry logic
 - [ ] Notification preferences respected
 - [ ] All emails use correct production domain
+- ~~SMS delivery (Twilio)~~ — deferred to post-launch
 
 ### Phase 6: Tenant App Completion (2-3 hours)
 - [ ] Settings hub with working sub-screens
@@ -188,8 +200,8 @@ These are code-level fixes that must be completed before any user touches the ap
 
 ### Completed
 - [x] Hardcoded color values → THEME.colors tokens (both apps)
-- [x] borderRadius standardization → THEME.radius tokens (tenant app)
-- [ ] borderRadius standardization → THEME.radius tokens (owner app — in progress)
+- [x] borderRadius standardization → THEME.radius tokens (both apps)
+- [x] App icons with Casa logo (both apps — icon, adaptive-icon, splash, notification-icon, favicon)
 
 ### Remaining Polish Items
 | Item | Priority | Effort | Description |
@@ -338,13 +350,15 @@ These are code-level fixes that must be completed before any user touches the ap
 - [ ] SLA monitoring and alerting
 
 ### Cost Projections
-| Properties | Supabase | Anthropic AI | Stripe Fees | SendGrid | Twilio | Total/mo |
-|------------|----------|-------------|-------------|----------|--------|----------|
-| 50 | $25 | $150 | $50 | $15 | $20 | ~$260 |
-| 200 | $25 | $500 | $200 | $30 | $80 | ~$835 |
-| 500 | $100 | $1,200 | $500 | $50 | $200 | ~$2,050 |
-| 1,000 | $200 | $2,500 | $1,000 | $100 | $400 | ~$4,200 |
-| 5,000 | $500 | $10,000 | $5,000 | $300 | $1,500 | ~$17,300 |
+| Properties | Supabase | Anthropic AI | Stripe Fees | Total/mo |
+|------------|----------|-------------|-------------|----------|
+| 50 | $25 | $150 | $50 | ~$225 |
+| 200 | $25 | $500 | $200 | ~$725 |
+| 500 | $100 | $1,200 | $500 | ~$1,800 |
+| 1,000 | $200 | $2,500 | $1,000 | ~$3,700 |
+| 5,000 | $500 | $10,000 | $5,000 | ~$15,500 |
+
+*SendGrid + Twilio costs added post-launch when email/SMS integrations are enabled.*
 
 **Revenue at each scale:**
 | Properties | Avg Rev/Property | Monthly Revenue | Monthly Cost | Margin |
@@ -556,23 +570,24 @@ EAS Update allows pushing JS-only changes instantly without App Store review. Th
 
 ## Part 10: Immediate Next Actions
 
-### Today (Feb 13)
-1. **Finish borderRadius standardization** (owner app agent completing)
-2. **Run typecheck** to verify all visual polish changes compile
-3. **Monitor tenant rebuild** in EAS queue
-4. **Submit tenant build to TestFlight** when ready
-5. **Start Phase 1** — infrastructure & secrets setup
+### Today (Feb 13) — DONE
+1. ~~Finish borderRadius standardization~~ — DONE (both apps)
+2. ~~Run typecheck~~ — DONE (0 errors)
+3. ~~App icons updated with Casa logo~~ — DONE (both apps)
+4. ~~Push to GitHub~~ — DONE
+5. ~~Review launch docs~~ — DONE
+6. **Next:** Start Phase 1 — infrastructure & Stripe secrets
 
 ### Tomorrow (Feb 14)
-1. **Phase 2** — Critical fixes (12 items)
-2. **Robbie:** Create Stripe products, verify SendGrid, get Twilio number
+1. **Phase 2** — Critical fixes (11 items)
+2. **Robbie:** Provide Stripe keys (secret key, webhook secret, 3 price IDs)
 
 ### Feb 15-16
 1. **Phase 3** — Feature gating & cohesion
 2. **Phase 4** — Stripe & payment flows
 
 ### Feb 17-18
-1. **Phase 5** — Notification pipeline
+1. **Phase 5** — Push notifications
 2. **Phase 6** — Tenant app completion
 
 ### Feb 19
@@ -588,13 +603,15 @@ EAS Update allows pushing JS-only changes instantly without App Store review. Th
 ## Summary
 
 Casa is ~95% built. All 20 missions have been substantially implemented in code — 33 real Edge Functions, 66 migrations, 98 API hooks, full learning engine, MFA, encryption, performance indexes, and onboarding. The remaining ~5% is:
-- **12 critical code fixes** (security vulnerabilities, functionality bugs — 4-6 hours)
-- **Production credential wiring** (Stripe keys, SendGrid, Twilio, Expo Push — 1 day)
-- **Visual polish** (borderRadius, skeleton screens, empty states — in progress)
+- **11 critical code fixes** (security vulnerabilities, functionality bugs — 4-6 hours)
+- **Stripe keys** (secret key, webhook secret, 3 price IDs — account already created)
+- **Visual polish** (borderRadius — DONE, color tokens — DONE, app icons — DONE, skeleton screens & empty states — pending)
 - **Feature gating** (10 stubbed external integrations need "Coming Soon" gates)
 - **Agent system prompt tuning** (match capabilities to launch reality)
 - **Marketing website** (pricing page, product copy — currently a scaffold)
 - **App Store assets** (screenshots, metadata)
+
+Launch is simplified: email/password auth only (no Google OAuth), push notifications only (no email/SMS via SendGrid/Twilio). These integrations move to post-launch Week 5.
 
 The app will launch with fewer features than what's built — but everything it ships will work flawlessly. External integrations (Domain, REA, Equifax, TICA) are gated behind "Coming Soon" and will ship via OTA updates as partner approvals come through.
 

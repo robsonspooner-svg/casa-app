@@ -23,20 +23,4 @@ config.resolver.extraNodeModules = {
   '@casa/api': path.resolve(monorepoRoot, 'packages/api'),
 };
 
-// 4. Force Metro to resolve (sub)dependencies only from the `nodeModulesPaths`
-config.resolver.disableHierarchicalLookup = true;
-
-// 5. Reset transformer to handle React Native's internal files with 'as const'
-config.resetCache = true;
-
-// 6. Production bundle optimization: strip console.* calls from minified output
-config.transformer = {
-  ...config.transformer,
-  minifierConfig: {
-    compress: {
-      drop_console: true,
-    },
-  },
-};
-
 module.exports = config;

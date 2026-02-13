@@ -12,7 +12,6 @@
       "resizeMode": "contain",
       "backgroundColor": "#1B1464"
     },
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "au.com.casaintelligence.tenant",

@@ -66,8 +66,29 @@ export async function handle_triage_maintenance(input: ToolInput, userId: string
   return { success: true, data: { request: req, photos: input.photos || [], instruction: 'Triage this maintenance request. Determine: 1) Urgency (emergency/urgent/routine), 2) Estimated cost range (AUD), 3) Recommended trade category, 4) Suggested action plan. Return JSON: { "urgency": "...", "cost_estimate": { "low": N, "high": N }, "trade_category": "...", "action_plan": [...], "safety_concerns": [...] }' } };
 }
 
-export async function handle_estimate_cost(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
-  return { success: true, data: { category: input.category, description: input.description, postcode: input.postcode || '', instruction: `Estimate the cost of this maintenance work in Australian dollars. Category: ${input.category}. Description: ${input.description}. Location postcode: ${input.postcode || 'unknown'}. Provide low/mid/high estimates based on typical Australian trade rates. Return JSON: { "low": N, "mid": N, "high": N, "factors": [...], "notes": "..." }` } };
+export async function handle_estimate_cost(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const category = input.category as string;
+  const postcode = (input.postcode as string) || undefined;
+  const state = (input.state as string) || undefined;
+
+  // Query platform-wide cost intelligence from completed work orders
+  const { data: stats, error } = await sb.rpc('get_cost_intelligence', {
+    p_category: category,
+    p_postcode: postcode || null,
+    p_state: state || null,
+  });
+
+  const hasPlatformData = !error && stats && stats.sample_size > 0;
+
+  return { success: true, data: {
+    category,
+    description: input.description,
+    postcode: postcode || '',
+    platform_data: hasPlatformData ? stats : null,
+    instruction: hasPlatformData
+      ? `Estimate the cost of this maintenance work in Australian dollars. Category: ${category}. Description: ${input.description}. Location: ${postcode || 'unknown'}. We have real platform data from ${stats.sample_size} completed jobs at the ${stats.level} level: low (25th pctl) $${stats.low}, median $${stats.mid}, high (75th pctl) $${stats.high}, range $${stats.min}-$${stats.max}. Use this data as a strong baseline, then adjust for the specific description and scope. Return JSON: { "low": N, "mid": N, "high": N, "factors": [...], "confidence": "high|medium|low", "data_source": "platform", "sample_size": ${stats.sample_size}, "notes": "..." }`
+      : `Estimate the cost of this maintenance work in Australian dollars. Category: ${category}. Description: ${input.description}. Location postcode: ${postcode || 'unknown'}. No platform data available yet for this category/location. Provide low/mid/high estimates based on typical Australian trade rates. Return JSON: { "low": N, "mid": N, "high": N, "factors": [...], "confidence": "low", "data_source": "market_knowledge", "sample_size": 0, "notes": "..." }`
+  } };
 }
 
 export async function handle_analyze_rent(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -534,21 +555,78 @@ export async function handle_request_quote(input: ToolInput, userId: string, sb:
 
   if (error) return { success: false, error: error.message };
 
-  // Queue notification email to trade if we have their details
+  // Send quote request email to trade with CC to owner
+  let emailSent = false;
   if (input.provider_id) {
     const { data: trade } = await sb.from('trades').select('email, business_name').eq('id', input.provider_id as string).single();
     if (trade && (trade as any).email) {
-      await sb.from('email_queue').insert({
-        to_email: (trade as any).email, to_name: (trade as any).business_name,
-        subject: 'Quote Request from Casa Property Management',
-        template_name: 'quote_request',
-        template_data: { description: input.description, urgency: input.urgency || 'routine', property_id: input.property_id },
-        status: 'pending',
+      // Get owner details and property address for the email
+      const { data: ownerProfile } = await sb.from('profiles').select('email, full_name').eq('id', userId).single();
+      const { data: property } = await sb.from('properties').select('address_line_1, suburb, state, postcode').eq('id', input.property_id as string).single();
+      const propertyAddress = property ? `${(property as any).address_line_1}, ${(property as any).suburb} ${(property as any).state} ${(property as any).postcode || ''}`.trim() : '';
+
+      // Render the quote_request email template
+      const { getEmailHtml } = await import('./notification-templates.ts');
+      const { subject: emailSubject, htmlContent } = getEmailHtml('quote_request', {
+        trade_name: (trade as any).business_name,
+        owner_name: ownerProfile?.full_name || 'the property owner',
+        property_address: propertyAddress,
+        issue_title: input.description as string,
+        description: input.description as string,
+        urgency: (input.urgency as string) || 'routine',
+        access_instructions: (input.access_instructions as string) || '',
+        scope: (input.scope as string) || '',
       });
+
+      // Build CC list — always CC the owner so they see the correspondence
+      const ccList: string[] = [];
+      if (ownerProfile?.email) ccList.push(ownerProfile.email);
+
+      const resendApiKey = Deno.env.get('RESEND_API_KEY');
+      if (resendApiKey) {
+        const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+        const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
+        const emailPayload: Record<string, unknown> = {
+          from: `${fromName} <${fromEmail}>`,
+          to: [(trade as any).email],
+          subject: emailSubject,
+          html: htmlContent,
+          text: htmlContent.replace(/<[^>]*>/g, ''),
+        };
+        if (ccList.length > 0) emailPayload.cc = ccList;
+        if (ownerProfile?.email) emailPayload.reply_to = ownerProfile.email;
+
+        try {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(emailPayload),
+          });
+          emailSent = true;
+        } catch { /* email is best-effort */ }
+      }
+
+      // Log the email as a maintenance comment for audit trail
+      if (input.maintenance_request_id) {
+        await sb.from('maintenance_comments').insert({
+          request_id: input.maintenance_request_id as string,
+          author_id: userId,
+          content: `📧 Quote request sent to ${(trade as any).business_name} (${(trade as any).email})${ccList.length > 0 ? ` — CC: ${ccList.join(', ')}` : ''}`,
+          is_internal: true,
+          metadata: {
+            type: 'email_sent',
+            email_type: 'quote_request',
+            to: (trade as any).email,
+            cc: ccList,
+            subject: emailSubject,
+            html_content: htmlContent,
+          },
+        });
+      }
     }
   }
 
-  return { success: true, data: { work_order_id: (wo as any).id, status: 'quote_requested' } };
+  return { success: true, data: { work_order_id: (wo as any).id, status: 'quote_requested', email_sent: emailSent } };
 }
 
 export async function handle_get_market_data(input: ToolInput, _userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -606,7 +684,7 @@ export async function handle_workflow_maintenance_lifecycle(input: ToolInput, us
   const { data: req } = await sb.from('maintenance_requests').select('*, properties!inner(address_line_1, suburb, state, postcode, owner_id)').eq('id', input.request_id as string).eq('properties.owner_id', userId).single();
   if (!req) return { success: false, error: 'Request not found' };
 
-  return { success: true, data: { request: req, auto_approve_threshold: input.auto_approve_threshold || 500, instruction: 'Execute the maintenance lifecycle. Steps: 1) Triage the request (use triage_maintenance), 2) Find suitable trades (use find_local_trades), 3) Request quotes from top trades (use request_quote), 4) Compare quotes when received (use compare_quotes), 5) If within auto-approve threshold, approve best quote (use approve_quote), otherwise present options to owner, 6) Track work order through completion. Report at each step.' } };
+  return { success: true, data: { request: req, auto_approve_threshold: input.auto_approve_threshold || 500, instruction: 'Execute the maintenance lifecycle. Steps: 1) Triage the request (use triage_maintenance), 2) Find suitable trades (use find_local_trades), 3) Create service providers if new (use create_service_provider), 4) Request quotes from top trades — email goes to trade with owner CC\'d (use request_quote), 5) Record quote responses as they come in (use record_quote_response), 6) Compare quotes when received (use compare_quotes), 7) If within auto-approve threshold, approve best quote (use approve_quote), otherwise present options to owner, 8) Generate work order document and email to trade with owner CC\'d (use generate_work_order), 9) CC tenant on scheduling emails so they can coordinate access (use send_email_sendgrid with cc/bcc), 10) Track work order through completion (use update_work_order_status). All emails are logged in the maintenance audit trail. Report at each step.' } };
 }
 
 export async function handle_workflow_arrears_escalation(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -1093,6 +1171,219 @@ export async function handle_update_document_status(input: ToolInput, userId: st
   return { success: true, data: doc };
 }
 
+// ── WORK ORDER DOCUMENT GENERATION ────────────────────────────────────────
+export async function handle_generate_work_order(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const workOrderId = input.work_order_id as string;
+  const sendToTrade = input.send_to_trade !== false; // default true
+
+  if (!workOrderId) return { success: false, error: 'Missing required field: work_order_id' };
+
+  // Fetch work order with related data
+  const { data: wo, error: woErr } = await sb
+    .from('work_orders')
+    .select('*, trades(business_name, email, phone, contact_name), properties(address_line_1, suburb, state, postcode), maintenance_requests(title, description, category, urgency)')
+    .eq('id', workOrderId)
+    .eq('owner_id', userId)
+    .single();
+
+  if (woErr || !wo) return { success: false, error: 'Work order not found or access denied' };
+
+  const trade = (wo as any).trades || {};
+  const property = (wo as any).properties || {};
+  const mainReq = (wo as any).maintenance_requests || {};
+  const propertyAddress = `${property.address_line_1 || ''}, ${property.suburb || ''} ${property.state || ''} ${property.postcode || ''}`.trim().replace(/^,\s*/, '');
+  const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const woNumber = `WO-${workOrderId.substring(0, 8).toUpperCase()}`;
+
+  // Get owner details
+  const { data: ownerProfile } = await sb.from('profiles').select('full_name, email, phone').eq('id', userId).single();
+  const ownerName = ownerProfile?.full_name || 'Property Owner';
+  const ownerEmail = ownerProfile?.email || '';
+
+  // Generate professional HTML work order
+  const htmlContent = `
+<div style="font-family:'Inter',-apple-system,sans-serif;max-width:800px;margin:0 auto;color:#1B2B4B;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;">
+    <div>
+      <h1 style="margin:0 0 4px 0;font-size:28px;color:#1B1464;">Work Order</h1>
+      <p style="margin:0;color:#6B7280;font-size:14px;">${woNumber} — ${today}</p>
+    </div>
+    <div style="text-align:right;">
+      <p style="margin:0;font-size:16px;font-weight:600;color:#1B1464;">Casa</p>
+      <p style="margin:0;color:#6B7280;font-size:13px;">Property Management</p>
+    </div>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+    <tr>
+      <td style="width:50%;vertical-align:top;padding-right:16px;">
+        <div style="background:#F9FAFB;border-radius:8px;padding:16px;">
+          <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Property</p>
+          <p style="margin:0;font-size:15px;font-weight:600;">${propertyAddress}</p>
+        </div>
+      </td>
+      <td style="width:50%;vertical-align:top;padding-left:16px;">
+        <div style="background:#F9FAFB;border-radius:8px;padding:16px;">
+          <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Tradesperson</p>
+          <p style="margin:0;font-size:15px;font-weight:600;">${trade.business_name || 'TBC'}</p>
+          ${trade.contact_name ? `<p style="margin:4px 0 0 0;font-size:13px;color:#6B7280;">Contact: ${trade.contact_name}</p>` : ''}
+          ${trade.phone ? `<p style="margin:2px 0 0 0;font-size:13px;color:#6B7280;">Phone: ${trade.phone}</p>` : ''}
+          ${trade.email ? `<p style="margin:2px 0 0 0;font-size:13px;color:#6B7280;">Email: ${trade.email}</p>` : ''}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="background:#F9FAFB;border-radius:8px;padding:20px;margin-bottom:24px;">
+    <p style="margin:0 0 12px 0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Scope of Work</p>
+    <p style="margin:0;font-size:15px;line-height:1.6;font-weight:600;">${mainReq.title || (wo as any).title || 'Maintenance Work'}</p>
+    <p style="margin:8px 0 0 0;font-size:14px;line-height:1.6;">${(wo as any).description || mainReq.description || ''}</p>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+    <tr>
+      <td style="width:33%;padding:8px 8px 8px 0;">
+        <div style="background:#F9FAFB;border-radius:8px;padding:16px;text-align:center;">
+          <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;">Category</p>
+          <p style="margin:0;font-size:15px;font-weight:600;">${mainReq.category || (wo as any).category || 'General'}</p>
+        </div>
+      </td>
+      <td style="width:33%;padding:8px;">
+        <div style="background:#F9FAFB;border-radius:8px;padding:16px;text-align:center;">
+          <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;">Urgency</p>
+          <p style="margin:0;font-size:15px;font-weight:600;">${((wo as any).urgency || mainReq.urgency || 'routine').charAt(0).toUpperCase() + ((wo as any).urgency || mainReq.urgency || 'routine').slice(1)}</p>
+        </div>
+      </td>
+      <td style="width:33%;padding:8px 0 8px 8px;">
+        <div style="background:#F9FAFB;border-radius:8px;padding:16px;text-align:center;">
+          <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;">Budget</p>
+          <p style="margin:0;font-size:15px;font-weight:600;color:#16A34A;">${(wo as any).budget_max ? `$${Number((wo as any).budget_max).toFixed(2)}` : 'TBC'}</p>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  ${(wo as any).scheduled_date ? `
+  <div style="background:#F9FAFB;border-radius:8px;padding:16px;margin-bottom:24px;">
+    <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Scheduled Date</p>
+    <p style="margin:0;font-size:15px;font-weight:600;">${new Date((wo as any).scheduled_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+  </div>
+  ` : ''}
+
+  ${(wo as any).access_instructions ? `
+  <div style="background:#FEF3C7;border-radius:8px;padding:16px;margin-bottom:24px;">
+    <p style="margin:0 0 4px 0;font-size:12px;color:#92400E;text-transform:uppercase;letter-spacing:1px;">Access Instructions</p>
+    <p style="margin:0;font-size:14px;line-height:1.6;color:#92400E;">${(wo as any).access_instructions}</p>
+  </div>
+  ` : ''}
+
+  <div style="border-top:1px solid #E5E7EB;padding-top:16px;margin-top:24px;">
+    <p style="margin:0 0 4px 0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Authorised By</p>
+    <p style="margin:0;font-size:14px;font-weight:600;">${ownerName}</p>
+    <p style="margin:2px 0 0 0;font-size:13px;color:#6B7280;">${ownerEmail}</p>
+    <p style="margin:8px 0 0 0;font-size:12px;color:#6B7280;">Generated by Casa Property Management</p>
+  </div>
+</div>`;
+
+  // Save as a document in the documents table
+  const { data: doc, error: docErr } = await sb
+    .from('documents')
+    .insert({
+      owner_id: userId,
+      property_id: (wo as any).property_id,
+      document_type: 'other',
+      title: `Work Order ${woNumber} — ${mainReq.title || (wo as any).title || 'Maintenance'}`,
+      html_content: htmlContent,
+      status: 'draft',
+      requires_signature: false,
+      tags: ['work_order', 'maintenance'],
+    })
+    .select('id, title, status, created_at')
+    .single();
+
+  if (docErr) return { success: false, error: `Failed to save work order document: ${docErr.message}` };
+
+  // Email to trade if requested and trade has email
+  let emailSent = false;
+  if (sendToTrade && trade.email) {
+    const resendApiKey = Deno.env.get('RESEND_API_KEY');
+    if (resendApiKey) {
+      const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+      const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
+
+      const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body style="margin:0;padding:32px;background:#EAEDF1;">
+<div style="max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;">
+  ${htmlContent}
+</div>
+<div style="max-width:800px;margin:16px auto 0;text-align:center;">
+  <p style="color:#9CA3AF;font-size:12px;">Sent via Casa — Smart Property Management</p>
+</div>
+</body></html>`;
+
+      const emailPayload: Record<string, unknown> = {
+        from: `${fromName} <${fromEmail}>`,
+        to: [trade.email],
+        subject: `Work Order ${woNumber}: ${mainReq.title || (wo as any).title || 'Maintenance Work'}`,
+        html: emailHtml,
+        text: `Work Order ${woNumber}\n\nProperty: ${propertyAddress}\nScope: ${(wo as any).description || mainReq.description || ''}\nBudget: ${(wo as any).budget_max ? `$${(wo as any).budget_max}` : 'TBC'}\n\nAuthorised by ${ownerName}`,
+      };
+      // CC the owner
+      if (ownerEmail) {
+        emailPayload.cc = [ownerEmail];
+        emailPayload.reply_to = ownerEmail;
+      }
+
+      try {
+        const resp = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailPayload),
+        });
+        emailSent = resp.ok;
+      } catch { /* email is best-effort */ }
+    }
+  }
+
+  // Update work order status to 'sent' if email was dispatched
+  if (emailSent) {
+    await sb.from('work_orders').update({ status: 'sent' }).eq('id', workOrderId);
+  }
+
+  // Log to maintenance comments for audit trail
+  const maintenanceRequestId = (wo as any).maintenance_request_id;
+  if (maintenanceRequestId) {
+    await sb.from('maintenance_comments').insert({
+      request_id: maintenanceRequestId,
+      author_id: userId,
+      content: `📋 Work order ${woNumber} generated${emailSent ? ` and sent to ${trade.business_name || trade.email}` : ''}${ownerEmail ? ` (CC: ${ownerEmail})` : ''}`,
+      is_internal: true,
+      metadata: {
+        type: 'email_sent',
+        email_type: 'work_order',
+        work_order_id: workOrderId,
+        document_id: doc.id,
+        to: trade.email || null,
+        cc: ownerEmail ? [ownerEmail] : [],
+        subject: `Work Order ${woNumber}`,
+        html_content: htmlContent,
+      },
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      work_order_id: workOrderId,
+      document_id: doc.id,
+      wo_number: woNumber,
+      email_sent: emailSent,
+      to: trade.email || null,
+      cc: ownerEmail ? [ownerEmail] : [],
+      view_route: `/(app)/documents/${doc.id}`,
+    },
+  };
+}
+
 // ── REAL INTEGRATION: Resend Email ────────────────────────────────────────
 export async function handle_send_email_sendgrid(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
@@ -1103,14 +1394,21 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
   const to = input.to as string;
   const subject = input.subject as string;
   const htmlContent = input.html_content as string;
+  const cc = (input.cc as string[]) || [];
+  const bcc = (input.bcc as string[]) || [];
+  const replyTo = (input.reply_to as string) || undefined;
 
   if (!to || !subject || !htmlContent) {
     return { success: false, error: 'Missing required fields: to, subject, html_content' };
   }
 
-  // Validate recipient: must be the owner themselves or a tenant linked to one of their properties
-  const { data: ownProfile } = await sb.from('profiles').select('email').eq('id', userId).single();
+  // Validate primary recipient. Owners can email: themselves, their tenants,
+  // or trades in their network. Tenants can only email their own owner (via
+  // the agent with owner approval). Tenants must NOT email trades directly —
+  // trade correspondence flows through the owner or agent-on-owner's-behalf.
+  const { data: ownProfile } = await sb.from('profiles').select('email, role').eq('id', userId).single();
   const isOwnerEmail = ownProfile?.email?.toLowerCase() === to.toLowerCase();
+  const callerIsOwner = ownProfile?.role === 'owner';
 
   if (!isOwnerEmail) {
     // Check if recipient is a tenant associated with the owner's properties
@@ -1123,7 +1421,36 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
       .maybeSingle();
 
     if (tpErr || !tenantProfile) {
-      return { success: false, error: 'Recipient email is not associated with any of your properties. You can only email your own tenants.' };
+      if (callerIsOwner) {
+        // Owners can email any trade in their network
+        const { data: tradeProfile } = await sb
+          .from('trades')
+          .select('id, email, owner_trades!inner(owner_id)')
+          .eq('email', to)
+          .eq('owner_trades.owner_id', userId)
+          .limit(1)
+          .maybeSingle();
+
+        if (!tradeProfile) {
+          return { success: false, error: 'Recipient email is not associated with any of your properties or trade network. You can only email your own tenants and tradespeople.' };
+        }
+      } else {
+        // Tenants can only email trades already assigned to a work order on
+        // their property — they cannot cold-email trades from the owner's
+        // network. The owner or agent must initiate trade contact first.
+        const { data: assignedTrade } = await sb
+          .from('trades')
+          .select('id, email, work_orders!inner(id, property_id, status, properties!inner(id, tenancies!inner(tenant_id)))')
+          .eq('email', to)
+          .eq('work_orders.properties.tenancies.tenant_id', userId)
+          .in('work_orders.status', ['sent', 'quoted', 'approved', 'in_progress'])
+          .limit(1)
+          .maybeSingle();
+
+        if (!assignedTrade) {
+          return { success: false, error: 'You can only email tradespeople who have been assigned to a job at your property. Please raise a maintenance request and your landlord or Casa will coordinate with trades on your behalf.' };
+        }
+      }
     }
   }
 
@@ -1131,24 +1458,51 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
   const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
 
   try {
+    const emailPayload: Record<string, unknown> = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [to],
+      subject,
+      html: htmlContent,
+      text: htmlContent.replace(/<[^>]*>/g, ''),
+    };
+    if (cc.length > 0) emailPayload.cc = cc;
+    if (bcc.length > 0) emailPayload.bcc = bcc;
+    if (replyTo) emailPayload.reply_to = replyTo;
+
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${resendApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: `${fromName} <${fromEmail}>`,
-        to: [to],
-        subject,
-        html: htmlContent,
-        text: htmlContent.replace(/<[^>]*>/g, ''),
-      }),
+      body: JSON.stringify(emailPayload),
     });
 
     if (response.ok) {
       const data = await response.json();
-      return { success: true, data: { sent: true, to, subject, messageId: data.id || undefined } };
+
+      // Log to maintenance workflow if linked to a maintenance request
+      const maintenanceRequestId = input.maintenance_request_id as string;
+      if (maintenanceRequestId) {
+        await sb.from('maintenance_comments').insert({
+          request_id: maintenanceRequestId,
+          author_id: userId,
+          content: `📧 Email sent to ${to}${cc.length > 0 ? ` (CC: ${cc.join(', ')})` : ''}${bcc.length > 0 ? ` (BCC: ${bcc.join(', ')})` : ''} — Subject: ${subject}`,
+          is_internal: true,
+          metadata: {
+            type: 'email_sent',
+            email_type: 'general',
+            to,
+            cc,
+            bcc,
+            subject,
+            html_content: htmlContent,
+            message_id: data.id || null,
+          },
+        }).then(() => {}).catch(() => {}); // best-effort logging
+      }
+
+      return { success: true, data: { sent: true, to, cc, bcc, subject, messageId: data.id || undefined } };
     }
     const errorBody = await response.text();
     return { success: false, error: `Resend error ${response.status}: ${errorBody}` };

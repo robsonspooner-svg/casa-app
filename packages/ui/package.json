@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@casa/config": "workspace:*",
-    "@react-native-community/datetimepicker": "^8.6.0"
+    "@react-native-community/datetimepicker": "8.4.4"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
