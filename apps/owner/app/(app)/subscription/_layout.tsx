@@ -18,6 +18,7 @@ export default function SubscriptionLayout() {
       <Stack.Screen name="index" options={{ title: 'Subscription' }} />
       <Stack.Screen name="add-ons" options={{ title: 'Add-On Services' }} />
       <Stack.Screen name="billing-history" options={{ title: 'Billing History' }} />
+      <Stack.Screen name="add-payment-method" options={{ headerShown: false }} />
     </Stack>
   );
 }

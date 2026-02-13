@@ -17,7 +17,7 @@ import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { Button } from '@casa/ui';
-import { useProperties, useDirectInvite } from '@casa/api';
+import { useProperties, useDirectInvite, useAuth, useProfile, getSupabaseClient } from '@casa/api';
 
 const FREQUENCY_OPTIONS = [
   { value: 'weekly', label: 'Weekly' },
@@ -28,6 +28,8 @@ const FREQUENCY_OPTIONS = [
 export default function DirectInviteScreen() {
   const { properties } = useProperties();
   const { sendInvitation } = useDirectInvite();
+  const { user } = useAuth();
+  const { profile } = useProfile();
 
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [tenantEmail, setTenantEmail] = useState('');
@@ -60,9 +62,63 @@ export default function DirectInviteScreen() {
     setSending(false);
 
     if (success) {
+      // Generate connection code and send email
+      try {
+        const supabase = getSupabaseClient();
+        if (user && selectedPropertyId) {
+          // @ts-expect-error - RPC function types not generated for custom functions
+          const { data: codeData } = await supabase.rpc('generate_connection_code', {
+            p_owner_id: user.id,
+            p_property_id: selectedPropertyId,
+          });
+
+          const connectionCode = codeData as string | null;
+          if (connectionCode) {
+            const ownerName = profile?.full_name || 'Your landlord';
+            const selectedProperty = properties.find(p => p.id === selectedPropertyId);
+            const propertyAddress = selectedProperty?.address_line_1 || 'your property';
+            const { data: { session } } = await supabase.auth.getSession();
+
+            if (session) {
+              fetch(
+                `https://woxlvhzgannzhajtjnke.supabase.co/functions/v1/dispatch-notification`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`,
+                  },
+                  body: JSON.stringify({
+                    user_id: '__direct_email__',
+                    type: 'tenant_invitation',
+                    title: `${ownerName} has invited you to Casa`,
+                    body: `You have been invited to join Casa for your tenancy at ${propertyAddress}.`,
+                    data: {
+                      owner_name: ownerName,
+                      tenant_name: tenantName.trim() || 'there',
+                      property_address: propertyAddress,
+                      rent_amount: rentAmount,
+                      rent_frequency: rentFrequency,
+                      connection_code: connectionCode,
+                      lease_start_date: leaseStartDate || '',
+                      lease_end_date: leaseEndDate || '',
+                      personal_message: message.trim() || '',
+                      direct_email: tenantEmail.trim().toLowerCase(),
+                    },
+                    channels: ['email'],
+                  }),
+                },
+              ).catch(() => {});
+            }
+          }
+        }
+      } catch {
+        // Non-blocking — invitation is stored even if email fails
+      }
+
       Alert.alert(
         'Invitation Sent',
-        `An invitation has been sent to ${tenantEmail.trim()}. They'll receive it when they log in to the Casa app.`,
+        `An invitation email has been sent to ${tenantEmail.trim()} with their connection code.`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } else {

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,21 +9,33 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { Button, Input } from '@casa/ui';
-import { getSupabaseClient, useAuth } from '@casa/api';
+import { getSupabaseClient, useAuth, useConnection } from '@casa/api';
 
 type Step = 'welcome' | 'connect' | 'complete';
 
 export default function TenantOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { useCode, connectToTenancy, connectToProperty } = useConnection();
   const [step, setStep] = useState<Step>('welcome');
   const [connectionCode, setConnectionCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [completing, setCompleting] = useState(false);
+
+  // Pre-fill connection code from deep link (stored in AsyncStorage by _layout.tsx)
+  useEffect(() => {
+    AsyncStorage.getItem('casa_invite_code').then((code) => {
+      if (code) {
+        setConnectionCode(code);
+        AsyncStorage.removeItem('casa_invite_code').catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleGetStarted = useCallback(() => {
     setStep('connect');
@@ -47,52 +59,36 @@ export default function TenantOnboardingScreen() {
     setCodeError(null);
 
     try {
-      const supabase = getSupabaseClient();
+      // Step 1: Validate the connection code via RPC
+      const result = await useCode(trimmedCode);
 
-      // Attempt to validate via edge function first
-      try {
-        const { data, error } = await supabase.functions.invoke(
-          'validate-connection-code',
-          { body: { code: trimmedCode } },
-        );
-
-        if (error) throw error;
-
-        if (data?.valid === false) {
-          setCodeError(data.message || 'Invalid connection code. Please check and try again.');
-          setConnecting(false);
-          return;
-        }
-      } catch {
-        // Edge function may not exist yet; fall back to direct DB lookup
-        const { data: codeRow, error: dbError } = await supabase
-          .from('connection_codes')
-          .select('id, status')
-          .eq('code', trimmedCode)
-          .maybeSingle();
-
-        if (dbError) {
-          // Table may not exist yet — store the attempt and proceed gracefully
-          if (user) {
-            await (supabase.from('profiles') as ReturnType<typeof supabase.from>)
-              .update({ connection_code_attempt: trimmedCode })
-              .eq('id', user.id);
-          }
-        } else if (!codeRow) {
-          setCodeError('Invalid connection code. Please check and try again.');
-          setConnecting(false);
-          return;
-        }
+      if (!result.success) {
+        setCodeError(result.message || 'Invalid connection code. Please check and try again.');
+        setConnecting(false);
+        return;
       }
 
-      // Connection succeeded or was stored — move on
+      // Step 2: Create the actual tenant-property link
+      let connected = false;
+      if (result.tenancyId) {
+        connected = await connectToTenancy(result.tenancyId, trimmedCode);
+      } else if (result.propertyId && result.ownerId) {
+        connected = await connectToProperty(result.propertyId, result.ownerId, trimmedCode);
+      }
+
+      if (!connected) {
+        setCodeError('Unable to connect to property. Please try again.');
+        setConnecting(false);
+        return;
+      }
+
       setStep('complete');
     } catch {
       setCodeError('Something went wrong. Please try again.');
     } finally {
       setConnecting(false);
     }
-  }, [connectionCode, user]);
+  }, [connectionCode, useCode, connectToTenancy, connectToProperty]);
 
   const handleSkipConnect = useCallback(() => {
     setStep('complete');

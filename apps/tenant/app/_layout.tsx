@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { THEME } from '@casa/config';
 import { initializeSupabase, getSupabaseClient, AuthProvider, AgentProvider } from '@casa/api';
 import NotificationProvider from '../components/NotificationProvider';
@@ -28,6 +29,20 @@ export default function RootLayout() {
     const handleDeepLink = (event: { url: string }) => {
       const url = event.url;
       if (!url) return;
+
+      // Handle invite deep links (e.g. casa-tenant://invite?code=ABC123)
+      if (url.includes('invite')) {
+        const queryIndex = url.indexOf('?');
+        if (queryIndex !== -1) {
+          const query = url.substring(queryIndex + 1);
+          const params = new URLSearchParams(query);
+          const code = params.get('code');
+          if (code) {
+            AsyncStorage.setItem('casa_invite_code', code.toUpperCase()).catch(() => {});
+          }
+        }
+        return;
+      }
 
       // Handle OAuth callback deep links (e.g. casa-tenant://auth/callback#access_token=...&refresh_token=...)
       if (url.includes('auth/callback')) {

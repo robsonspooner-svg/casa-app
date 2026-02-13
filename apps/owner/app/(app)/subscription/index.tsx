@@ -69,13 +69,33 @@ export default function SubscriptionScreen() {
         <View style={styles.currentPlanHeader}>
           <Text style={styles.currentPlanLabel}>Current Plan</Text>
           <Badge
-            label={currentStatus === 'active' ? 'Active' : currentStatus}
-            variant={currentStatus === 'active' ? 'success' : 'warning'}
+            label={currentStatus === 'trialing' ? 'Trial' : currentStatus === 'active' ? 'Active' : currentStatus}
+            variant={currentStatus === 'active' ? 'success' : currentStatus === 'trialing' ? 'info' : 'warning'}
           />
         </View>
         <Text style={styles.currentPlanName}>{tierInfo.name}</Text>
         <Text style={styles.currentPlanPrice}>{tierInfo.priceFormatted}</Text>
+        {currentStatus === 'trialing' && profile?.trial_ends_at && (
+          <Text style={styles.trialEndText}>
+            Trial ends {new Date(profile.trial_ends_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </Text>
+        )}
       </Card>
+
+      {/* Trial — Add Payment Method */}
+      {currentStatus === 'trialing' && (
+        <Card style={styles.trialCard}>
+          <Text style={styles.trialCardTitle}>Add a payment method</Text>
+          <Text style={styles.trialCardText}>
+            Add a card to keep using Casa after your free trial ends. You won't be charged until your trial is over.
+          </Text>
+          <Button
+            title="Add Payment Method"
+            onPress={() => router.push('/(app)/subscription/add-payment-method' as any)}
+            style={styles.trialCardButton}
+          />
+        </Card>
+      )}
 
       {currentStatus === 'past_due' && (
         <Card style={styles.warningCard}>
@@ -192,6 +212,32 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.h3,
     color: THEME.colors.textSecondary,
     marginTop: THEME.spacing.xs,
+  },
+  trialEndText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.info,
+    marginTop: THEME.spacing.xs,
+  },
+  trialCard: {
+    marginBottom: THEME.spacing.base,
+    backgroundColor: THEME.colors.infoBg,
+    borderWidth: 1,
+    borderColor: THEME.colors.info + '30',
+  },
+  trialCardTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.xs,
+  },
+  trialCardText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: THEME.spacing.md,
+  },
+  trialCardButton: {
+    alignSelf: 'flex-start' as const,
   },
   warningCard: {
     marginBottom: THEME.spacing.base,

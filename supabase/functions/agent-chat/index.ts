@@ -224,6 +224,14 @@ serve(async (req: Request) => {
       );
     }
 
+    // Detect user role (owner vs tenant)
+    const { data: roleProfile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    const userRole = roleProfile?.role || 'owner';
+
     // Rate limiting: 30 messages per 15-minute window
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     const { data: userConvs } = await supabase
@@ -357,7 +365,7 @@ serve(async (req: Request) => {
 
     // Build system prompt and load history
     const [systemPrompt, conversationHistory] = await Promise.all([
-      buildSystemPrompt(user.id, supabase, body.message),
+      buildSystemPrompt(user.id, supabase, body.message, userRole),
       loadConversationHistory(conversationId, supabase),
     ]);
 
@@ -391,7 +399,7 @@ serve(async (req: Request) => {
     messages = compactMessages(messages, messageTokenBudget);
 
     // Prepare tool definitions for Claude API — contextual filtering reduces 130 → ~20-40 tools
-    const claudeTools = getContextualTools(body.message || '');
+    const claudeTools = userRole === 'tenant' ? [] : getContextualTools(body.message || '');
 
     // Agentic loop
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');

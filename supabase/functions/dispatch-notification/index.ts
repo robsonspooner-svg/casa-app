@@ -156,7 +156,34 @@ serve(async (req: Request) => {
     const payload: DispatchRequest = await req.json();
     const { user_id, type, title, body: notifBody, data, related_type, related_id, channels } = payload;
 
-    if (!user_id || !type || !title || !notifBody) {
+    if (!type || !title || !notifBody) {
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Handle direct email dispatch (no user account required — e.g. tenant invitations)
+    if (user_id === '__direct_email__' && data?.direct_email) {
+      const directEmail = data.direct_email as string;
+      const templateData = { ...data, recipient_name: (data.tenant_name as string) || 'there' };
+      const { subject, htmlContent } = getEmailHtml(type, templateData as Record<string, unknown>);
+      const emailSent = await sendEmail(directEmail, subject, htmlContent);
+
+      return new Response(
+        JSON.stringify({
+          success: emailSent,
+          channels: { email: emailSent },
+          direct: true,
+        }),
+        {
+          status: emailSent ? 200 : 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    if (!user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -230,6 +230,79 @@ export default function OnboardingSetupScreen() {
 
       if (tenancyError) throw tenancyError;
 
+      // Generate connection code and send invitation email to tenant
+      try {
+        // @ts-expect-error - RPC function types not generated for custom functions
+        const { data: codeData } = await supabase.rpc('generate_connection_code', {
+          p_owner_id: user.id,
+          p_property_id: property.id,
+        });
+
+        const connectionCode = codeData as string | null;
+
+        if (connectionCode && tenantEmail.trim()) {
+          // Get owner profile for the email
+          const { data: ownerProfile } = await (supabase.from('profiles') as any)
+            .select('full_name')
+            .eq('id', user.id)
+            .single();
+
+          const ownerName = ownerProfile?.full_name || 'Your landlord';
+          const propertyAddress = `${address.trim()}, ${suburb.trim()} ${stateValue.trim()}`;
+
+          // Create direct invitation record
+          await (supabase.from('direct_invitations') as any)
+            .insert({
+              owner_id: user.id,
+              property_id: property.id,
+              tenant_email: tenantEmail.trim().toLowerCase(),
+              tenant_name: tenantName.trim() || null,
+              rent_amount: parseFloat(rentAmount),
+              rent_frequency: 'weekly',
+              lease_start_date: (leaseStart as Date).toISOString().split('T')[0],
+              lease_end_date: (leaseEnd as Date).toISOString().split('T')[0],
+              bond_weeks: Math.round(parseFloat(bondAmount) / parseFloat(rentAmount)) || 4,
+            });
+
+          // Send invitation email via dispatch-notification
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            fetch(
+              `https://woxlvhzgannzhajtjnke.supabase.co/functions/v1/dispatch-notification`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                  user_id: '__direct_email__',
+                  type: 'tenant_invitation',
+                  title: `${ownerName} has invited you to Casa`,
+                  body: `You have been invited to join Casa for your tenancy at ${propertyAddress}.`,
+                  data: {
+                    owner_name: ownerName,
+                    tenant_name: tenantName.trim() || 'there',
+                    property_address: propertyAddress,
+                    rent_amount: rentAmount,
+                    rent_frequency: 'per week',
+                    connection_code: connectionCode,
+                    lease_start_date: (leaseStart as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+                    lease_end_date: (leaseEnd as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+                    direct_email: tenantEmail.trim().toLowerCase(),
+                  },
+                  channels: ['email'],
+                }),
+              },
+            ).catch(() => {
+              // Non-blocking — invitation is stored in DB even if email fails
+            });
+          }
+        }
+      } catch {
+        // Non-blocking — connection code generation is a bonus, not required for onboarding
+      }
+
       // Set autonomy preferences
       const { error: autonomyError } = await (supabase
         .from('agent_autonomy_settings') as any)

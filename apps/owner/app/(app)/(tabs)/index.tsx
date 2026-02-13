@@ -191,6 +191,39 @@ function HeroHeader({
   );
 }
 
+// ── Trial Banner ────────────────────────────────────────────────────
+function TrialBanner({ trialEndsAt }: { trialEndsAt: string }) {
+  const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
+  return (
+    <TouchableOpacity
+      style={styles.trialBanner}
+      onPress={() => router.push('/(app)/subscription/add-payment-method' as any)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.trialBannerContent}>
+        <View style={styles.trialBannerLeft}>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Circle cx={12} cy={12} r={10} stroke={THEME.colors.warning} strokeWidth={1.5} />
+            <Path d="M12 6v6l4 2" stroke={THEME.colors.warning} strokeWidth={1.5} strokeLinecap="round" />
+          </Svg>
+          <Text style={styles.trialBannerText}>
+            {daysLeft > 0
+              ? `Free trial — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
+              : 'Free trial ending today'}
+          </Text>
+        </View>
+        <View style={styles.trialBannerCTA}>
+          <Text style={styles.trialBannerCTAText}>Add Card</Text>
+          <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ── Portfolio Snapshot ────────────────────────────────────────────────
 function PortfolioSnapshot({
   revenue,
@@ -592,7 +625,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 // ── Main Screen ──────────────────────────────────────────────────────
 export default function ActivityScreen() {
   const { user } = useAuth();
-  const { firstName } = useProfile();
+  const { profile, firstName } = useProfile();
   const { properties } = useProperties();
   const { pendingCount } = useAgentContext();
   const { summary, error: dashboardError, refreshDashboard } = useDashboard();
@@ -734,6 +767,11 @@ export default function ActivityScreen() {
           <WelcomeEmpty />
         ) : (
           <>
+            {/* Trial Banner */}
+            {profile?.subscription_status === 'trialing' && profile.trial_ends_at && (
+              <TrialBanner trialEndsAt={profile.trial_ends_at} />
+            )}
+
             {/* Portfolio Snapshot */}
             {propertyCount > 0 && (
               <PortfolioSnapshot
@@ -911,6 +949,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: THEME.colors.textInverse + 'B3',
     fontWeight: '500',
+  },
+
+  // ── Trial Banner ──
+  trialBanner: {
+    backgroundColor: THEME.colors.warningBg,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: THEME.colors.warning + '30',
+  },
+  trialBannerContent: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+  },
+  trialBannerLeft: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    flex: 1,
+  },
+  trialBannerText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: THEME.colors.textPrimary,
+  },
+  trialBannerCTA: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    backgroundColor: THEME.colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: THEME.radius.sm,
+  },
+  trialBannerCTAText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: THEME.colors.brand,
   },
 
   // ── Scroll ──

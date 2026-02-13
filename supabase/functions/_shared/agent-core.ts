@@ -436,6 +436,7 @@ export async function buildSystemPrompt(
   userId: string,
   supabase: ReturnType<typeof getServiceClient>,
   latestMessage?: string,
+  role?: string,
 ): Promise<string> {
   // Generate embedding for the user's latest message (for auto-memory retrieval)
   let messageEmbedding: number[] | null = null;
@@ -445,6 +446,10 @@ export async function buildSystemPrompt(
     } catch {
       // Don't block on embedding failure
     }
+  }
+
+  if (role === 'tenant') {
+    return buildTenantSystemPrompt(userId, supabase);
   }
 
   // Parallel DB queries — run all independent queries concurrently for speed
@@ -706,6 +711,110 @@ ${relevantPrefs.map((p: any) => `  - [${p.category}] ${p.preference_key}: ${type
   section += '\n6. Use check_regulatory_requirements or get_tenancy_law tools for detailed lookups when needed.';
   return section;
 })()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Tenant System Prompt Builder
+// ---------------------------------------------------------------------------
+
+async function buildTenantSystemPrompt(
+  userId: string,
+  supabase: ReturnType<typeof getServiceClient>,
+): Promise<string> {
+  // Get tenant profile
+  const { data: profile } = await supabase.from('profiles')
+    .select('full_name, email')
+    .eq('id', userId)
+    .single();
+
+  // Get tenant's linked tenancies via tenancy_tenants
+  const { data: tenantLinks } = await supabase
+    .from('tenancy_tenants')
+    .select('tenancy_id')
+    .eq('tenant_id', userId);
+
+  const tenancyIds = (tenantLinks || []).map((t: any) => t.tenancy_id);
+
+  let tenancyContext = '';
+  if (tenancyIds.length > 0) {
+    // Get tenancy details with property info
+    const { data: tenancies } = await supabase
+      .from('tenancies')
+      .select('id, property_id, lease_start_date, lease_end_date, rent_amount, rent_frequency, bond_amount, status')
+      .in('id', tenancyIds)
+      .eq('status', 'active');
+
+    if (tenancies && tenancies.length > 0) {
+      const propertyIds = tenancies.map((t: any) => t.property_id);
+      const { data: properties } = await supabase
+        .from('properties')
+        .select('id, address_line_1, suburb, state')
+        .in('id', propertyIds);
+
+      const propertyMap = new Map((properties || []).map((p: any) => [p.id, p]));
+
+      // Get upcoming rent
+      const { data: rentSchedule } = await supabase
+        .from('rent_schedule')
+        .select('amount, due_date, status')
+        .in('tenancy_id', tenancyIds)
+        .gte('due_date', new Date().toISOString().split('T')[0])
+        .order('due_date', { ascending: true })
+        .limit(3);
+
+      // Get active maintenance requests
+      const { data: maintenanceRequests } = await supabase
+        .from('maintenance_requests')
+        .select('title, status, urgency, created_at')
+        .in('property_id', propertyIds)
+        .in('status', ['reported', 'in_progress', 'awaiting_quote'])
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const tenancyLines = tenancies.map((t: any) => {
+        const prop = propertyMap.get(t.property_id);
+        const addr = prop ? `${prop.address_line_1}, ${prop.suburb} ${prop.state}` : 'Unknown property';
+        return `  - ${addr}: $${t.rent_amount}/${t.rent_frequency}, lease ${t.lease_start_date || '?'} to ${t.lease_end_date || '?'}`;
+      }).join('\n');
+
+      const rentLines = (rentSchedule || []).map((r: any) =>
+        `  - $${r.amount} due ${r.due_date} (${r.status})`
+      ).join('\n');
+
+      const maintenanceLines = (maintenanceRequests || []).map((m: any) =>
+        `  - ${m.title} (${m.status}, ${m.urgency})`
+      ).join('\n');
+
+      tenancyContext = `
+Your tenancies:
+${tenancyLines}
+${rentLines ? `\nUpcoming rent:\n${rentLines}` : ''}
+${maintenanceLines ? `\nActive maintenance:\n${maintenanceLines}` : ''}`;
+    }
+  }
+
+  const tenantName = profile?.full_name || 'there';
+
+  return `You are Casa, a helpful assistant for tenants. You help ${tenantName} with questions about their tenancy.
+${tenancyContext || '\nNo linked tenancies found yet. The tenant may need to enter their connection code to link their account.'}
+
+You can answer questions about:
+- Rent payments, amounts, due dates
+- Lease terms and dates
+- Maintenance request status
+- General tenancy rights in Australia
+- How to use the Casa app
+
+You cannot modify any data. If the tenant needs an action taken (like submitting a maintenance request or making a payment), advise them to use the app's dedicated screens.
+
+Guidelines:
+1. Be friendly, helpful, and concise.
+2. Use Australian English.
+3. For dates, use DD/MM/YYYY format.
+4. For money, use Australian dollars with $ symbol.
+5. Format responses as plain text only. Do NOT use Markdown formatting.
+6. Never fabricate data — only reference information from the context above.
+7. If asked about something not in your context, say you don't have that information and suggest they check the relevant section of the app or contact their property manager.`;
 }
 
 // ---------------------------------------------------------------------------

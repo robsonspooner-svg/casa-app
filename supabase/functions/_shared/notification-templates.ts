@@ -153,6 +153,51 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
     return { subject: `Lease expiring in ${days} days: ${addr}`, title: 'Lease Expiring Soon', headerColour: colour, content };
   },
 
+  // --- Tenant Invitation ---
+
+  tenant_invitation: (data) => {
+    const tenantName = (data.tenant_name as string) || 'there';
+    const ownerName = (data.owner_name as string) || 'Your landlord';
+    const addr = (data.property_address as string) || 'a rental property';
+    const rent = (data.rent_amount as string) || '';
+    const frequency = (data.rent_frequency as string) || 'per week';
+    const connectionCode = (data.connection_code as string) || '';
+    const personalMessage = (data.personal_message as string) || '';
+    const leaseStart = (data.lease_start_date as string) || '';
+    const leaseEnd = (data.lease_end_date as string) || '';
+    const deepLink = connectionCode ? `casa-tenant://invite?code=${connectionCode}` : '';
+
+    const rows: Array<{ label: string; value: string }> = [
+      { label: 'Property', value: addr },
+    ];
+    if (rent) rows.push({ label: 'Rent', value: `$${rent} ${frequency}` });
+    if (leaseStart) rows.push({ label: 'Lease Start', value: leaseStart });
+    if (leaseEnd) rows.push({ label: 'Lease End', value: leaseEnd });
+
+    const content = [
+      greeting(tenantName),
+      paragraph(`<strong>${ownerName}</strong> has invited you to join Casa for your tenancy at <strong>${addr}</strong>.`),
+      paragraph('Casa is a smart property management app that makes renting easier. You can pay rent, submit maintenance requests, chat with your landlord, and more — all in one place.'),
+      ...(personalMessage ? [
+        `<div style="background:${BG_WHITE};padding:16px 20px;border-radius:8px;margin:16px 0;border-left:4px solid ${CASA_NAVY};">
+          <p style="color:${TEXT_SECONDARY};font-size:12px;margin:0 0 4px 0;">Message from ${ownerName}:</p>
+          <p style="color:${TEXT_PRIMARY};font-size:15px;margin:0;line-height:1.5;font-style:italic;">"${personalMessage}"</p>
+        </div>`,
+      ] : []),
+      infoCard(rows),
+      ...(connectionCode ? [
+        `<div style="background:${BG_WHITE};padding:20px;border-radius:8px;margin:20px 0;text-align:center;">
+          <p style="color:${TEXT_SECONDARY};font-size:13px;margin:0 0 8px 0;">Your connection code</p>
+          <p style="color:${CASA_NAVY};font-size:32px;font-weight:800;letter-spacing:6px;margin:0;">${connectionCode}</p>
+          <p style="color:${TEXT_SECONDARY};font-size:12px;margin:8px 0 0 0;">Enter this code in the Casa app to connect to your property</p>
+        </div>`,
+      ] : []),
+      ...(deepLink ? [ctaButton('Open Casa App', deepLink)] : []),
+      paragraph('Don\'t have the app yet? Download Casa from the App Store, create an account, and enter your connection code to get started.'),
+    ].join('');
+    return { subject: `${ownerName} has invited you to Casa`, title: 'You\'re Invited to Casa', headerColour: CASA_NAVY, content };
+  },
+
   // --- Tenant Lifecycle ---
 
   tenant_welcome: (data) => {
