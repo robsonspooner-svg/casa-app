@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1B1464"
+      "backgroundColor": "#0D7377"
     },
     "ios": {
       "supportsTablet": true,
@@ -29,7 +29,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1B1464"
+        "backgroundColor": "#0D7377"
       },
       "package": "com.casa.tenant",
       "permissions": [
