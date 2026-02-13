@@ -67,7 +67,6 @@ export default function DirectInviteScreen() {
         const supabase = getSupabaseClient();
         if (user && selectedPropertyId) {
           // Generate a unique 6-character connection code (RPC takes no params)
-          // @ts-expect-error - RPC function types not generated for custom functions
           const { data: codeData } = await supabase.rpc('generate_connection_code');
 
           const connectionCode = codeData as string | null;

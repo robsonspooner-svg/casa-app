@@ -584,7 +584,7 @@ export async function handle_request_quote(input: ToolInput, userId: string, sb:
 
       const resendApiKey = Deno.env.get('RESEND_API_KEY');
       if (resendApiKey) {
-        const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+        const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
         const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
         const emailPayload: Record<string, unknown> = {
           from: `${fromName} <${fromEmail}>`,
@@ -1022,7 +1022,7 @@ export async function handle_submit_document_email(input: ToolInput, userId: str
     return { success: false, error: 'RESEND_API_KEY not configured. Cannot send email.' };
   }
 
-  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
   const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
 
   try {
@@ -1308,7 +1308,7 @@ export async function handle_generate_work_order(input: ToolInput, userId: strin
   if (sendToTrade && trade.email) {
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     if (resendApiKey) {
-      const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+      const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
       const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
 
       const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body style="margin:0;padding:32px;background:#EAEDF1;">
@@ -1454,7 +1454,7 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
     }
   }
 
-  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
   const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
 
   try {

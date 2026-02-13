@@ -78,7 +78,7 @@ async function sendEmail(to: string, subject: string, htmlContent: string): Prom
     return false;
   }
 
-  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaintelligence.com.au';
+  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
   const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
 
   try {

@@ -233,7 +233,6 @@ export default function OnboardingSetupScreen() {
       // Generate connection code and send invitation email to tenant
       try {
         // Generate a unique 6-character connection code (RPC takes no params)
-        // @ts-expect-error - RPC function types not generated for custom functions
         const { data: codeData, error: codeError } = await supabase.rpc('generate_connection_code');
 
         if (codeError) {
@@ -396,16 +395,16 @@ export default function OnboardingSetupScreen() {
     } else if (step === 3) {
       setStep(4);
     } else if (step === 4) {
-      await savePropertyAndTenancy();
-      await createSubscription();
-      // Mark onboarding complete immediately so the user doesn't loop
-      // back if the app restarts before tapping "Start Managing"
+      // Mark onboarding complete FIRST so user is never trapped in a loop
+      // even if save/subscribe fails. Property setup is best-effort.
       if (user) {
         const supabase = getSupabaseClient();
         await (supabase.from('profiles') as any)
           .update({ onboarding_completed: true })
           .eq('id', user.id);
       }
+      await savePropertyAndTenancy();
+      await createSubscription();
       setStep(5);
     }
   }, [step, validateStep1, validateStep2, savePropertyAndTenancy, createSubscription, user]);
@@ -889,7 +888,36 @@ export default function OnboardingSetupScreen() {
         <Text style={styles.headerTitle}>
           Step {step} of {TOTAL_STEPS}
         </Text>
-        <View style={styles.backButton} />
+        <TouchableOpacity
+          style={styles.backButton}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          onPress={() => {
+            Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Sign Out',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    const supabase = getSupabaseClient();
+                    await supabase.auth.signOut();
+                  } catch { /* ignore */ }
+                  router.replace('/(auth)/login');
+                },
+              },
+            ]);
+          }}
+        >
+          <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+            <Path
+              d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"
+              stroke={THEME.colors.textTertiary}
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </TouchableOpacity>
       </View>
 
       {renderStepIndicator()}

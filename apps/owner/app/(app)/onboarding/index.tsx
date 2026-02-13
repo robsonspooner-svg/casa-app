@@ -16,6 +16,14 @@ import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { getSupabaseClient, useAuth } from '@casa/api';
 
+async function signOutAndRedirect() {
+  try {
+    const supabase = getSupabaseClient();
+    await supabase.auth.signOut();
+  } catch { /* ignore sign-out errors */ }
+  router.replace('/(auth)/login');
+}
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface OnboardingPage {
@@ -177,6 +185,13 @@ export default function OnboardingScreen() {
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.skipContainer}>
         <TouchableOpacity
+          onPress={signOutAndRedirect}
+          style={styles.skipButton}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={[styles.skipText, { color: THEME.colors.error }]}>Sign Out</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           onPress={handleSkip}
           disabled={completing}
           style={styles.skipButton}
@@ -235,7 +250,7 @@ const styles = StyleSheet.create({
   },
   skipContainer: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     paddingHorizontal: THEME.spacing.base,
     paddingTop: THEME.spacing.md,
   },
