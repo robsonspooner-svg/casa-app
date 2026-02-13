@@ -66,14 +66,22 @@ export default function DirectInviteScreen() {
       try {
         const supabase = getSupabaseClient();
         if (user && selectedPropertyId) {
+          // Generate a unique 6-character connection code (RPC takes no params)
           // @ts-expect-error - RPC function types not generated for custom functions
-          const { data: codeData } = await supabase.rpc('generate_connection_code', {
-            p_owner_id: user.id,
-            p_property_id: selectedPropertyId,
-          });
+          const { data: codeData } = await supabase.rpc('generate_connection_code');
 
           const connectionCode = codeData as string | null;
           if (connectionCode) {
+            // Store code in connection_codes table
+            await (supabase.from('connection_codes') as any)
+              .insert({
+                owner_id: user.id,
+                property_id: selectedPropertyId,
+                code: connectionCode,
+                connection_type: 'tenancy',
+                status: 'active',
+                max_uses: 1,
+              });
             const ownerName = profile?.full_name || 'Your landlord';
             const selectedProperty = properties.find(p => p.id === selectedPropertyId);
             const propertyAddress = selectedProperty?.address_line_1 || 'your property';

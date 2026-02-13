@@ -232,13 +232,32 @@ export default function OnboardingSetupScreen() {
 
       // Generate connection code and send invitation email to tenant
       try {
+        // Generate a unique 6-character connection code (RPC takes no params)
         // @ts-expect-error - RPC function types not generated for custom functions
-        const { data: codeData } = await supabase.rpc('generate_connection_code', {
-          p_owner_id: user.id,
-          p_property_id: property.id,
-        });
+        const { data: codeData, error: codeError } = await supabase.rpc('generate_connection_code');
+
+        if (codeError) {
+          console.warn('[setup] generate_connection_code RPC error:', codeError.message);
+        }
 
         const connectionCode = codeData as string | null;
+        console.log('[setup] Connection code:', connectionCode, 'tenant email:', tenantEmail.trim() || 'none');
+
+        // Store the code in connection_codes table linked to owner + property
+        if (connectionCode) {
+          const { error: insertCodeError } = await (supabase.from('connection_codes') as any)
+            .insert({
+              owner_id: user.id,
+              property_id: property.id,
+              code: connectionCode,
+              connection_type: 'tenancy',
+              status: 'active',
+              max_uses: 1,
+            });
+          if (insertCodeError) {
+            console.warn('[setup] connection_codes insert error:', insertCodeError.message);
+          }
+        }
 
         if (connectionCode && tenantEmail.trim()) {
           // Get owner profile for the email
@@ -251,7 +270,7 @@ export default function OnboardingSetupScreen() {
           const propertyAddress = `${address.trim()}, ${suburb.trim()} ${stateValue.trim()}`;
 
           // Create direct invitation record
-          await (supabase.from('direct_invitations') as any)
+          const { error: inviteError } = await (supabase.from('direct_invitations') as any)
             .insert({
               owner_id: user.id,
               property_id: property.id,
@@ -264,43 +283,53 @@ export default function OnboardingSetupScreen() {
               bond_weeks: Math.round(parseFloat(bondAmount) / parseFloat(rentAmount)) || 4,
             });
 
+          if (inviteError) {
+            console.warn('[setup] direct_invitations insert error:', inviteError.message);
+          }
+
           // Send invitation email via dispatch-notification
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
-            fetch(
-              `https://woxlvhzgannzhajtjnke.supabase.co/functions/v1/dispatch-notification`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({
-                  user_id: '__direct_email__',
-                  type: 'tenant_invitation',
-                  title: `${ownerName} has invited you to Casa`,
-                  body: `You have been invited to join Casa for your tenancy at ${propertyAddress}.`,
-                  data: {
-                    owner_name: ownerName,
-                    tenant_name: tenantName.trim() || 'there',
-                    property_address: propertyAddress,
-                    rent_amount: rentAmount,
-                    rent_frequency: 'per week',
-                    connection_code: connectionCode,
-                    lease_start_date: (leaseStart as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
-                    lease_end_date: (leaseEnd as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
-                    direct_email: tenantEmail.trim().toLowerCase(),
+            try {
+              const emailResp = await fetch(
+                `https://woxlvhzgannzhajtjnke.supabase.co/functions/v1/dispatch-notification`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`,
                   },
-                  channels: ['email'],
-                }),
-              },
-            ).catch(() => {
-              // Non-blocking — invitation is stored in DB even if email fails
-            });
+                  body: JSON.stringify({
+                    user_id: '__direct_email__',
+                    type: 'tenant_invitation',
+                    title: `${ownerName} has invited you to Casa`,
+                    body: `You have been invited to join Casa for your tenancy at ${propertyAddress}.`,
+                    data: {
+                      owner_name: ownerName,
+                      tenant_name: tenantName.trim() || 'there',
+                      property_address: propertyAddress,
+                      rent_amount: rentAmount,
+                      rent_frequency: 'per week',
+                      connection_code: connectionCode,
+                      lease_start_date: (leaseStart as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+                      lease_end_date: (leaseEnd as Date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+                      direct_email: tenantEmail.trim().toLowerCase(),
+                    },
+                    channels: ['email'],
+                  }),
+                },
+              );
+              const emailBody = await emailResp.json().catch(() => null);
+              console.log('[setup] dispatch-notification response:', emailResp.status, JSON.stringify(emailBody));
+            } catch (emailErr) {
+              console.warn('[setup] dispatch-notification fetch error:', emailErr);
+            }
+          } else {
+            console.warn('[setup] No session available for email dispatch');
           }
         }
-      } catch {
-        // Non-blocking — connection code generation is a bonus, not required for onboarding
+      } catch (codeGenErr) {
+        console.warn('[setup] Connection code / invitation error:', codeGenErr);
       }
 
       // Set autonomy preferences

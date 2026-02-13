@@ -457,7 +457,7 @@ serve(async (req: Request) => {
             max_tokens: 4096,
             system: systemPrompt,
             messages,
-            tools: claudeTools,
+            ...(claudeTools.length > 0 ? { tools: claudeTools } : {}),
           }),
         });
 
