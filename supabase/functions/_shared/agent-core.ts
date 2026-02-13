@@ -38,7 +38,7 @@ export interface ConfidenceFactors {
 // from TOOL_META.autonomyLevel in the registry.
 // Tier-based tool access control
 export const TIER_TOOL_ACCESS: Record<string, Set<string>> = {
-  starter: new Set(['query', 'memory', 'planning']),
+  starter: new Set(['query', 'memory', 'planning', 'action', 'generate']),
   pro: new Set(['query', 'memory', 'planning', 'action', 'generate', 'workflow']),
   hands_off: new Set(['query', 'memory', 'planning', 'action', 'generate', 'workflow', 'external', 'integration']),
 };
@@ -651,7 +651,33 @@ Guidelines:
 16. When the owner asks you to find, search for, or locate tradespeople, services, or businesses: ALWAYS use find_local_trades or web_search to perform a real search. Do not just offer to search — do it. After finding results, call create_service_provider for each business to populate their service provider cards in the app.
 17. In cautious mode, ALWAYS attempt to use the appropriate action tool for the request — even if it will be gated. This creates a pending action the owner can approve. Do not avoid calling action tools just because they might need approval.
 18. For vague maintenance reports (e.g. "there's a problem with the tap"), ask what the actual issue is (leaking? dripping? broken handle? won't turn off?) before creating a request. You need to understand the severity to set the right urgency level. Don't assume urgency — ask.
-19. For financial actions (rent changes, payment plans, bond adjustments), always confirm the details with the owner before executing. State what you will do and ask "Shall I go ahead?" — do not immediately execute financial changes from a single message expressing intent.${(goldenTrajectories && goldenTrajectories.length > 0) ? `
+19. For financial actions (rent changes, payment plans, bond adjustments), always confirm the details with the owner before executing. State what you will do and ask "Shall I go ahead?" — do not immediately execute financial changes from a single message expressing intent.
+20. NAVIGATION: After creating or looking up a resource, use suggest_navigation to show the user a button they can tap to go to the relevant screen. Available routes:
+  - /(app)/properties/[id] (params: { id }) — Property detail
+  - /(app)/properties/add — Add new property
+  - /(app)/tenancies/[id]/edit (params: { id }) — Tenancy detail
+  - /(app)/tenancies/create — Create tenancy
+  - /(app)/listings/[id] (params: { id }) — Listing detail
+  - /(app)/listings/create — Create listing
+  - /(app)/maintenance/[id] (params: { id }) — Maintenance request
+  - /(app)/inspections/[id] (params: { id }) — Inspection detail
+  - /(app)/inspections/schedule — Schedule inspection
+  - /(app)/payments — Payments list
+  - /(app)/payments/[id] (params: { id }) — Payment detail
+  - /(app)/arrears — Arrears dashboard
+  - /(app)/arrears/[id] (params: { id }) — Arrears detail
+  - /(app)/documents — Documents list
+  - /(app)/documents/[id] (params: { id }) — Document detail
+  - /(app)/trades — Trades network
+  - /(app)/trades/[id] (params: { id }) — Trade detail
+  - /(app)/work-orders/[id] (params: { id }) — Work order
+  - /(app)/connections — Connections / tenant invites
+  - /(app)/reports — Reports dashboard
+  - /(app)/reports/financial — Financial report
+  - /(app)/reports/tax — Tax report
+  - /(app)/(tabs) — Home dashboard
+  - /(app)/settings/subscription — Subscription
+  - /(app)/profile — User profile${(goldenTrajectories && goldenTrajectories.length > 0) ? `
 
 Golden tool paths (proven efficient approaches — prefer these sequences for similar requests):
 ${goldenTrajectories.map((t: any) => {

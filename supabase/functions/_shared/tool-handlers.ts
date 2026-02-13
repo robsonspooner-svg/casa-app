@@ -773,6 +773,18 @@ export async function handle_get_pending_actions(input: ToolInput, userId: strin
   return { success: true, data };
 }
 
+export async function handle_suggest_navigation(input: ToolInput, _userId: string, _sb: SupabaseClient): Promise<ToolResult> {
+  return {
+    success: true,
+    data: {
+      _navigation: true,
+      view_route: input.route as string,
+      label: input.label as string,
+      params: input.params || {},
+    },
+  };
+}
+
 export async function handle_check_maintenance_threshold(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
   const { data: settings } = await sb
     .from('agent_autonomy_settings')

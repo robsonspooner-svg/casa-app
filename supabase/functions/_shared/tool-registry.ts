@@ -66,6 +66,7 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
   { name: 'get_documents', description: 'Get documents for a property or tenancy', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Filter by property' }, tenancy_id: { type: 'string', description: 'Filter by tenancy' }, type: { type: 'string', enum: ['lease', 'inspection', 'notice', 'receipt', 'compliance', 'all'], description: 'Document type' } } } },
   { name: 'get_background_tasks', description: 'Get status of running background tasks', input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['running', 'completed', 'failed', 'all'], description: 'Task status filter' } } } },
   { name: 'get_pending_actions', description: 'Get all actions awaiting owner approval', input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'expired', 'all'], description: 'Approval status' } } } },
+  { name: 'suggest_navigation', description: 'Show the user a navigation button to a specific app screen. Use this after creating/querying resources to let the user jump directly to the relevant screen.', input_schema: { type: 'object', properties: { route: { type: 'string', description: 'App route path, e.g. "/(app)/properties/[id]"' }, label: { type: 'string', description: 'Button label, e.g. "View Property"' }, params: { type: 'object', description: 'Route params as key-value pairs, e.g. { "id": "uuid-here" }' } }, required: ['route', 'label'] } },
 
   // ── ACTION TOOLS ──────────────────────────────────────────────────────────
   { name: 'create_property', description: 'Create a new property with address, details, and financials', input_schema: { type: 'object', properties: { address_line_1: { type: 'string', description: 'Street address' }, address_line_2: { type: 'string', description: 'Unit/apartment' }, suburb: { type: 'string', description: 'Suburb name' }, state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'], description: 'Australian state' }, postcode: { type: 'string', description: '4-digit postcode' }, property_type: { type: 'string', enum: ['house', 'apartment', 'townhouse', 'unit', 'studio', 'other'], description: 'Property type' }, bedrooms: { type: 'number', description: 'Number of bedrooms' }, bathrooms: { type: 'number', description: 'Number of bathrooms' }, parking_spaces: { type: 'number', description: 'Number of parking spaces' }, floor_size_sqm: { type: 'number', description: 'Floor area in sqm' }, land_size_sqm: { type: 'number', description: 'Land area in sqm' }, year_built: { type: 'number', description: 'Year built' }, rent_amount: { type: 'number', description: 'Rent amount (AUD)' }, rent_frequency: { type: 'string', enum: ['weekly', 'fortnightly', 'monthly'], description: 'Rent frequency' }, bond_amount: { type: 'number', description: 'Bond amount (AUD)' }, notes: { type: 'string', description: 'Additional notes' } }, required: ['address_line_1', 'suburb', 'state', 'postcode'] } },
@@ -252,6 +253,7 @@ export const TOOL_META: Record<string, ToolMeta> = {
   get_documents: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   get_background_tasks: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   get_pending_actions: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  suggest_navigation: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   check_maintenance_threshold: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   check_regulatory_requirements: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   get_tenancy_law: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
@@ -426,6 +428,7 @@ const TOOL_GROUPS: Record<string, string[]> = {
     'get_properties', 'get_property', 'get_pending_actions', 'get_background_tasks',
     'remember', 'recall', 'search_precedent',
     'plan_task', 'get_owner_rules', 'check_plan', 'replan',
+    'suggest_navigation',
   ],
   // Property & tenancy management
   property: [

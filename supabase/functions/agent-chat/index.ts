@@ -839,7 +839,7 @@ serve(async (req: Request) => {
       finalResponse = 'I apologise, but I ran into some complexity processing your request. Could you try rephrasing or breaking it into smaller steps?';
     }
 
-    // Extract inline navigation actions from tool results (e.g., document creation)
+    // Extract inline navigation actions from tool results (e.g., document creation, suggest_navigation)
     for (const tr of allToolResults) {
       const result = tr.result;
       if (result && typeof result === 'object') {
@@ -850,6 +850,14 @@ serve(async (req: Request) => {
             label: `View ${(r.title as string) || 'Document'}`,
             route: r.view_route as string,
             params: { id: r.document_id as string },
+          });
+        }
+        if (r._navigation === true && r.view_route) {
+          inlineActions.push({
+            type: 'navigation',
+            label: (r.label as string) || 'Open',
+            route: r.view_route as string,
+            params: (r.params as Record<string, string>) || {},
           });
         }
       }
