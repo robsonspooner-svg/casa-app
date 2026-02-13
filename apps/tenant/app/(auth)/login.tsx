@@ -43,7 +43,8 @@ export default function LoginScreen() {
 
     try {
       await signIn(email.trim(), password);
-      router.replace('/(app)/(tabs)' as any);
+      // Route to root which checks onboarding status before navigating
+      router.replace('/' as any);
     } catch {
       // Error is handled by useAuth hook
     }

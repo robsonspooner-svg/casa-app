@@ -225,38 +225,49 @@ serve(async (req: Request) => {
     }
 
     // Detect user role (owner vs tenant)
-    const { data: roleProfile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-    const userRole = roleProfile?.role || 'owner';
+    let userRole = 'owner';
+    try {
+      const { data: roleProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      userRole = roleProfile?.role || 'owner';
+    } catch (roleErr: any) {
+      console.error('[agent-chat] Role detection failed:', roleErr);
+      // Continue with default role 'owner' rather than crashing
+    }
 
     // Rate limiting: 30 messages per 15-minute window
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    const { data: userConvs } = await supabase
-      .from('agent_conversations')
-      .select('id')
-      .eq('user_id', user.id);
+    try {
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const { data: userConvs } = await supabase
+        .from('agent_conversations')
+        .select('id')
+        .eq('user_id', user.id);
 
-    if (userConvs && userConvs.length > 0) {
-      const convIds = userConvs.map(c => c.id);
-      const { count: recentMessageCount } = await supabase
-        .from('agent_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('role', 'user')
-        .gte('created_at', fifteenMinutesAgo)
-        .in('conversation_id', convIds);
+      if (userConvs && userConvs.length > 0) {
+        const convIds = userConvs.map(c => c.id);
+        const { count: recentMessageCount } = await supabase
+          .from('agent_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'user')
+          .gte('created_at', fifteenMinutesAgo)
+          .in('conversation_id', convIds);
 
-      if ((recentMessageCount ?? 0) >= 30) {
-        return new Response(
-          JSON.stringify({
-            error: "You've sent a lot of messages recently. Please wait a few minutes before sending more.",
-            retryAfter: 60,
-          }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' } },
-        );
+        if ((recentMessageCount ?? 0) >= 30) {
+          return new Response(
+            JSON.stringify({
+              error: "You've sent a lot of messages recently. Please wait a few minutes before sending more.",
+              retryAfter: 60,
+            }),
+            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' } },
+          );
+        }
       }
+    } catch (rateLimitErr: any) {
+      console.error('[agent-chat] Rate limiting check failed:', rateLimitErr);
+      // Continue without rate limiting rather than crashing
     }
 
     // Parse request body
@@ -364,25 +375,46 @@ serve(async (req: Request) => {
     detectAndRecordCorrection(user.id, conversationId, body.message, supabase);
 
     // Build system prompt and load history
-    const [systemPrompt, conversationHistory] = await Promise.all([
-      buildSystemPrompt(user.id, supabase, body.message, userRole),
-      loadConversationHistory(conversationId, supabase),
-    ]);
+    let systemPrompt: string;
+    let conversationHistory: Array<{ role: string; content: any }>;
+    try {
+      [systemPrompt, conversationHistory] = await Promise.all([
+        buildSystemPrompt(user.id, supabase, body.message, userRole),
+        loadConversationHistory(conversationId, supabase),
+      ]);
+    } catch (promptErr: any) {
+      console.error('[agent-chat] buildSystemPrompt/loadHistory failed:', promptErr);
+      return new Response(
+        JSON.stringify({ error: `System prompt build failed: ${promptErr.message || promptErr}` }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
     // Load autonomy settings
-    const { data: autonomySettings } = await supabase
-      .from('agent_autonomy_settings')
-      .select('preset, category_overrides')
-      .eq('user_id', user.id)
-      .single();
+    let autonomySettings: any = null;
+    try {
+      const { data } = await supabase
+        .from('agent_autonomy_settings')
+        .select('preset, category_overrides')
+        .eq('user_id', user.id)
+        .single();
+      autonomySettings = data;
+    } catch (autoErr: any) {
+      console.error('[agent-chat] Autonomy settings load failed:', autoErr);
+    }
 
     // Load user profile for tier enforcement
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('subscription_tier')
-      .eq('id', user.id)
-      .single();
-    const userTier = userProfile?.subscription_tier || 'starter';
+    let userTier = 'starter';
+    try {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('subscription_tier')
+        .eq('id', user.id)
+        .single();
+      userTier = userProfile?.subscription_tier || 'starter';
+    } catch (tierErr: any) {
+      console.error('[agent-chat] Tier load failed:', tierErr);
+    }
     const allowedCategories = TIER_TOOL_ACCESS[userTier] || TIER_TOOL_ACCESS.starter;
 
     // Build messages array for Claude

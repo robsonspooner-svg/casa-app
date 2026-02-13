@@ -1,13 +1,29 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { THEME } from '@casa/config';
 import { useAuth, useProfile, isSupabaseConfigured } from '@casa/api';
+
+const TOUR_SEEN_KEY = 'casa_tour_seen';
 
 export default function RootScreen() {
   const { isAuthenticated, loading } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
   const router = useRouter();
+  const [tourChecked, setTourChecked] = useState(false);
+  const [tourSeen, setTourSeen] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(TOUR_SEEN_KEY)
+      .then((val) => {
+        setTourSeen(val === 'true');
+        setTourChecked(true);
+      })
+      .catch(() => {
+        setTourChecked(true);
+      });
+  }, []);
 
   useEffect(() => {
     // If Supabase isn't configured, go directly to app (demo mode)
@@ -16,8 +32,8 @@ export default function RootScreen() {
       return;
     }
 
-    // Wait for auth and profile to finish loading
-    if (loading || (isAuthenticated && profileLoading)) return;
+    // Wait for auth, profile, and tour check to finish loading
+    if (loading || (isAuthenticated && profileLoading) || !tourChecked) return;
 
     // Redirect based on auth state
     if (isAuthenticated) {
@@ -25,13 +41,15 @@ export default function RootScreen() {
       // profile is missing (not yet created) or onboarding is incomplete
       if (!profile || !profile.onboarding_completed) {
         router.replace('/(app)/onboarding' as never);
+      } else if (!tourSeen) {
+        router.replace('/(app)/onboarding/tour' as never);
       } else {
         router.replace('/(app)/(tabs)' as never);
       }
     } else {
       router.replace('/(auth)/login');
     }
-  }, [isAuthenticated, loading, profile, profileLoading]);
+  }, [isAuthenticated, loading, profile, profileLoading, tourChecked, tourSeen]);
 
   return (
     <View style={styles.container}>

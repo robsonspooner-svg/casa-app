@@ -453,6 +453,7 @@ export async function buildSystemPrompt(
   }
 
   // Parallel DB queries — run all independent queries concurrently for speed
+  // Use Promise.allSettled so individual query failures don't crash the whole function
   const queryPromises: Promise<any>[] = [
     supabase.from('profiles').select('full_name, email').eq('id', userId).single(),
     supabase.from('properties').select('id, address_line_1, suburb, state, status, rent_amount').eq('owner_id', userId).is('deleted_at', null),
@@ -461,7 +462,6 @@ export async function buildSystemPrompt(
     supabase.from('agent_preferences').select('category, preference_key, preference_value, source').eq('user_id', userId).order('category', { ascending: true }).limit(30),
     supabase.from('agent_trajectories').select('tool_sequence, efficiency_score, intent_label').eq('user_id', userId).eq('is_golden', true).order('efficiency_score', { ascending: false }).limit(8),
     supabase.from('tool_genome').select('tool_name, success_rate_ema, avg_duration_ms, last_error, co_occurrence').eq('user_id', userId).lt('success_rate_ema', 0.7).order('success_rate_ema', { ascending: true }).limit(10),
-    // Fetch co-occurrence data for tool pair suggestions
     supabase.from('tool_genome').select('tool_name, co_occurrence').eq('user_id', userId).not('co_occurrence', 'eq', '{}').limit(20),
   ];
 
@@ -477,49 +477,68 @@ export async function buildSystemPrompt(
     );
   }
 
-  const results = await Promise.all(queryPromises);
+  const settled = await Promise.allSettled(queryPromises);
+  const safeResult = (idx: number) =>
+    settled[idx]?.status === 'fulfilled' ? settled[idx].value : { data: null, count: null };
 
-  const { data: profile } = results[0];
-  const { data: properties } = results[1];
-  const { data: autonomySettings } = results[2];
-  const { data: ownerRules } = results[3];
-  const { data: ownerPreferences } = results[4];
-  const { data: goldenTrajectories } = results[5];
-  const { data: toolGenomeWarnings } = results[6];
-  const { data: coOccurrenceData } = results[7];
-  const relevantPrefs = messageEmbedding ? results[8]?.data : null;
+  const { data: profile } = safeResult(0);
+  const { data: properties } = safeResult(1);
+  const { data: autonomySettings } = safeResult(2);
+  const { data: ownerRules } = safeResult(3);
+  const { data: ownerPreferences } = safeResult(4);
+  const { data: goldenTrajectories } = safeResult(5);
+  const { data: toolGenomeWarnings } = safeResult(6);
+  const { data: coOccurrenceData } = safeResult(7);
+  const relevantPrefs = messageEmbedding && settled[8]?.status === 'fulfilled' ? settled[8].value?.data : null;
 
   // Second round — depends on properties result
   const propertyIds = (properties || []).map((p: any) => p.id);
-  // Get unique states from the owner's properties for regulatory injection
   const propertyStates = [...new Set((properties || []).map((p: any) => (p.state || '').toUpperCase()).filter(Boolean))];
 
-  const [
-    { count: tenancyCount },
-    { data: tenancyIds },
-    { data: regulatoryRules },
-  ] = await Promise.all([
-    supabase.from('tenancies').select('id', { count: 'exact', head: true }).in('property_id', propertyIds).eq('status', 'active'),
-    supabase.from('tenancies').select('id').in('property_id', propertyIds),
-    // Fetch all critical regulatory rules for the owner's property states
-    propertyStates.length > 0
-      ? supabase
-          .from('tenancy_law_rules')
-          .select('state, category, rule_key, rule_text, notice_days, notice_business_days, max_frequency_months, max_amount, enforcement_level, agent_action, legislation_ref')
-          .in('state', [...propertyStates, 'ALL'])
-          .eq('is_active', true)
-          .in('enforcement_level', ['mandatory'])
-          .order('state')
-          .order('category')
-      : Promise.resolve({ data: null }),
-  ]);
+  // Guard against empty arrays — PostgREST .in() with [] generates invalid SQL
+  let tenancyCount: number | null = 0;
+  let tenancyIds: any[] | null = null;
+  let regulatoryRules: any[] | null = null;
+
+  if (propertyIds.length > 0) {
+    try {
+      const round2 = await Promise.allSettled([
+        supabase.from('tenancies').select('id', { count: 'exact', head: true }).in('property_id', propertyIds).eq('status', 'active'),
+        supabase.from('tenancies').select('id').in('property_id', propertyIds),
+        propertyStates.length > 0
+          ? supabase
+              .from('tenancy_law_rules')
+              .select('state, category, rule_key, rule_text, notice_days, notice_business_days, max_frequency_months, max_amount, enforcement_level, agent_action, legislation_ref')
+              .in('state', [...propertyStates, 'ALL'])
+              .eq('is_active', true)
+              .in('enforcement_level', ['mandatory'])
+              .order('state')
+              .order('category')
+          : Promise.resolve({ data: null }),
+      ]);
+      tenancyCount = round2[0]?.status === 'fulfilled' ? round2[0].value?.count : 0;
+      tenancyIds = round2[1]?.status === 'fulfilled' ? round2[1].value?.data : null;
+      regulatoryRules = round2[2]?.status === 'fulfilled' ? round2[2].value?.data : null;
+    } catch (e) {
+      console.warn('[buildSystemPrompt] round 2 queries failed:', e);
+    }
+  }
 
   // Third round — depends on tenancy IDs
-  const { data: arrearsData } = await supabase
-    .from('arrears_records')
-    .select('total_overdue')
-    .eq('is_resolved', false)
-    .in('tenancy_id', (tenancyIds || []).map((t: any) => t.id));
+  const tenancyIdList = (tenancyIds || []).map((t: any) => t.id);
+  let arrearsData: any[] | null = null;
+  if (tenancyIdList.length > 0) {
+    try {
+      const r = await supabase
+        .from('arrears_records')
+        .select('total_overdue')
+        .eq('is_resolved', false)
+        .in('tenancy_id', tenancyIdList);
+      arrearsData = r.data;
+    } catch (e) {
+      console.warn('[buildSystemPrompt] arrears query failed:', e);
+    }
+  }
 
   const arrearsCount = arrearsData?.length || 0;
   const arrearsTotal = (arrearsData || []).reduce(

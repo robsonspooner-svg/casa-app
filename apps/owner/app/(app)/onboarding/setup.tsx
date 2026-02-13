@@ -431,7 +431,7 @@ export default function OnboardingSetupScreen() {
       // Non-blocking — the flag was already set in step 4
     }
     setSaving(false);
-    router.replace('/(app)/(tabs)' as never);
+    router.replace('/(app)/onboarding/tour' as never);
   }, [user]);
 
   const renderStepIndicator = () => (

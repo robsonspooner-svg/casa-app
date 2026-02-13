@@ -212,11 +212,30 @@ export function useAgentChat(): UseAgentChatReturn {
           break;
         }
 
-        // Try to extract actual error from response data
-        let errMsg = result.error?.message || '';
-        if (result.data && typeof result.data === 'object' && 'error' in result.data) {
+        // Extract actual error message from the Edge Function response body
+        let errMsg = '';
+
+        // Try to read the response body from the error context (FunctionsHttpError stores the Response object)
+        const errContext = (result.error as any)?.context;
+        if (errContext && typeof errContext.json === 'function') {
+          try {
+            const errBody = await errContext.json();
+            errMsg = errBody?.error || '';
+          } catch {
+            // Response body already consumed or not JSON
+          }
+        }
+
+        // Fallback: check result.data (may be populated in some SDK versions)
+        if (!errMsg && result.data && typeof result.data === 'object' && 'error' in result.data) {
           errMsg = (result.data as { error: string }).error;
         }
+
+        // Last fallback: use the error message itself
+        if (!errMsg) {
+          errMsg = result.error?.message || '';
+        }
+
         console.warn('[agent-chat] Error:', errMsg, result.error);
 
         // Check if error is retryable (429 rate limit or overloaded)
@@ -330,8 +349,8 @@ export function useAgentChat(): UseAgentChatReturn {
       return assistantMessage;
     } catch (caught) {
       let errorMessage = caught instanceof Error ? caught.message : 'Failed to send message';
-      // Make generic edge function errors more readable
-      if (errorMessage.includes('non-2xx') || errorMessage.includes('Edge Function')) {
+      // Replace generic SDK error messages with a readable fallback
+      if (errorMessage === 'Edge Function returned a non-2xx status code' || errorMessage === 'Edge function error') {
         errorMessage = 'Could not reach Casa. Please try again.';
       }
       // Remove optimistic message on failure
