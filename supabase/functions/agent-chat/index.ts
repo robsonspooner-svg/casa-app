@@ -539,9 +539,13 @@ serve(async (req: Request) => {
       const textBlocks = (claudeData.content || []).filter((b: any) => b.type === 'text');
       const toolUseBlocks = (claudeData.content || []).filter((b: any) => b.type === 'tool_use');
 
+      // Collect text from this iteration (accumulate, don't overwrite)
+      if (textBlocks.length > 0) {
+        finalResponse += textBlocks.map((b: any) => b.text).join('\n');
+      }
+
       // If no tool use, we are done
       if (claudeData.stop_reason === 'end_turn' || toolUseBlocks.length === 0) {
-        finalResponse = textBlocks.map((b: any) => b.text).join('\n');
         break;
       }
 
@@ -560,8 +564,12 @@ serve(async (req: Request) => {
           };
         }
 
+        // Tenant bypass: tenant tools are a small pre-approved set —
+        // skip tier enforcement and autonomy gating entirely
+        const isTenantUser = userRole === 'tenant';
+
         // Tier enforcement: check if user's subscription allows this tool category
-        if (!allowedCategories.has(toolMeta.category)) {
+        if (!isTenantUser && !allowedCategories.has(toolMeta.category)) {
           const tierName = userTier === 'hands_off' ? 'Hands Off' : userTier.charAt(0).toUpperCase() + userTier.slice(1);
           const requiredTier = toolMeta.category === 'external' || toolMeta.category === 'integration'
             ? 'Hands Off'
@@ -577,7 +585,7 @@ serve(async (req: Request) => {
           };
         }
 
-        const userAutonomyLevel = getUserAutonomyForCategory(
+        const userAutonomyLevel = isTenantUser ? 4 : getUserAutonomyForCategory(
           autonomySettings as AutonomySettings | null,
           toolMeta.category,
         );
@@ -827,11 +835,6 @@ serve(async (req: Request) => {
       // Add assistant message and tool results to the conversation for next iteration
       messages.push({ role: 'assistant', content: claudeData.content });
       messages.push({ role: 'user', content: toolResultBlocks });
-
-      // Collect partial text response
-      if (textBlocks.length > 0) {
-        finalResponse += textBlocks.map((b: any) => b.text).join('\n');
-      }
     }
 
     // If we exhausted iterations without a final response
