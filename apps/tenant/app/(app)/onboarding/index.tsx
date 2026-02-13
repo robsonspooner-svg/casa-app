@@ -1,11 +1,14 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   StyleSheet,
+  Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,19 +18,134 @@ import { THEME } from '@casa/config';
 import { Button, Input } from '@casa/ui';
 import { getSupabaseClient, useAuth, useConnection } from '@casa/api';
 
-type Step = 'welcome' | 'connect' | 'complete';
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+function CasaLogo() {
+  return (
+    <Svg width={80} height={80} viewBox="0 0 80 80" fill="none">
+      <Path
+        d="M40 10L14 28v24c0 4.42 3.58 8 8 8h36c4.42 0 8-3.58 8-8V28L40 10z"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={THEME.colors.brand}
+        fillOpacity={0.08}
+      />
+      <Path
+        d="M32 56V40h16v16"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <Svg width={80} height={80} viewBox="0 0 80 80" fill="none">
+      <Path
+        d="M60 38c0 11.046-8.954 20-20 20-3.09 0-6.013-.7-8.624-1.952L18 60l3.952-13.376A19.872 19.872 0 0120 38c0-11.046 8.954-20 20-20s20 8.954 20 20z"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={THEME.colors.brand}
+        fillOpacity={0.08}
+      />
+      <Circle cx="32" cy="38" r="2" fill={THEME.colors.brand} />
+      <Circle cx="40" cy="38" r="2" fill={THEME.colors.brand} />
+      <Circle cx="48" cy="38" r="2" fill={THEME.colors.brand} />
+    </Svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <Svg width={80} height={80} viewBox="0 0 80 80" fill="none">
+      <Path
+        d="M40 8L14 22v18c0 16.57 11.08 32.08 26 36 14.92-3.92 26-19.43 26-36V22L40 8z"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={THEME.colors.brand}
+        fillOpacity={0.08}
+      />
+      <Path
+        d="M30 40l7 7 13-14"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <Svg width={80} height={80} viewBox="0 0 80 80" fill="none">
+      <Path
+        d="M33 43a16.67 16.67 0 0025.13 1.8l10-10a16.67 16.67 0 00-23.57-23.57l-5.73 5.7"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M47 37a16.67 16.67 0 00-25.13-1.8l-10 10a16.67 16.67 0 0023.57 23.57l5.7-5.73"
+        stroke={THEME.colors.brand}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+interface WalkthroughPage {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+}
+
+const PAGES: WalkthroughPage[] = [
+  {
+    title: 'Welcome to Casa',
+    description:
+      'Your smart rental companion. Casa helps you manage your tenancy, pay rent, submit maintenance requests, and communicate with your landlord — all in one place.',
+    icon: <CasaLogo />,
+  },
+  {
+    title: 'Chat With Casa AI',
+    description:
+      'Have questions about your lease, rent, or rights? Just ask Casa. Your AI assistant knows your tenancy details and Australian tenancy law.',
+    icon: <ChatIcon />,
+  },
+  {
+    title: 'Stay Protected',
+    description:
+      'Casa keeps you informed about your rights, tracks your maintenance requests, and helps you stay on top of rent and important dates.',
+    icon: <ShieldIcon />,
+  },
+];
 
 export default function TenantOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { useCode, connectToTenancy, connectToProperty } = useConnection();
-  const [step, setStep] = useState<Step>('welcome');
+  const scrollRef = useRef<ScrollView>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [showConnect, setShowConnect] = useState(false);
   const [connectionCode, setConnectionCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [completing, setCompleting] = useState(false);
 
-  // Pre-fill connection code from deep link (stored in AsyncStorage by _layout.tsx)
+  // Pre-fill connection code from deep link
   useEffect(() => {
     AsyncStorage.getItem('casa_invite_code').then((code) => {
       if (code) {
@@ -37,14 +155,43 @@ export default function TenantOnboardingScreen() {
     }).catch(() => {});
   }, []);
 
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const index = Math.round(offsetX / SCREEN_WIDTH);
+      setActiveIndex(index);
+    },
+    [],
+  );
+
+  const markOnboardingComplete = useCallback(async () => {
+    if (!user) return;
+    const supabase = getSupabaseClient();
+    await (supabase.from('profiles') as ReturnType<typeof supabase.from>)
+      .update({ onboarding_completed: true })
+      .eq('id', user.id);
+  }, [user]);
+
+  const handleSkip = useCallback(async () => {
+    setCompleting(true);
+    try {
+      await markOnboardingComplete();
+      router.replace('/(app)/(tabs)' as never);
+    } catch {
+      Alert.alert('Error', 'Failed to complete onboarding. Please try again.');
+    } finally {
+      setCompleting(false);
+    }
+  }, [markOnboardingComplete]);
+
   const handleGetStarted = useCallback(() => {
-    setStep('connect');
+    setShowConnect(true);
   }, []);
 
   const handleNoCode = useCallback(() => {
     Alert.alert(
       'Connection Code',
-      'Ask your landlord or property manager for your Casa connection code.',
+      'Ask your landlord or property manager for your Casa connection code. You can also connect later from the Home screen or by chatting with Casa AI.',
     );
   }, []);
 
@@ -59,7 +206,6 @@ export default function TenantOnboardingScreen() {
     setCodeError(null);
 
     try {
-      // Step 1: Validate the connection code via RPC
       const result = await useCode(trimmedCode);
 
       if (!result.success) {
@@ -68,7 +214,6 @@ export default function TenantOnboardingScreen() {
         return;
       }
 
-      // Step 2: Create the actual tenant-property link
       let connected = false;
       if (result.tenancyId) {
         connected = await connectToTenancy(result.tenancyId, trimmedCode);
@@ -82,27 +227,17 @@ export default function TenantOnboardingScreen() {
         return;
       }
 
-      setStep('complete');
+      // Success — complete onboarding
+      await markOnboardingComplete();
+      router.replace('/(app)/(tabs)' as never);
     } catch {
       setCodeError('Something went wrong. Please try again.');
     } finally {
       setConnecting(false);
     }
-  }, [connectionCode, useCode, connectToTenancy, connectToProperty]);
+  }, [connectionCode, useCode, connectToTenancy, connectToProperty, markOnboardingComplete]);
 
-  const handleSkipConnect = useCallback(() => {
-    setStep('complete');
-  }, []);
-
-  const markOnboardingComplete = useCallback(async () => {
-    if (!user) return;
-    const supabase = getSupabaseClient();
-    await (supabase.from('profiles') as ReturnType<typeof supabase.from>)
-      .update({ onboarding_completed: true })
-      .eq('id', user.id);
-  }, [user]);
-
-  const handleFinish = useCallback(async () => {
+  const handleSkipConnect = useCallback(async () => {
     setCompleting(true);
     try {
       await markOnboardingComplete();
@@ -114,150 +249,131 @@ export default function TenantOnboardingScreen() {
     }
   }, [markOnboardingComplete]);
 
-  return (
-    <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      {step === 'welcome' && (
-        <View style={styles.stepContainer}>
-          <View style={styles.contentArea}>
-            <View style={styles.logoArea}>
-              <Text style={styles.logoText}>Casa</Text>
-            </View>
-            <Text style={styles.title}>Welcome to Casa</Text>
-            <Text style={styles.subtitle}>
-              Your smart rental companion. Casa helps you manage your tenancy, pay rent, submit
-              maintenance requests, and communicate with your landlord — all in one place.
-            </Text>
-          </View>
-          <View style={styles.bottomArea}>
-            <StepIndicator current={0} total={3} />
-            <Button title="Get Started" onPress={handleGetStarted} />
-          </View>
+  // Connection code screen (shown after walkthrough)
+  if (showConnect) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={styles.skipContainer}>
+          <TouchableOpacity
+            onPress={() => setShowConnect(false)}
+            style={styles.skipButton}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.skipText}>Back</Text>
+          </TouchableOpacity>
+          <View style={{ width: 60 }} />
         </View>
-      )}
 
-      {step === 'connect' && (
-        <View style={styles.stepContainer}>
-          <View style={styles.contentArea}>
-            <View style={styles.iconWrapper}>
-              <Svg width={48} height={48} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"
-                  stroke={THEME.colors.brand}
-                  strokeWidth={1.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <Path
-                  d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"
-                  stroke={THEME.colors.brand}
-                  strokeWidth={1.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-            </View>
-            <Text style={styles.title}>Connect to Your Property</Text>
-            <Text style={styles.subtitle}>
-              Enter the connection code from your landlord to link your account to your rental
-              property.
-            </Text>
-            <View style={styles.inputArea}>
-              <Input
-                label="Connection Code"
-                placeholder="e.g. ABC123"
-                value={connectionCode}
-                onChangeText={(text) => {
-                  setConnectionCode(text.toUpperCase().slice(0, 6));
-                  if (codeError) setCodeError(null);
-                }}
-                error={codeError ?? undefined}
-                autoCapitalize="characters"
-                maxLength={6}
-                autoCorrect={false}
-                inputStyle={styles.codeInput}
-              />
-              <Button
-                title="I don't have a code"
-                variant="text"
-                onPress={handleNoCode}
-                textStyle={styles.noCodeText}
-              />
-            </View>
+        <View style={styles.connectContent}>
+          <View style={styles.iconWrapper}>
+            <LinkIcon />
           </View>
-          <View style={styles.bottomArea}>
-            <StepIndicator current={1} total={3} />
-            <Button
-              title="Connect"
-              onPress={handleConnect}
-              loading={connecting}
-              disabled={connectionCode.trim().length === 0}
+          <Text style={styles.pageTitle}>Connect to Your Property</Text>
+          <Text style={styles.pageDescription}>
+            Enter the 6-character connection code from your landlord to link your account to your rental property.
+          </Text>
+          <View style={styles.inputArea}>
+            <Input
+              label="Connection Code"
+              placeholder="e.g. ABC123"
+              value={connectionCode}
+              onChangeText={(text: string) => {
+                setConnectionCode(text.toUpperCase().slice(0, 6));
+                if (codeError) setCodeError(null);
+              }}
+              error={codeError ?? undefined}
+              autoCapitalize="characters"
+              maxLength={6}
+              autoCorrect={false}
+              inputStyle={styles.codeInput}
             />
             <Button
-              title="Skip for Now"
+              title="I don't have a code"
               variant="text"
-              onPress={handleSkipConnect}
-              style={styles.skipButton}
+              onPress={handleNoCode}
+              textStyle={styles.noCodeText}
             />
           </View>
         </View>
-      )}
 
-      {step === 'complete' && (
-        <View style={styles.stepContainer}>
-          <View style={styles.contentArea}>
-            <View style={styles.checkIconWrapper}>
-              <Svg width={48} height={48} viewBox="0 0 24 24" fill="none">
-                <Circle
-                  cx={12}
-                  cy={12}
-                  r={10}
-                  stroke={THEME.colors.success}
-                  strokeWidth={1.5}
-                />
-                <Polyline
-                  points="9 12 11.5 14.5 16 9.5"
-                  stroke={THEME.colors.success}
-                  strokeWidth={1.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-              </Svg>
-            </View>
-            <Text style={styles.title}>You're All Set!</Text>
-            <Text style={styles.subtitle}>
-              Your account is ready. You can connect to a property at any time from the Home screen.
-            </Text>
-          </View>
-          <View style={styles.bottomArea}>
-            <StepIndicator current={2} total={3} />
-            <Button
-              title="Start Exploring"
-              onPress={handleFinish}
-              loading={completing}
-            />
-          </View>
+        <View style={styles.connectBottomArea}>
+          <Button
+            title="Connect"
+            onPress={handleConnect}
+            loading={connecting}
+            disabled={connectionCode.trim().length === 0}
+          />
+          <Button
+            title="Skip for Now"
+            variant="text"
+            onPress={handleSkipConnect}
+            loading={completing}
+          />
         </View>
-      )}
-    </KeyboardAvoidingView>
-  );
-}
+      </View>
+    );
+  }
 
-function StepIndicator({ current, total }: { current: number; total: number }) {
+  // Swipeable walkthrough
   return (
-    <View style={styles.stepIndicator}>
-      {Array.from({ length: total }, (_, i) => (
-        <View
-          key={i}
-          style={[
-            styles.dot,
-            i === current ? styles.dotActive : styles.dotInactive,
-          ]}
-        />
-      ))}
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={styles.skipContainer}>
+        <View style={{ width: 60 }} />
+        <TouchableOpacity
+          onPress={handleSkip}
+          disabled={completing}
+          style={styles.skipButton}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.skipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        bounces={false}
+      >
+        {PAGES.map((page, index) => (
+          <View key={index} style={styles.page}>
+            <View style={styles.iconWrapper}>{page.icon}</View>
+            <Text style={styles.pageTitle}>{page.title}</Text>
+            <Text style={styles.pageDescription}>{page.description}</Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={styles.bottomArea}>
+        <View style={styles.paginationContainer}>
+          {PAGES.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.dot,
+                index === activeIndex ? styles.dotActive : styles.dotInactive,
+              ]}
+            />
+          ))}
+        </View>
+
+        {activeIndex === PAGES.length - 1 ? (
+          <Button title="Get Started" onPress={handleGetStarted} />
+        ) : (
+          <Button
+            title="Next"
+            onPress={() => {
+              scrollRef.current?.scrollTo({
+                x: (activeIndex + 1) * SCREEN_WIDTH,
+                animated: true,
+              });
+            }}
+          />
+        )}
+      </View>
     </View>
   );
 }
@@ -267,47 +383,46 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: THEME.colors.canvas,
   },
-  stepContainer: {
-    flex: 1,
+  skipContainer: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: THEME.spacing.lg,
+    paddingHorizontal: THEME.spacing.base,
+    paddingTop: THEME.spacing.md,
   },
-  contentArea: {
+  skipButton: {
+    paddingVertical: THEME.spacing.sm,
+    paddingHorizontal: THEME.spacing.md,
+  },
+  skipText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.textSecondary,
+  },
+  page: {
+    width: SCREEN_WIDTH,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: THEME.spacing.xl,
   },
-  bottomArea: {
-    alignItems: 'center',
-    gap: THEME.spacing.base,
-    paddingBottom: THEME.spacing.base,
-  },
-
-  // Welcome step
-  logoArea: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: THEME.colors.brand,
+  iconWrapper: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: THEME.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: THEME.spacing.xl,
     ...THEME.shadow.lg,
   },
-  logoText: {
-    fontSize: 28,
-    fontWeight: THEME.fontWeight.bold,
-    color: THEME.colors.textInverse,
-    letterSpacing: 1,
-  },
-  title: {
+  pageTitle: {
     fontSize: THEME.fontSize.h1,
     fontWeight: THEME.fontWeight.bold,
     color: THEME.colors.textPrimary,
     textAlign: 'center',
-    marginBottom: THEME.spacing.md,
+    marginBottom: THEME.spacing.base,
   },
-  subtitle: {
+  pageDescription: {
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.regular,
     color: THEME.colors.textSecondary,
@@ -315,17 +430,37 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: 320,
   },
+  bottomArea: {
+    alignItems: 'center',
+    paddingHorizontal: THEME.spacing.xl,
+    paddingBottom: THEME.spacing.xl,
+    gap: THEME.spacing.base,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: THEME.spacing.sm,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  dotActive: {
+    backgroundColor: THEME.colors.brand,
+    width: 24,
+  },
+  dotInactive: {
+    backgroundColor: THEME.colors.border,
+  },
 
-  // Connect step
-  iconWrapper: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: THEME.colors.surface,
+  // Connect screen
+  connectContent: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: THEME.spacing.xl,
-    ...THEME.shadow.lg,
+    paddingHorizontal: THEME.spacing.xl,
   },
   inputArea: {
     width: '100%',
@@ -344,39 +479,10 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.textSecondary,
   },
-  skipButton: {
-    marginTop: THEME.spacing.xs,
-  },
-
-  // Complete step
-  checkIconWrapper: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: THEME.colors.successBg,
+  connectBottomArea: {
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: THEME.spacing.xl,
-  },
-
-  // Step indicator
-  stepIndicator: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: THEME.spacing.xl,
+    paddingBottom: THEME.spacing.xl,
     gap: THEME.spacing.sm,
-    marginBottom: THEME.spacing.md,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  dotActive: {
-    backgroundColor: THEME.colors.brand,
-    width: 24,
-  },
-  dotInactive: {
-    backgroundColor: THEME.colors.border,
   },
 });

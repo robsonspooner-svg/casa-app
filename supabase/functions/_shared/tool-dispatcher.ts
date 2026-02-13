@@ -18,6 +18,7 @@ import {
   handle_search_documents, handle_get_document_folders, handle_move_document_to_folder,
   handle_get_background_tasks, handle_get_pending_actions,
   handle_suggest_navigation,
+  handle_tenant_connect_with_code,
   handle_check_maintenance_threshold as handle_check_maintenance_threshold_q,
   handle_check_regulatory_requirements as handle_check_regulatory_requirements_q,
   handle_get_tenancy_law,
@@ -128,6 +129,7 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   get_background_tasks: handle_get_background_tasks,
   get_pending_actions: handle_get_pending_actions,
   suggest_navigation: handle_suggest_navigation,
+  tenant_connect_with_code: handle_tenant_connect_with_code,
 
   // Action tools
   create_property: handle_create_property,

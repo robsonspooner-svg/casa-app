@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, Href } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { Badge, THEME } from '@casa/ui';
 import {
@@ -130,6 +131,7 @@ function EmptyState({ filter, onCreatePress }: { filter: FilterOption; onCreateP
 
 export default function ListingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
 
   const filterParam = activeFilter === 'all' ? undefined : activeFilter;
@@ -144,7 +146,7 @@ export default function ListingsScreen() {
   if (loading && !refreshing) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + THEME.spacing.md }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
               <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textPrimary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
@@ -163,7 +165,7 @@ export default function ListingsScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + THEME.spacing.md }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
             <Path d="M15 18l-6-6 6-6" stroke={THEME.colors.textPrimary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />

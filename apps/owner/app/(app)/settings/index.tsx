@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 
@@ -92,9 +93,11 @@ const KNOWLEDGE_ITEMS = [
 ];
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + THEME.spacing.md }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <BackIcon />
         </TouchableOpacity>
@@ -200,7 +203,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 60,
     paddingHorizontal: 16,
     paddingBottom: 16,
     backgroundColor: THEME.colors.surface,

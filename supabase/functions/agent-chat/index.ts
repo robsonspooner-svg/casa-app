@@ -8,7 +8,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { CLAUDE_TOOLS, TOOL_META, getClaudeTools, getContextualTools } from '../_shared/tool-registry.ts';
+import { CLAUDE_TOOLS, TOOL_META, getClaudeTools, getContextualTools, getTenantTools } from '../_shared/tool-registry.ts';
 import { classifyToolError } from '../_shared/tool-dispatcher.ts';
 import { generateEmbedding, buildDecisionEmbeddingText, formatEmbeddingForStorage } from '../_shared/embeddings.ts';
 import {
@@ -431,7 +431,7 @@ serve(async (req: Request) => {
     messages = compactMessages(messages, messageTokenBudget);
 
     // Prepare tool definitions for Claude API — contextual filtering reduces 130 → ~20-40 tools
-    const claudeTools = userRole === 'tenant' ? [] : getContextualTools(body.message || '');
+    const claudeTools = userRole === 'tenant' ? getTenantTools() : getContextualTools(body.message || '');
 
     // Agentic loop
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');

@@ -68,6 +68,9 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
   { name: 'get_pending_actions', description: 'Get all actions awaiting owner approval', input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'expired', 'all'], description: 'Approval status' } } } },
   { name: 'suggest_navigation', description: 'Show the user a navigation button to a specific app screen. Use this after creating/querying resources to let the user jump directly to the relevant screen.', input_schema: { type: 'object', properties: { route: { type: 'string', description: 'App route path, e.g. "/(app)/properties/[id]"' }, label: { type: 'string', description: 'Button label, e.g. "View Property"' }, params: { type: 'object', description: 'Route params as key-value pairs, e.g. { "id": "uuid-here" }' } }, required: ['route', 'label'] } },
 
+  // ── TENANT TOOLS ────────────────────────────────────────────────────────
+  { name: 'tenant_connect_with_code', description: 'Connect the tenant to a property using a 6-character connection code from their landlord. Validates the code, creates the tenancy link, and returns property details. The tenant can simply type their code in the chat.', input_schema: { type: 'object', properties: { code: { type: 'string', description: 'The 6-character connection code (e.g. "ABC123")' } }, required: ['code'] } },
+
   // ── ACTION TOOLS ──────────────────────────────────────────────────────────
   { name: 'create_property', description: 'Create a new property with address, details, and financials', input_schema: { type: 'object', properties: { address_line_1: { type: 'string', description: 'Street address' }, address_line_2: { type: 'string', description: 'Unit/apartment' }, suburb: { type: 'string', description: 'Suburb name' }, state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'], description: 'Australian state' }, postcode: { type: 'string', description: '4-digit postcode' }, property_type: { type: 'string', enum: ['house', 'apartment', 'townhouse', 'unit', 'studio', 'other'], description: 'Property type' }, bedrooms: { type: 'number', description: 'Number of bedrooms' }, bathrooms: { type: 'number', description: 'Number of bathrooms' }, parking_spaces: { type: 'number', description: 'Number of parking spaces' }, floor_size_sqm: { type: 'number', description: 'Floor area in sqm' }, land_size_sqm: { type: 'number', description: 'Land area in sqm' }, year_built: { type: 'number', description: 'Year built' }, rent_amount: { type: 'number', description: 'Rent amount (AUD)' }, rent_frequency: { type: 'string', enum: ['weekly', 'fortnightly', 'monthly'], description: 'Rent frequency' }, bond_amount: { type: 'number', description: 'Bond amount (AUD)' }, notes: { type: 'string', description: 'Additional notes' } }, required: ['address_line_1', 'suburb', 'state', 'postcode'] } },
   { name: 'update_property', description: 'Update property details — address, features, financials, notes', input_schema: { type: 'object', properties: { property_id: { type: 'string', description: 'Property UUID' }, updates: { type: 'object', description: 'Fields to update' } }, required: ['property_id', 'updates'] } },
@@ -254,6 +257,7 @@ export const TOOL_META: Record<string, ToolMeta> = {
   get_background_tasks: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   get_pending_actions: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   suggest_navigation: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  tenant_connect_with_code: { category: 'action', autonomyLevel: 4, riskLevel: 'low', reversible: false },
   check_maintenance_threshold: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   check_regulatory_requirements: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   get_tenancy_law: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
@@ -512,6 +516,10 @@ const TOOL_GROUPS: Record<string, string[]> = {
     'get_portfolio_snapshot', 'generate_wealth_report', 'generate_property_action_plan',
     'predict_vacancy_risk', 'calculate_roi_metrics',
   ],
+  // Tenant-only tools (for tenant app users)
+  tenant: [
+    'tenant_connect_with_code', 'suggest_navigation',
+  ],
 };
 
 // Keywords that trigger each tool group
@@ -559,6 +567,21 @@ export function getContextualTools(message: string): Array<{
   return CLAUDE_TOOLS
     .filter((t) => selectedToolNames.has(t.name))
     .filter((t) => !TOOL_META[t.name]?.isStub)
+    .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+}
+
+// ---------------------------------------------------------------------------
+// Tenant Tools — limited set for tenant app users
+// ---------------------------------------------------------------------------
+
+export function getTenantTools(): Array<{
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}> {
+  const tenantToolNames = new Set(TOOL_GROUPS.tenant);
+  return CLAUDE_TOOLS
+    .filter((t) => tenantToolNames.has(t.name))
     .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 

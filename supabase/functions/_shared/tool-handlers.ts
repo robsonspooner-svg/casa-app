@@ -785,6 +785,121 @@ export async function handle_suggest_navigation(input: ToolInput, _userId: strin
   };
 }
 
+export async function handle_tenant_connect_with_code(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const code = ((input.code as string) || '').trim().toUpperCase();
+  if (!code || code.length !== 6) {
+    return { success: false, error: 'Connection code must be exactly 6 characters.' };
+  }
+
+  // Step 1: Validate the code via RPC
+  const { data: codeData, error: codeError } = await sb.rpc('use_connection_code', {
+    p_code: code,
+    p_user_id: userId,
+  });
+
+  if (codeError) {
+    return { success: false, error: `Failed to validate code: ${codeError.message}` };
+  }
+
+  const result = Array.isArray(codeData) ? codeData[0] : codeData;
+  if (!result || !result.success) {
+    return { success: false, error: result?.message || 'Invalid or expired connection code.' };
+  }
+
+  // Step 2: Create the tenant-property link
+  let tenancyId: string | null = null;
+
+  if (result.tenancy_id) {
+    // Connect to existing tenancy
+    const { data: existing } = await sb
+      .from('tenancy_tenants')
+      .select('id')
+      .eq('tenancy_id', result.tenancy_id)
+      .eq('tenant_id', userId)
+      .maybeSingle();
+
+    if (existing) {
+      // Already connected — still a success, return the property info
+      tenancyId = result.tenancy_id;
+    } else {
+      const { data: ttData, error: ttError } = await sb
+        .from('tenancy_tenants')
+        .insert({
+          tenancy_id: result.tenancy_id,
+          tenant_id: userId,
+          is_primary: false,
+          is_leaseholder: false,
+        })
+        .select('id')
+        .single();
+
+      if (ttError) {
+        return { success: false, error: `Failed to connect to tenancy: ${ttError.message}` };
+      }
+
+      // Update connection attempt
+      await sb
+        .from('connection_attempts')
+        .update({
+          status: 'success',
+          processed_at: new Date().toISOString(),
+          created_tenancy_tenant_id: ttData.id,
+        })
+        .eq('code_text', code)
+        .eq('user_id', userId)
+        .eq('status', 'pending');
+
+      tenancyId = result.tenancy_id;
+    }
+  } else if (result.property_id) {
+    // Connect via connect_tenant_to_property RPC
+    const { data: connectData, error: connectError } = await sb.rpc('connect_tenant_to_property', {
+      p_property_id: result.property_id,
+      p_tenant_id: userId,
+      p_code: code,
+    });
+
+    if (connectError) {
+      return { success: false, error: `Failed to connect: ${connectError.message}` };
+    }
+
+    const connectResult = Array.isArray(connectData) ? connectData[0] : connectData;
+    if (!connectResult?.success) {
+      return { success: false, error: connectResult?.message || 'Failed to connect to property.' };
+    }
+    tenancyId = connectResult.tenancy_id;
+  }
+
+  // Step 3: Get property details for the response
+  const propertyId = result.property_id;
+  let propertyAddress = 'your new property';
+  if (propertyId) {
+    const { data: prop } = await sb
+      .from('properties')
+      .select('address_line_1, suburb, state, rent_amount, rent_frequency')
+      .eq('id', propertyId)
+      .single();
+
+    if (prop) {
+      propertyAddress = `${prop.address_line_1}, ${prop.suburb} ${prop.state}`;
+    }
+  }
+
+  return {
+    success: true,
+    data: {
+      message: `Successfully connected to ${propertyAddress}!`,
+      property_id: propertyId,
+      tenancy_id: tenancyId,
+      property_address: propertyAddress,
+      _navigation: true,
+      view_route: '/(app)/(tabs)',
+      label: 'Go to Home',
+      params: {},
+    },
+  };
+}
+
 export async function handle_check_maintenance_threshold(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
   const { data: settings } = await sb
     .from('agent_autonomy_settings')
