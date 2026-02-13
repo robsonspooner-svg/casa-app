@@ -10,7 +10,7 @@ const TEXT_SECONDARY = '#6B7280';
 const BG_LIGHT = '#F9FAFB';
 const BG_WHITE = '#FFFFFF';
 
-const BASE_URL = 'https://app.casagroup.au';
+const BASE_URL = 'https://www.casaapp.com.au';
 
 function unsubscribeFooter(userId?: string, notificationType?: string): string {
   if (!userId) return '';

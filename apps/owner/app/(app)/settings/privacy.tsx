@@ -231,12 +231,12 @@ export default function PrivacySettingsScreen() {
           <DocumentLink
             label="Terms of Service"
             description="View the Casa Terms of Service"
-            url="https://getcasa.com.au/terms"
+            url="https://www.casaapp.com.au/terms"
           />
           <DocumentLink
             label="Privacy Policy"
             description="How we collect, use, and protect your data"
-            url="https://getcasa.com.au/privacy"
+            url="https://www.casaapp.com.au/privacy"
             isLast
           />
         </View>

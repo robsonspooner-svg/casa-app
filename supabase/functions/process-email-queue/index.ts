@@ -37,7 +37,7 @@ ${bodyContent ? `<p>${bodyContent.replace(/\n/g, '</p><p>')}</p>` : `<p>${subjec
 </div>
 <div class="footer">
 <p>Sent by Casa &mdash; your AI property manager</p>
-<p><a href="https://getcasa.au">getcasa.au</a></p>
+<p><a href="https://www.casaapp.com.au">casaapp.com.au</a></p>
 </div></div></body></html>`;
 }
 

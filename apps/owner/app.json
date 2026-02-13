@@ -22,7 +22,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": [
-        "applinks:casagroup.au"
+        "applinks:www.casaapp.com.au"
       ],
       "buildNumber": "15"
     },
@@ -43,7 +43,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "casagroup.au",
+              "host": "www.casaapp.com.au",
               "pathPrefix": "/owner"
             }
           ],
