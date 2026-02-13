@@ -357,6 +357,7 @@ interface TaskSection {
 }
 
 export default function TasksScreen() {
+  const insets = useSafeAreaInsets();
   const {
     loading,
     refreshing,
@@ -410,7 +411,7 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerTitleRow}>
           <Text style={styles.title}>Tasks</Text>
           {pendingCount > 0 && (
@@ -516,7 +517,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: THEME.spacing.base,
-    paddingTop: THEME.spacing['2xl'],
     paddingBottom: THEME.spacing.lg,
     backgroundColor: THEME.colors.surface,
     borderBottomWidth: 1,

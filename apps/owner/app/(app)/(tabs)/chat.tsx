@@ -14,6 +14,7 @@ import {
   Image,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import {
@@ -515,6 +516,7 @@ function InlineChips({ onSelect }: { onSelect: (text: string) => void }) {
 }
 
 export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
   const {
     messages,
     currentConversation,
@@ -581,7 +583,7 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerLeft}>
           <View style={styles.headerAvatar}>
             <Image
@@ -736,7 +738,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: THEME.spacing.base,
-    paddingTop: THEME.spacing['2xl'],
     paddingBottom: THEME.spacing.md,
     backgroundColor: THEME.colors.surface,
     borderBottomWidth: 1,

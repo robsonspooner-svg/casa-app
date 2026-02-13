@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { useAgentTasks, AgentTask, TimelineEntry } from '@casa/api';
@@ -200,6 +201,7 @@ interface TaskSection {
 }
 
 export default function TenantTasksScreen() {
+  const insets = useSafeAreaInsets();
   const {
     loading,
     refreshing,
@@ -230,7 +232,7 @@ export default function TenantTasksScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerTitleRow}>
           <Text style={styles.title}>Updates</Text>
           {pendingCount > 0 && (
