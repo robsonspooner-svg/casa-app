@@ -15,8 +15,8 @@
 Before starting this mission, ensure:
 - [ ] Business registered (ABN/ACN)
 - [ ] Business bank account opened
-- [ ] Domain ownership verified (usecasa.com.au or similar)
-- [ ] Business email addresses created (e.g., noreply@usecasa.com.au)
+- [ ] Domain ownership verified (casaapp.com.au or similar)
+- [ ] Business email addresses created (e.g., noreply@casaapp.com.au)
 
 ---
 
@@ -87,7 +87,7 @@ invoice.payment_failed
 | Task | Status | Notes |
 |------|--------|-------|
 | Go to Settings → Sender Authentication | ⬜ | |
-| Add domain (usecasa.com.au) | ⬜ | |
+| Add domain (casaapp.com.au) | ⬜ | |
 | Add DNS records to domain | ⬜ | CNAME records provided |
 | Verify domain | ⬜ | May take up to 48 hours |
 
@@ -162,7 +162,7 @@ supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
 
 # SendGrid
 supabase secrets set SENDGRID_API_KEY=SG....
-supabase secrets set SENDGRID_FROM_EMAIL=noreply@usecasa.com.au
+supabase secrets set SENDGRID_FROM_EMAIL=noreply@casaapp.com.au
 supabase secrets set SENDGRID_FROM_NAME=Casa
 
 # Scheduled Jobs
@@ -323,7 +323,7 @@ EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 SENDGRID_API_KEY=SG....
-SENDGRID_FROM_EMAIL=noreply@usecasa.com.au
+SENDGRID_FROM_EMAIL=noreply@casaapp.com.au
 SENDGRID_FROM_NAME=Casa
 CRON_SECRET=<random-secret>
 DOMAIN_API_KEY=...

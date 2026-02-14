@@ -130,8 +130,8 @@ export const ADD_ON_SERVICES: AddOnInfo[] = [
   },
 ];
 
-// Platform fee percentage (charged on rent payments)
-export const PLATFORM_FEE_PERCENT = 1.5;
+// Platform fee: 0% — Casa uses subscription-only revenue model (no hidden fees on rent)
+export const PLATFORM_FEE_PERCENT = 0;
 
 // Stripe processing fee (passed to tenant)
 export const STRIPE_FEE_PERCENT = 1.75;
@@ -150,9 +150,9 @@ export function calculateStripeFee(amountCents: number, isBecs: boolean): number
   return Math.round(amountCents * (STRIPE_FEE_PERCENT / 100)) + STRIPE_FEE_FIXED_CENTS;
 }
 
-// Calculate platform fee for a given amount
-export function calculatePlatformFee(amountCents: number): number {
-  return Math.round(amountCents * (PLATFORM_FEE_PERCENT / 100));
+// Platform fee: 0% — subscription-only model
+export function calculatePlatformFee(_amountCents: number): number {
+  return 0;
 }
 
 // Calculate net amount received by owner

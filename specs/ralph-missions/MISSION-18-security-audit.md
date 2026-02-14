@@ -514,7 +514,7 @@ apps/[owner|tenant]/components/
 - [ ] Unverified accounts limited to profile completion only
 
 ### Terms of Service & Privacy Policy
-- [ ] ToS and Privacy Policy hosted at casapm.com.au/terms and casapm.com.au/privacy
+- [ ] ToS and Privacy Policy hosted at casaapp.com.au/terms and casaapp.com.au/privacy
 - [ ] Users must accept ToS on first login (stored in profiles table)
 - [ ] Privacy Policy includes automated decision-making disclosure (Privacy Act 2024 amendment)
 - [ ] Agent's autonomy levels and decision process disclosed in privacy policy

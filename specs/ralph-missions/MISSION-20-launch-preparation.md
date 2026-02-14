@@ -17,7 +17,7 @@
 - [ ] Only show onboarding once (store `has_completed_onboarding` in AsyncStorage)
 
 ### Phase A1: Subscription Payment Website
-- [ ] Create payment landing page at casapm.com.au/pricing (or within marketing site)
+- [ ] Create payment landing page at casaapp.com.au/pricing (or within marketing site)
 - [ ] Display 3 tiers: Starter ($49/mo), Pro ($89/mo), Hands-Off ($149/mo) with feature comparison
 - [ ] Integrate Stripe Checkout for subscription creation
 - [ ] After successful payment, redirect user to app download / deep link back into app

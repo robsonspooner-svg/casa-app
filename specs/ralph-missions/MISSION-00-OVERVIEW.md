@@ -424,7 +424,7 @@ TWILIO_ACCOUNT_SID=ACxxx
 TWILIO_AUTH_TOKEN=xxx
 TWILIO_PHONE_NUMBER=+61xxx
 SENDGRID_API_KEY=SG.xxx
-SENDGRID_FROM_EMAIL=noreply@casapm.com.au
+SENDGRID_FROM_EMAIL=noreply@casaapp.com.au
 
 # === AI AGENT (Mission 14) ===
 ANTHROPIC_API_KEY=sk-ant-xxx

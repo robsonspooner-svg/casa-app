@@ -441,7 +441,7 @@ npx supabase secrets set \
 #### 1. SendGrid Setup
 - Sign up at https://sendgrid.com
 - Create an API key with Mail Send permission
-- Verify a sender identity (e.g., `noreply@casapm.com.au`)
+- Verify a sender identity (e.g., `noreply@casaapp.com.au`)
 - Provide: `SENDGRID_API_KEY`, sender email
 
 #### 2. Twilio Setup
@@ -453,7 +453,7 @@ npx supabase secrets set \
 ```bash
 npx supabase secrets set \
   SENDGRID_API_KEY=SG.xxx \
-  SENDGRID_FROM_EMAIL=noreply@casapm.com.au \
+  SENDGRID_FROM_EMAIL=noreply@casaapp.com.au \
   TWILIO_ACCOUNT_SID=ACxxx \
   TWILIO_AUTH_TOKEN=xxx \
   TWILIO_PHONE_NUMBER=+61xxx \
@@ -1044,8 +1044,8 @@ Fix every bug found during QA testing. Common issues to watch for:
 - **Description:** (4000 chars max) — Highlight AI agent, cost savings vs traditional PM, Australian compliance
 - **Keywords:** property management, landlord, rental, AI, Australia, tenant, inspection, maintenance
 - **Category:** Primary: Finance, Secondary: Productivity
-- **Privacy Policy URL:** Must be hosted (e.g., https://casapm.com.au/privacy)
-- **Support URL:** e.g., https://casapm.com.au/support
+- **Privacy Policy URL:** Must be hosted (e.g., https://casaapp.com.au/privacy)
+- **Support URL:** e.g., https://casaapp.com.au/support
 
 #### 2. Screenshots (Required)
 - 6.7" display (iPhone 15 Pro Max): 1290 x 2796px — minimum 3, recommended 6-10
@@ -1095,7 +1095,7 @@ These are the things ONLY YOU can do (Claude cannot access dashboards or create 
 
 ### App Store (When Ready to Submit)
 12. [ ] **App Store Connect** — Create app listing, upload screenshots
-13. [ ] **Privacy Policy** — Host at casapm.com.au/privacy
+13. [ ] **Privacy Policy** — Host at casaapp.com.au/privacy
 14. [ ] **Test account** — Create test credentials for Apple reviewers
 
 ---

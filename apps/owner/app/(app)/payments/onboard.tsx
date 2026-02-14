@@ -125,10 +125,10 @@ export default function PayoutOnboardScreen() {
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Platform fee</Text>
-          <Text style={styles.detailValue}>1.5%</Text>
+          <Text style={[styles.detailValue, { color: THEME.colors.success }]}>None</Text>
         </View>
         <Text style={styles.feeNote}>
-          Processing fees are paid by the tenant. Platform fee is deducted from payouts.
+          Processing fees are included in your subscription. No hidden charges on rent payouts.
         </Text>
       </Card>
 

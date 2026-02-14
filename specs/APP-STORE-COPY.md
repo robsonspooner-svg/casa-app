@@ -70,10 +70,10 @@ _(100 characters)_
 Introducing Casa. Add your properties, manage tenants, collect rent, coordinate maintenance, and communicate with tenants — all powered by AI. This is our initial release.
 
 ### Support URL
-https://casaintelligence.com.au/support
+https://casaapp.com.au/support
 
 ### Privacy Policy URL
-https://casaintelligence.com.au/privacy
+https://casaapp.com.au/privacy
 
 ### Category
 - **Primary:** Business
@@ -156,10 +156,10 @@ _(92 characters)_
 Introducing Casa Tenant. Pay rent, request maintenance, message your landlord, and access your rental documents — all in one free app.
 
 ### Support URL
-https://casaintelligence.com.au/support
+https://casaapp.com.au/support
 
 ### Privacy Policy URL
-https://casaintelligence.com.au/privacy
+https://casaapp.com.au/privacy
 
 ### Category
 - **Primary:** Lifestyle

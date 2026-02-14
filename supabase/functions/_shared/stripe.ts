@@ -27,9 +27,9 @@ export function getStripeWebhookSecret(): string {
   return secret;
 }
 
-// Platform fee calculation (2.5% of transaction)
-export function calculatePlatformFee(amount: number): number {
-  return Math.round(amount * 0.025);
+// Platform fee: 0% — Casa uses subscription-only revenue model (no hidden fees on rent)
+export function calculatePlatformFee(_amount: number): number {
+  return 0;
 }
 
 // Stripe fee calculation (1.75% + 30c for Australian cards)

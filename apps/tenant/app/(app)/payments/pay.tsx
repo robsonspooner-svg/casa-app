@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { Card, Button, CurrencyDisplay } from '@casa/ui';
 import {
   useMyTenancy,
   useRentSchedule,
   usePaymentMethods,
-  usePaymentMutations,
+  getSupabaseClient,
   formatDollars,
 } from '@casa/api';
 
@@ -15,12 +17,30 @@ export default function PayScreen() {
   const { tenancy } = useMyTenancy();
   const { schedules, totalOwed, nextDue } = useRentSchedule(tenancy?.id);
   const { methods, defaultMethod } = usePaymentMethods();
-  const { createPayment, loading: mutating } = usePaymentMutations();
-  const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams<{ success?: string; cancelled?: string }>();
 
-  const activeMethod = selectedMethodId
-    ? methods.find(m => m.id === selectedMethodId)
-    : defaultMethod;
+  // Handle return from Stripe Checkout
+  if (params.success === 'true') {
+    return (
+      <View style={[styles.container, styles.centeredContent]}>
+        <View style={styles.successIcon}>
+          <Svg width={32} height={32} viewBox="0 0 24 24" fill="none">
+            <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+        <Text style={styles.successTitle}>Payment Submitted</Text>
+        <Text style={styles.successText}>
+          Your payment is being processed. You will receive a confirmation shortly.
+        </Text>
+        <Button
+          title="Done"
+          onPress={() => router.replace('/(app)/payments' as any)}
+          style={styles.payButton}
+        />
+      </View>
+    );
+  }
 
   // Determine what to pay: overdue first, then next due
   const overdueSchedules = schedules.filter(s => {
@@ -29,39 +49,52 @@ export default function PayScreen() {
   });
 
   const payableAmount = totalOwed > 0 ? totalOwed : (nextDue ? Number(nextDue.amount) : 0);
+  // Amount in cents for Stripe
+  const payableAmountCents = Math.round(payableAmount * 100);
 
   const handlePay = async () => {
-    if (!tenancy || !activeMethod || payableAmount === 0) return;
+    if (!tenancy || payableAmountCents === 0) return;
 
+    setLoading(true);
     try {
-      await createPayment({
-        tenancy_id: tenancy.id,
-        payment_method_id: activeMethod.id,
-        payment_type: 'rent',
-        amount: payableAmount,
-        description: overdueSchedules.length > 0
-          ? `Rent payment (${overdueSchedules.length} overdue)`
-          : 'Rent payment',
-        due_date: overdueSchedules.length > 0
-          ? overdueSchedules[0].due_date
-          : nextDue?.due_date || null,
-        status: 'pending',
+      const supabase = getSupabaseClient();
+
+      const { data, error } = await supabase.functions.invoke('create-rent-checkout', {
+        body: {
+          tenancyId: tenancy.id,
+          amount: payableAmountCents,
+          paymentType: 'rent',
+          description: overdueSchedules.length > 0
+            ? `Rent payment (${overdueSchedules.length} overdue)`
+            : 'Rent payment',
+          rentScheduleId: overdueSchedules.length > 0
+            ? overdueSchedules[0].id
+            : nextDue?.id || undefined,
+        },
       });
 
-      Alert.alert(
-        'Payment Submitted',
-        'Your payment is being processed. You will receive a confirmation shortly.',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
-    } catch {
-      Alert.alert('Payment Failed', 'There was an error processing your payment. Please try again.');
+      if (error) {
+        const errMsg = data?.error || error.message || 'Failed to start payment';
+        throw new Error(errMsg);
+      }
+
+      if (!data?.sessionUrl) {
+        throw new Error('No checkout URL returned');
+      }
+
+      // Open Stripe Checkout in an in-app browser
+      await WebBrowser.openBrowserAsync(data.sessionUrl);
+    } catch (err: any) {
+      Alert.alert('Payment Error', err.message || 'Failed to process payment. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   if (!tenancy) {
     return (
       <View style={styles.container}>
-        <View style={styles.centered}>
+        <View style={styles.centeredContent}>
           <Text style={styles.emptyText}>No active tenancy found.</Text>
         </View>
       </View>
@@ -100,6 +133,9 @@ export default function PayScreen() {
         {methods.length === 0 ? (
           <Card style={styles.noMethodCard}>
             <Text style={styles.noMethodText}>No payment methods saved</Text>
+            <Text style={styles.noMethodSubtext}>
+              You can add a payment method, or pay directly via card or bank account at checkout.
+            </Text>
             <Button
               title="Add Payment Method"
               onPress={() => router.push('/(app)/payments/methods/add' as any)}
@@ -107,47 +143,44 @@ export default function PayScreen() {
             />
           </Card>
         ) : (
-          <>
-            {methods.map(method => (
-              <TouchableOpacity
-                key={method.id}
-                style={[
-                  styles.methodOption,
-                  activeMethod?.id === method.id && styles.methodOptionSelected,
-                ]}
-                onPress={() => setSelectedMethodId(method.id)}
-              >
-                <View style={styles.methodInfo}>
-                  <Text style={styles.methodType}>
-                    {method.type === 'au_becs_debit' ? 'Bank Account' : method.brand || 'Card'}
-                  </Text>
-                  <Text style={styles.methodLast4}>
-                    {method.type === 'au_becs_debit' ? `BSB ****${method.last_four}` : `****${method.last_four}`}
-                  </Text>
-                </View>
-                <View style={[
-                  styles.radio,
-                  activeMethod?.id === method.id && styles.radioSelected,
-                ]} />
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={styles.addAnotherLink}
-              onPress={() => router.push('/(app)/payments/methods/add' as any)}
-            >
-              <Text style={styles.addAnotherText}>Add another method</Text>
-            </TouchableOpacity>
-          </>
+          <Card style={styles.savedMethodCard}>
+            <View style={styles.methodInfo}>
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <View style={styles.methodDetails}>
+                <Text style={styles.methodType}>
+                  {defaultMethod?.type === 'au_becs_debit' ? 'Bank Account' : defaultMethod?.brand || 'Card'}
+                </Text>
+                <Text style={styles.methodLast4}>
+                  {defaultMethod?.type === 'au_becs_debit'
+                    ? `BSB ****${defaultMethod?.last_four}`
+                    : `****${defaultMethod?.last_four}`}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.savedMethodNote}>
+              Your saved payment method will be available at checkout.
+            </Text>
+          </Card>
         )}
       </View>
 
+      <Card style={styles.infoCard}>
+        <Text style={styles.infoText}>
+          You will be taken to a secure checkout page powered by Stripe to complete your payment.
+        </Text>
+      </Card>
+
       <Button
-        title={`Pay ${formatDollars(payableAmount)}`}
+        title={loading ? '' : `Pay ${formatDollars(payableAmount)}`}
         onPress={handlePay}
-        loading={mutating}
-        disabled={!activeMethod || payableAmount === 0 || mutating}
+        disabled={payableAmountCents === 0 || loading}
         style={styles.payButton}
       />
+      {loading && (
+        <ActivityIndicator size="small" color={THEME.colors.brand} style={styles.loader} />
+      )}
     </ScrollView>
   );
 }
@@ -161,10 +194,11 @@ const styles = StyleSheet.create({
     padding: THEME.spacing.base,
     paddingBottom: THEME.spacing['2xl'],
   },
-  centered: {
+  centeredContent: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    padding: THEME.spacing.xl,
   },
   emptyText: {
     fontSize: THEME.fontSize.body,
@@ -206,26 +240,28 @@ const styles = StyleSheet.create({
   noMethodText: {
     fontSize: THEME.fontSize.body,
     color: THEME.colors.textSecondary,
+    marginBottom: THEME.spacing.xs,
+  },
+  noMethodSubtext: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textTertiary,
+    textAlign: 'center',
     marginBottom: THEME.spacing.md,
+    lineHeight: 18,
   },
   addMethodButton: {
     minWidth: 200,
   },
-  methodOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: THEME.colors.surface,
-    padding: THEME.spacing.base,
-    borderRadius: THEME.radius.md,
-    borderWidth: 1.5,
-    borderColor: THEME.colors.border,
-    marginBottom: THEME.spacing.sm,
-  },
-  methodOptionSelected: {
-    borderColor: THEME.colors.brand,
+  savedMethodCard: {
+    paddingVertical: THEME.spacing.base,
   },
   methodInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: THEME.spacing.md,
+    marginBottom: THEME.spacing.sm,
+  },
+  methodDetails: {
     flex: 1,
   },
   methodType: {
@@ -238,26 +274,46 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     marginTop: 2,
   },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: THEME.colors.border,
+  savedMethodNote: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textTertiary,
+    lineHeight: 16,
   },
-  radioSelected: {
-    borderColor: THEME.colors.brand,
-    backgroundColor: THEME.colors.brand,
+  infoCard: {
+    backgroundColor: THEME.colors.infoBg,
+    marginBottom: THEME.spacing.lg,
   },
-  addAnotherLink: {
-    paddingVertical: THEME.spacing.sm,
-  },
-  addAnotherText: {
-    fontSize: THEME.fontSize.body,
-    color: THEME.colors.brand,
-    fontWeight: THEME.fontWeight.medium,
+  infoText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
   },
   payButton: {
-    marginTop: THEME.spacing.base,
+    marginBottom: THEME.spacing.base,
+  },
+  loader: {
+    marginTop: -THEME.spacing.md,
+    marginBottom: THEME.spacing.base,
+  },
+  successIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.successBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: THEME.spacing.md,
+  },
+  successTitle: {
+    fontSize: THEME.fontSize.h2,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.sm,
+  },
+  successText: {
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: THEME.spacing.xl,
   },
 });

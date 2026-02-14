@@ -94,7 +94,7 @@ While Claude Code audits, you set up external accounts in parallel:
    - Add `casa-owner://auth/callback` and `casa-tenant://auth/callback` to redirect URLs
    - Verify `pg_cron` and `pg_net` extensions are enabled (Database → Extensions)
    - Verify `private.cron_config` table exists and has the service role key
-7. **Domain** — Pick ONE domain. Every reference in the codebase must use the same domain. Recommended: `casapm.com.au` (already referenced in app.json). Update SendGrid sender identity to match.
+7. **Domain** — Pick ONE domain. Every reference in the codebase must use the same domain. Recommended: `casaapp.com.au` (already referenced in app.json). Update SendGrid sender identity to match.
 8. **App Store Connect** — Create two apps:
    - Casa Owner: Bundle ID `com.casa.owner`
    - Casa Tenant: Bundle ID `com.casa.tenant`
@@ -151,8 +151,8 @@ npx supabase secrets set \
 
 TASK 4: Fix environment configuration
 - Search entire codebase for domain references. Every instance of 'usecasa.com.au', 
-  'casagroup.au', or any domain that isn't 'casapm.com.au' must be updated to use 
-  the single production domain: casapm.com.au
+  'casagroup.au', or any domain that isn't 'casaapp.com.au' must be updated to use 
+  the single production domain: casaapp.com.au
 - Fix eas.json: Replace placeholder TEAM_ID with <I will provide>
 - Fix eas.json: Replace placeholder ascAppId values with real App Store Connect IDs 
   <I will provide>
@@ -504,7 +504,7 @@ The send-email Edge Function uses SendGrid with 5 HTML templates. Secrets are
 configured from Phase 1.
 - Trigger each email template type and verify delivery
 - Check that FROM address matches the verified SendGrid sender
-- Check that email links use the correct production domain (casapm.com.au)
+- Check that email links use the correct production domain (casaapp.com.au)
 - Check that unsubscribe links work
 
 TASK 2: VERIFY SMS DELIVERY  
@@ -899,7 +899,7 @@ pnpm typecheck
    - Category: Finance (primary), Productivity (secondary)
    - Screenshots: Capture 6-10 key screens from the real app on your real device
      (Home, Chat with agent, Property detail, Inspection, Subscription plans, Maintenance)
-   - Privacy Policy: Host at casapm.com.au/privacy
+   - Privacy Policy: Host at casaapp.com.au/privacy
 
 3. **Final OTA update:**
    After all Phase 9 fixes, push a final update:

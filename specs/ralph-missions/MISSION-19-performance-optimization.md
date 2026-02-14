@@ -328,7 +328,7 @@ export function initSentry() {
     profilesSampleRate: 0.1,
     integrations: [
       new Sentry.ReactNativeTracing({
-        tracingOrigins: ['api.casapm.com.au', /^\//],
+        tracingOrigins: ['api.casaapp.com.au', /^\//],
         routingInstrumentation: Sentry.routingInstrumentation,
       }),
     ],

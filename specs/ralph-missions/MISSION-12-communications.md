@@ -918,9 +918,9 @@ TWILIO_VERIFY_SERVICE_SID=VAxxx       # For phone verification
 
 # SendGrid
 SENDGRID_API_KEY=SG.xxx
-SENDGRID_FROM_EMAIL=noreply@casapm.com.au
+SENDGRID_FROM_EMAIL=noreply@casaapp.com.au
 SENDGRID_FROM_NAME=Casa
-SENDGRID_REPLY_TO=support@casapm.com.au
+SENDGRID_REPLY_TO=support@casaapp.com.au
 
 # Webhook secrets
 TWILIO_WEBHOOK_SECRET=xxx
