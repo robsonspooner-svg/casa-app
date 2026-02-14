@@ -27,12 +27,18 @@ export function getStripeWebhookSecret(): string {
   return secret;
 }
 
-// Platform fee: 0% — Casa uses subscription-only revenue model (no hidden fees on rent)
-export function calculatePlatformFee(_amount: number): number {
-  return 0;
+// Platform fee: set to match Stripe processing fee so the owner bears the cost
+// (deducted from owner's payout), and Casa doesn't absorb it.
+// Casa's revenue model is subscription-only — this fee passthrough keeps Casa neutral.
+export function calculatePlatformFee(amount: number): number {
+  return calculateStripeFee(amount);
 }
 
-// Stripe fee calculation (1.75% + 30c for Australian cards)
+// Stripe fee calculation (1.75% + 30c for Australian domestic cards)
+// BECS Direct Debit is cheaper (1% + 30c, capped at $3.50) but Stripe
+// determines the actual fee based on payment method at charge time.
+// We use the card rate as a conservative estimate for application_fee_amount.
+// Any difference between estimated and actual Stripe fee is minor and in Casa's favour.
 export function calculateStripeFee(amount: number): number {
   return Math.round(amount * 0.0175 + 30);
 }

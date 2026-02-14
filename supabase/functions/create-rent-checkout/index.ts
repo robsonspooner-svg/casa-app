@@ -7,7 +7,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { getStripeClient, calculateStripeFee } from '../_shared/stripe.ts';
+import { getStripeClient, calculatePlatformFee, calculateStripeFee } from '../_shared/stripe.ts';
 
 interface RentCheckoutRequest {
   tenancyId: string;
@@ -127,7 +127,8 @@ serve(async (req: Request) => {
       );
     }
 
-    // Calculate fees — platform fee is 0% (subscription-only model)
+    // Calculate fees — platform fee matches Stripe processing fee (owner bears cost)
+    const platformFee = calculatePlatformFee(amount);
     const stripeFee = calculateStripeFee(amount);
     const lineItemDescription = description || `Rent payment`;
 
@@ -150,7 +151,7 @@ serve(async (req: Request) => {
         },
       ],
       payment_intent_data: {
-        application_fee_amount: 0, // No platform fee — subscription-only model
+        application_fee_amount: platformFee, // Matches Stripe fee — owner bears processing cost
         transfer_data: {
           destination: ownerStripeAccount.stripe_account_id,
         },
@@ -182,7 +183,7 @@ serve(async (req: Request) => {
         description: lineItemDescription,
         stripe_payment_intent_id: session.payment_intent as string || null,
         stripe_fee: stripeFee,
-        platform_fee: 0,
+        platform_fee: platformFee,
         net_amount: amount - stripeFee,
         status: 'pending',
         due_date: rentScheduleId ? new Date().toISOString().split('T')[0] : null,
