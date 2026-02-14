@@ -24,16 +24,21 @@ export default function PayoutOnboardScreen() {
       });
 
       if (error) {
-        // Try to get the actual error message from the response
         let errMsg = 'Failed to start onboarding';
         if (data?.error) {
           errMsg = data.error;
         } else if (error.message) {
           errMsg = error.message;
         }
-        // If it's just a generic "non-2xx" error, provide a more helpful message
+        // Translate generic/cryptic errors into helpful messages
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
-          errMsg = 'Could not connect to the payment service. Please check your internet connection and try again.';
+          errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
+        } else if (errMsg.includes('Network') || errMsg.includes('fetch')) {
+          errMsg = 'Network error. Please check your internet connection and try again.';
+        } else if (errMsg.includes('Only property owners')) {
+          errMsg = 'Only property owners can set up payout accounts. Please ensure your account is set to owner role.';
+        } else if (errMsg.includes('STRIPE_SECRET_KEY')) {
+          errMsg = 'Payment service is not configured yet. Please contact Casa support.';
         }
         throw new Error(errMsg);
       }
@@ -41,11 +46,12 @@ export default function PayoutOnboardScreen() {
       // If already fully onboarded, refresh the local state
       if (data?.alreadyOnboarded) {
         await refreshPayouts();
+        Alert.alert('Already Connected', 'Your bank account is already connected and payouts are enabled.');
         return;
       }
 
       if (!data?.onboardingUrl) {
-        throw new Error('No onboarding URL returned');
+        throw new Error('Onboarding session could not be created. Please try again.');
       }
 
       // Open Stripe Connect onboarding in an in-app browser
@@ -54,7 +60,17 @@ export default function PayoutOnboardScreen() {
       // After returning from Stripe, refresh the account status
       await refreshPayouts();
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to start payout onboarding. Please try again.');
+      const message = err.message || 'Failed to start payout onboarding. Please try again.';
+      Alert.alert(
+        'Connection Error',
+        message,
+        [
+          { text: 'OK', style: 'cancel' },
+          ...(message.includes('internet') || message.includes('Network')
+            ? [{ text: 'Retry', onPress: () => handleStartOnboarding() }]
+            : []),
+        ]
+      );
     } finally {
       setLoading(false);
     }

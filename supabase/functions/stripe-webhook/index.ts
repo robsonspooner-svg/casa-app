@@ -378,10 +378,25 @@ async function handlePaymentIntentSucceeded(supabase: any, paymentIntent: any) {
 async function handlePaymentIntentFailed(supabase: any, paymentIntent: any) {
   const { id, metadata, last_payment_error } = paymentIntent;
   const tenancyId = metadata?.casa_tenancy_id;
+  const tenantId = metadata?.casa_tenant_id;
+  const isAutopay = metadata?.casa_autopay === 'true';
 
   if (!tenancyId) {
     console.log('Payment not from Casa (no tenancy ID in metadata)');
     return;
+  }
+
+  // Map Stripe decline codes to human-readable messages
+  const declineCode = last_payment_error?.decline_code;
+  let failReason = last_payment_error?.message || 'Payment failed';
+  if (declineCode === 'insufficient_funds') {
+    failReason = 'Insufficient funds. Please try a different payment method or ensure sufficient balance.';
+  } else if (declineCode === 'lost_card' || declineCode === 'stolen_card') {
+    failReason = 'This card has been reported lost or stolen. Please use a different payment method.';
+  } else if (declineCode === 'expired_card') {
+    failReason = 'Your card has expired. Please update your payment method.';
+  } else if (declineCode === 'card_declined' || declineCode === 'generic_decline') {
+    failReason = 'Your card was declined. Please contact your bank or try a different payment method.';
   }
 
   // Update payment record
@@ -389,7 +404,7 @@ async function handlePaymentIntentFailed(supabase: any, paymentIntent: any) {
     .from('payments')
     .update({
       status: 'failed',
-      status_reason: last_payment_error?.message || 'Payment failed',
+      status_reason: failReason,
       failed_at: new Date().toISOString(),
     })
     .eq('stripe_payment_intent_id', id);
@@ -398,7 +413,45 @@ async function handlePaymentIntentFailed(supabase: any, paymentIntent: any) {
     console.error('Error updating payment record:', updateError);
   }
 
-  console.log(`Payment ${id} failed: ${last_payment_error?.message}`);
+  // Notify tenant about the failed payment
+  if (tenantId) {
+    try {
+      const { data: tenancy } = await supabase
+        .from('tenancies')
+        .select('properties!inner(address_line_1, suburb)')
+        .eq('id', tenancyId)
+        .single();
+
+      const address = tenancy
+        ? [(tenancy as any).properties.address_line_1, (tenancy as any).properties.suburb].filter(Boolean).join(', ')
+        : 'your property';
+
+      const amountFormatted = `$${((paymentIntent.amount || 0) / 100).toFixed(2)}`;
+
+      await supabase.functions.invoke('dispatch-notification', {
+        body: {
+          user_id: tenantId,
+          type: isAutopay ? 'autopay_failed' : 'payment_failed',
+          title: isAutopay ? 'Auto-Pay Failed' : 'Payment Failed',
+          body: isAutopay
+            ? `Your automatic payment of ${amountFormatted} for ${address} could not be processed. ${failReason}`
+            : `Your payment of ${amountFormatted} for ${address} was not successful. ${failReason}`,
+          data: {
+            amount: amountFormatted,
+            property_address: address,
+            reason: failReason,
+          },
+          related_type: 'payment',
+          related_id: tenancyId,
+          channels: ['push', 'email'],
+        },
+      });
+    } catch (notifErr) {
+      console.error('Error dispatching payment failure notification:', notifErr);
+    }
+  }
+
+  console.log(`Payment ${id} failed: ${failReason} (decline_code: ${declineCode})`);
 }
 
 // Handler for successful SetupIntent (saved payment method)

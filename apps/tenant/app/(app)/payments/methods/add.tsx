@@ -48,18 +48,52 @@ export default function AddPaymentMethodScreen() {
       });
 
       if (error) {
-        const errMsg = data?.error || error.message || 'Failed to start payment setup';
+        let errMsg = data?.error || error.message || 'Failed to start payment setup';
+        // Translate generic errors into helpful messages
+        if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
+          errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
+        } else if (errMsg.includes('Network') || errMsg.includes('fetch')) {
+          errMsg = 'Network error. Please check your internet connection and try again.';
+        }
         throw new Error(errMsg);
       }
 
       if (!data?.sessionUrl) {
-        throw new Error('No checkout URL returned');
+        throw new Error('Setup session could not be created. Please try again.');
+      }
+
+      // If BECS wasn't available and Stripe fell back to card, inform the user
+      if (data?.fallbackToCard && selectedType === 'becs') {
+        Alert.alert(
+          'Bank Account Setup',
+          'BECS Direct Debit setup is not currently available through this flow. You can add a card now, and still pay via bank transfer at checkout time — which has the lowest fees.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Add Card Instead',
+              onPress: async () => {
+                await WebBrowser.openBrowserAsync(data.sessionUrl);
+              },
+            },
+          ]
+        );
+        return;
       }
 
       // Open Stripe Checkout in an in-app browser
       await WebBrowser.openBrowserAsync(data.sessionUrl);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to set up payment method. Please try again.');
+      const message = err.message || 'Failed to set up payment method. Please try again.';
+      Alert.alert(
+        'Setup Error',
+        message,
+        [
+          { text: 'OK', style: 'cancel' },
+          ...(message.includes('internet') || message.includes('Network')
+            ? [{ text: 'Retry', onPress: () => handleAddMethod() }]
+            : []),
+        ]
+      );
     } finally {
       setLoading(false);
     }

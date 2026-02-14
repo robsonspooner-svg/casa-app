@@ -74,18 +74,36 @@ export default function PayScreen() {
       });
 
       if (error) {
-        const errMsg = data?.error || error.message || 'Failed to start payment';
+        let errMsg = data?.error || error.message || 'Failed to start payment';
+        // Translate generic errors into helpful messages
+        if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
+          errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
+        } else if (errMsg.includes('not yet set up') || errMsg.includes('not completed')) {
+          errMsg = 'Your landlord has not finished setting up their payment account. Please contact them directly.';
+        } else if (errMsg.includes('Network') || errMsg.includes('fetch')) {
+          errMsg = 'Network error. Please check your internet connection and try again.';
+        }
         throw new Error(errMsg);
       }
 
       if (!data?.sessionUrl) {
-        throw new Error('No checkout URL returned');
+        throw new Error('Payment session could not be created. Please try again.');
       }
 
       // Open Stripe Checkout in an in-app browser
       await WebBrowser.openBrowserAsync(data.sessionUrl);
     } catch (err: any) {
-      Alert.alert('Payment Error', err.message || 'Failed to process payment. Please try again.');
+      const message = err.message || 'Failed to process payment. Please try again.';
+      Alert.alert(
+        'Payment Error',
+        message,
+        [
+          { text: 'OK', style: 'cancel' },
+          ...(message.includes('internet') || message.includes('Network')
+            ? [{ text: 'Retry', onPress: () => handlePay() }]
+            : []),
+        ]
+      );
     } finally {
       setLoading(false);
     }

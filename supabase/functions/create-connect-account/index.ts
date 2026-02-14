@@ -69,30 +69,53 @@ serve(async (req: Request) => {
     }
 
     // Check for existing Connect account
-    let { data: existingAccount } = await supabase
+    let { data: existingAccount, error: lookupError } = await supabase
       .from('owner_stripe_accounts')
       .select('stripe_account_id, details_submitted, charges_enabled')
       .eq('owner_id', user.id)
-      .single();
+      .maybeSingle();
 
-    let stripeAccountId: string;
+    // Log any lookup error but continue (may be first time)
+    if (lookupError) {
+      console.error('Error looking up existing account:', lookupError);
+    }
+
+    let stripeAccountId = '';
 
     if (existingAccount) {
       stripeAccountId = existingAccount.stripe_account_id;
 
-      // If already fully onboarded, return success
-      if (existingAccount.details_submitted && existingAccount.charges_enabled) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            alreadyOnboarded: true,
-            accountId: stripeAccountId,
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      // Verify the Stripe account still exists
+      try {
+        const stripeAcct = await stripe.accounts.retrieve(stripeAccountId);
+        // If already fully onboarded, return success
+        if (existingAccount.details_submitted && existingAccount.charges_enabled) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              alreadyOnboarded: true,
+              accountId: stripeAccountId,
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      } catch (retrieveError: any) {
+        // Stripe account doesn't exist or was deleted — clean up and create new
+        console.error('Existing Stripe account invalid, creating new:', retrieveError?.message);
+        await supabase
+          .from('owner_stripe_accounts')
+          .delete()
+          .eq('owner_id', user.id);
+        existingAccount = null;
       }
-    } else {
+    }
+
+    if (!existingAccount) {
       // Create new Express account
+      // Note: We only request card_payments and transfers capabilities.
+      // BECS Direct Debit is handled at the platform level — the connected
+      // account receives payouts via transfers, it doesn't need to accept
+      // BECS payments directly.
       const account = await stripe.accounts.create({
         type: 'express',
         country: 'AU',
@@ -100,7 +123,6 @@ serve(async (req: Request) => {
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
-          au_becs_debit_payments: { requested: true },
         },
         business_type: 'individual',
         business_profile: {

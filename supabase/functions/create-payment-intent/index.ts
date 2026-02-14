@@ -222,10 +222,24 @@ serve(async (req: Request) => {
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating payment intent:', error);
+    const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
+    console.error(`Payment intent error — type: ${error?.type}, code: ${error?.code}, decline_code: ${error?.decline_code}, message: ${errorMessage}`);
+
+    let userMessage = errorMessage;
+    if (error?.type === 'StripeCardError') {
+      userMessage = error.message || 'Your card was declined. Please try a different payment method.';
+    } else if (error?.type === 'StripeInvalidRequestError') {
+      userMessage = 'Payment configuration error. Please contact support.';
+    } else if (error?.type === 'StripeConnectionError' || error?.type === 'StripeAPIError') {
+      userMessage = 'Unable to connect to payment service. Please try again in a moment.';
+    } else if (error?.type === 'StripeRateLimitError') {
+      userMessage = 'Too many requests. Please wait a moment and try again.';
+    }
+
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: userMessage, code: error?.code || 'unknown' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

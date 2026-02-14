@@ -283,10 +283,12 @@ serve(async (req: Request) => {
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Auto-pay processing error:', error);
+    const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
+    console.error(`Auto-pay error — type: ${error?.type}, code: ${error?.code}, message: ${errorMessage}`);
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: errorMessage, code: error?.code || 'unknown' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
