@@ -820,12 +820,39 @@ export default function OnboardingSetupScreen() {
   );
 
   const renderCompletionStep = () => (
-    <View style={styles.completionContainer}>
+    <ScrollView
+      style={styles.stepContent}
+      contentContainerStyle={[styles.stepContentInner, { alignItems: 'center', paddingTop: THEME.spacing.xl }]}
+      showsVerticalScrollIndicator={false}
+    >
       <CheckCircleIcon />
       <Text style={styles.completionTitle}>All Set!</Text>
       <Text style={styles.completionSubtitle}>
         Your property is ready to be managed by Casa
       </Text>
+
+      {/* Payout Setup CTA — critical action */}
+      <TouchableOpacity
+        style={styles.payoutSetupCard}
+        onPress={() => router.push('/(app)/payments/onboard' as any)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.payoutSetupIcon}>
+          <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+            <Path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v4M12 14v4M16 14v4" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+        <Text style={styles.payoutSetupTitle}>Connect Your Bank Account</Text>
+        <Text style={styles.payoutSetupText}>
+          Set up payouts so your tenant's rent goes directly to your bank. This takes about 2 minutes and is required to receive rent payments.
+        </Text>
+        <View style={styles.payoutSetupButton}>
+          <Text style={styles.payoutSetupButtonText}>Set Up Payouts</Text>
+          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+            <Path d="M5 12h14M12 5l7 7-7 7" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+      </TouchableOpacity>
 
       <Card variant="elevated" style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>Summary</Text>
@@ -876,7 +903,7 @@ export default function OnboardingSetupScreen() {
           </Text>
         </View>
       </Card>
-    </View>
+    </ScrollView>
   );
 
   const renderCurrentStep = () => {
@@ -1246,13 +1273,55 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.textSecondary,
   },
-  // Completion step
-  completionContainer: {
-    flex: 1,
+  // Payout setup card
+  payoutSetupCard: {
+    width: '100%',
+    backgroundColor: THEME.colors.brand + '08',
+    borderWidth: 2,
+    borderColor: THEME.colors.brand,
+    borderRadius: THEME.radius.lg,
+    padding: THEME.spacing.lg,
     alignItems: 'center',
-    paddingHorizontal: THEME.spacing.base,
-    paddingTop: THEME.spacing.xl,
+    marginBottom: THEME.spacing.lg,
   },
+  payoutSetupIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.brand + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: THEME.spacing.md,
+  },
+  payoutSetupTitle: {
+    fontSize: THEME.fontSize.h3,
+    fontWeight: THEME.fontWeight.bold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.xs,
+    textAlign: 'center',
+  },
+  payoutSetupText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: THEME.spacing.base,
+  },
+  payoutSetupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.brand,
+    paddingVertical: THEME.spacing.sm,
+    paddingHorizontal: THEME.spacing.lg,
+    borderRadius: THEME.radius.md,
+    gap: THEME.spacing.sm,
+  },
+  payoutSetupButtonText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textInverse,
+  },
+  // Completion step
   completionTitle: {
     fontSize: THEME.fontSize.h1,
     fontWeight: THEME.fontWeight.bold,

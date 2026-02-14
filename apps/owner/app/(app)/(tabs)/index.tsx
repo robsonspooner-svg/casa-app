@@ -21,6 +21,7 @@ import {
   useActivityFeed,
   useAgentTasks,
   useAgentInsights,
+  useOwnerPayouts,
   getSupabaseClient,
 } from '@casa/api';
 import type { ActivityFeedItem, PendingApprovalItem, AgentInsight } from '@casa/api';
@@ -223,6 +224,68 @@ function TrialBanner({ trialEndsAt }: { trialEndsAt: string }) {
     </TouchableOpacity>
   );
 }
+
+// ── Payout Setup Banner ──────────────────────────────────────────────
+function PayoutSetupBanner() {
+  return (
+    <TouchableOpacity
+      style={payoutBannerStyles.container}
+      onPress={() => router.push('/(app)/payments/onboard' as any)}
+      activeOpacity={0.7}
+    >
+      <View style={payoutBannerStyles.iconContainer}>
+        <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+          <Path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v4M12 14v4M16 14v4" stroke={THEME.colors.error} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        </Svg>
+      </View>
+      <View style={payoutBannerStyles.textContainer}>
+        <Text style={payoutBannerStyles.title}>Connect your bank account</Text>
+        <Text style={payoutBannerStyles.subtitle}>
+          Set up payouts so your tenants' rent goes directly to your bank. Takes 2 minutes.
+        </Text>
+      </View>
+      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+        <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    </TouchableOpacity>
+  );
+}
+
+const payoutBannerStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.errorBg,
+    borderWidth: 1,
+    borderColor: THEME.colors.error + '40',
+    borderRadius: THEME.radius.lg,
+    padding: THEME.spacing.base,
+    marginBottom: THEME.spacing.base,
+    gap: THEME.spacing.md,
+  },
+  iconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.colors.error + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textContainer: {
+    flex: 1,
+  },
+  title: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.error,
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
+});
 
 // ── Portfolio Snapshot ────────────────────────────────────────────────
 function PortfolioSnapshot({
@@ -632,6 +695,7 @@ export default function ActivityScreen() {
   const { insights, refreshInsights } = useAgentInsights();
   const { feedItems, pendingApprovals, loading, error: feedError, refreshFeed } = useActivityFeed();
   const { approveTask, rejectTask } = useAgentTasks();
+  const { isOnboarded: isPayoutOnboarded } = useOwnerPayouts();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -770,6 +834,11 @@ export default function ActivityScreen() {
             {/* Trial Banner */}
             {profile?.subscription_status === 'trialing' && profile.trial_ends_at && (
               <TrialBanner trialEndsAt={profile.trial_ends_at} />
+            )}
+
+            {/* Payout Setup Banner — persistent until owner connects bank */}
+            {!isPayoutOnboarded && propertyCount > 0 && (
+              <PayoutSetupBanner />
             )}
 
             {/* Portfolio Snapshot */}
