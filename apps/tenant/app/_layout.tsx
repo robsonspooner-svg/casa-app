@@ -44,8 +44,9 @@ export default function RootLayout() {
         return;
       }
 
-      // Handle OAuth callback deep links (e.g. casa-tenant://auth/callback#access_token=...&refresh_token=...)
-      if (url.includes('auth/callback')) {
+      // Handle email verification and password reset deep links
+      // (e.g. casa-tenant://auth/verify#access_token=...&refresh_token=...)
+      if (url.includes('auth/verify') || url.includes('auth/reset') || url.includes('auth/callback')) {
         const hashIndex = url.indexOf('#');
         if (hashIndex === -1) return;
 

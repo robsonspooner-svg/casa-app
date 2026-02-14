@@ -52,14 +52,21 @@ export default function MyHomeScreen() {
           </View>
           <Text style={styles.emptyTitle}>No active tenancy</Text>
           <Text style={styles.emptyText}>
-            Your property and tenancy details will appear here once your lease is set up.
+            Connect to your property using a code from your landlord, or browse available listings.
           </Text>
           <TouchableOpacity
             style={styles.searchButton}
+            onPress={() => router.push('/(app)/connect' as any)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.searchButtonText}>Enter Connection Code</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.searchButtonOutline}
             onPress={() => router.push('/(app)/search' as any)}
             activeOpacity={0.7}
           >
-            <Text style={styles.searchButtonText}>Search Listings</Text>
+            <Text style={styles.searchButtonOutlineText}>Search Listings</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -130,7 +137,7 @@ export default function MyHomeScreen() {
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Rent</Text>
               <Text style={styles.detailValue}>
-                {formatDollars(Number(tenancy.rent_amount))}/{tenancy.rent_frequency === 'weekly' ? 'wk' : tenancy.rent_frequency === 'fortnightly' ? 'fn' : 'mo'}
+                {tenancy.rent_amount != null ? formatDollars(Number(tenancy.rent_amount)) : '—'}/{tenancy.rent_frequency === 'weekly' ? 'wk' : tenancy.rent_frequency === 'fortnightly' ? 'fn' : tenancy.rent_frequency === 'monthly' ? 'mo' : tenancy.rent_frequency || 'mo'}
               </Text>
             </View>
             <View style={styles.detailRow}>
@@ -439,5 +446,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: THEME.colors.textInverse,
+  },
+  searchButtonOutline: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.brand,
+    marginTop: 8,
+  },
+  searchButtonOutlineText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: THEME.colors.brand,
   },
 });

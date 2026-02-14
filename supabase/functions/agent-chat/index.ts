@@ -9,7 +9,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { CLAUDE_TOOLS, TOOL_META, getClaudeTools, getContextualTools, getTenantTools } from '../_shared/tool-registry.ts';
-import { classifyToolError } from '../_shared/tool-dispatcher.ts';
+import { classifyToolError, validateToolRegistry } from '../_shared/tool-dispatcher.ts';
 import { generateEmbedding, buildDecisionEmbeddingText, formatEmbeddingForStorage } from '../_shared/embeddings.ts';
 import {
   TIER_TOOL_ACCESS,
@@ -34,6 +34,11 @@ import {
   type AutonomySettings,
   type ConfidenceFactors,
 } from '../_shared/agent-core.ts';
+
+// ---------------------------------------------------------------------------
+// Startup validation — runs once on cold start
+// ---------------------------------------------------------------------------
+validateToolRegistry();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -599,13 +604,13 @@ serve(async (req: Request) => {
               user_id: user.id,
               conversation_id: conversationId,
               action_type: toolMeta.category,
-              title: `${toolBlock.name}: ${toolBlock.input ? JSON.stringify(toolBlock.input).substring(0, 100) : ''}`,
+              title: toolBlock.name,
               description: toolDef?.description || toolBlock.name,
               tool_name: toolBlock.name,
               tool_params: toolBlock.input,
               autonomy_level: toolRequiredLevel,
               status: 'pending',
-              recommendation: `This action requires your approval because your autonomy setting for "${toolMeta.category}" is L${userAutonomyLevel} and this action requires L${toolRequiredLevel}.`,
+              recommendation: `This action requires your approval because your autonomy settings require manual confirmation for ${toolMeta.category} actions.`,
             })
             .select('id')
             .single();
@@ -661,7 +666,7 @@ serve(async (req: Request) => {
                     user_id: user.id,
                     conversation_id: conversationId,
                     action_type: toolMeta.category,
-                    title: `${toolBlock.name}: ${toolBlock.input ? JSON.stringify(toolBlock.input).substring(0, 100) : ''}`,
+                    title: toolBlock.name,
                     description: toolDef?.description || toolBlock.name,
                     tool_name: toolBlock.name,
                     tool_params: toolBlock.input,

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,18 +14,40 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { useAgentChat, AgentMessage } from '@casa/api';
+import { useAgentChat, AgentMessage, useMyTenancy, useMyMaintenance, getSupabaseClient, useAuth } from '@casa/api';
 
 function formatTime(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 }
 
+function getToolSummary(toolCalls: unknown): string {
+  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return '';
+  const actions: string[] = [];
+  const lookups: string[] = [];
+  for (const tc of toolCalls) {
+    const name = (tc as any).name || (tc as any).type || '';
+    const lower = name.toLowerCase();
+    if (lower.includes('create') || lower.includes('update') || lower.includes('send') || lower.includes('submit') || lower.includes('generate') || lower.includes('approve') || lower.includes('reject') || lower.includes('record') || lower.includes('upload')) {
+      actions.push(name);
+    } else {
+      lookups.push(name);
+    }
+  }
+  const parts: string[] = [];
+  if (actions.length > 0) parts.push(`${actions.length} action${actions.length > 1 ? 's' : ''}`);
+  if (lookups.length > 0) parts.push(`${lookups.length} lookup${lookups.length > 1 ? 's' : ''}`);
+  return parts.join(', ');
+}
+
 function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
   const [expanded, setExpanded] = useState(false);
   if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return null;
+
+  const summary = getToolSummary(toolCalls);
 
   return (
     <TouchableOpacity
@@ -44,7 +66,7 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
           />
         </Svg>
         <Text style={styles.toolCallTitle}>
-          {toolCalls.length} tool{toolCalls.length > 1 ? 's' : ''} used
+          {summary || `${toolCalls.length} tool${toolCalls.length > 1 ? 's' : ''} used`}
         </Text>
         <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
           <Path
@@ -67,6 +89,111 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
       )}
     </TouchableOpacity>
   );
+}
+
+function InlineActionCards({
+  actions,
+  onApprove,
+  onReject,
+}: {
+  actions: Array<{
+    id: string;
+    type: string;
+    label: string;
+    description?: string;
+    status?: string;
+    navigation_target?: string;
+  }>;
+  onApprove: (actionId: string) => void;
+  onReject: (actionId: string) => void;
+}) {
+  return (
+    <View style={styles.inlineActionsContainer}>
+      {actions.map((action) => (
+        <View key={action.id} style={styles.inlineActionCard}>
+          <View style={styles.inlineActionHeader}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={styles.inlineActionIcon}>
+              <Path
+                d={action.type === 'navigation'
+                  ? 'M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3'
+                  : 'M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'}
+                stroke={action.type === 'navigation' ? THEME.colors.brandIndigo : THEME.colors.brand}
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+            <View style={styles.inlineActionInfo}>
+              <Text style={styles.inlineActionLabel}>{action.label}</Text>
+              {action.description && (
+                <Text style={styles.inlineActionDesc}>{action.description}</Text>
+              )}
+            </View>
+          </View>
+          {action.status === 'approved' || action.status === 'rejected' ? (
+            <View style={styles.inlineActionResolved}>
+              <Text style={[
+                styles.inlineActionResolvedText,
+                { color: action.status === 'approved' ? THEME.colors.success : THEME.colors.textTertiary },
+              ]}>
+                {action.status === 'approved' ? 'Approved' : 'Declined'}
+              </Text>
+            </View>
+          ) : action.type === 'navigation' ? (
+            <TouchableOpacity
+              style={styles.inlineNavBtn}
+              onPress={() => {
+                if (action.navigation_target) {
+                  router.push(action.navigation_target as any);
+                }
+                onApprove(action.id);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.inlineNavBtnText}>View</Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M5 12h14M12 5l7 7-7 7" stroke={THEME.colors.brandIndigo} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.inlineActionButtons}>
+              <TouchableOpacity
+                style={styles.inlineApproveBtn}
+                onPress={() => onApprove(action.id)}
+                activeOpacity={0.7}
+              >
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.inlineApproveBtnText}>Approve</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.inlineRejectBtn}
+                onPress={() => onReject(action.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.inlineRejectBtnText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function formatMessageContent(content: string): string {
+  let text = content;
+  text = text.replace(/^#{1,6}\s+/gm, '');
+  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1');
+  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
+  text = text.replace(/`([^`]+)`/g, '$1');
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)');
+  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
+  text = text.replace(/^[-*]\s+/gm, '• ');
+  text = text.replace(/^(\d+)\.\s+/gm, '$1. ');
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text.trim();
 }
 
 function FeedbackButtons({
@@ -116,25 +243,15 @@ function FeedbackButtons({
   );
 }
 
-function formatMessageContent(content: string): string {
-  let text = content;
-  text = text.replace(/^#{1,6}\s+/gm, '');
-  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1');
-  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
-  text = text.replace(/`([^`]+)`/g, '$1');
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
-  text = text.replace(/^[-*]\s+/gm, '• ');
-  text = text.replace(/^(\d+)\.\s+/gm, '$1. ');
-  text = text.replace(/\n{3,}/g, '\n\n');
-  return text.trim();
-}
-
 function MessageBubble({
   message,
+  onApproveAction,
+  onRejectAction,
   onFeedback,
 }: {
   message: AgentMessage;
+  onApproveAction?: (actionId: string) => void;
+  onRejectAction?: (actionId: string) => void;
   onFeedback?: (messageId: string, feedback: 'positive' | 'negative') => void;
 }) {
   const isUser = message.role === 'user';
@@ -168,6 +285,13 @@ function MessageBubble({
           </Text>
           <ToolCallSummary toolCalls={message.tool_calls} />
         </View>
+        {!isUser && message.inline_actions && message.inline_actions.length > 0 && (
+          <InlineActionCards
+            actions={message.inline_actions}
+            onApprove={onApproveAction || (() => {})}
+            onReject={onRejectAction || (() => {})}
+          />
+        )}
         <View style={styles.messageFooter}>
           <Text style={[styles.messageTime, isUser ? styles.userTime : styles.agentTime]}>
             {formatTime(message.created_at)}
@@ -185,10 +309,23 @@ function MessageBubble({
   );
 }
 
-function TypingIndicator() {
+const THINKING_PHRASES = [
+  'Thinking...',
+  'Checking your tenancy...',
+  'Looking into it...',
+  'Working on it...',
+  'Reviewing details...',
+  'Processing your request...',
+];
+
+function ThinkingIndicator({ startTime, retrying }: { startTime: number; retrying?: string | null }) {
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
   const dot3 = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const animate = (dot: Animated.Value, delay: number) => {
@@ -205,60 +342,309 @@ function TypingIndicator() {
     animate(dot3, 400);
   }, [dot1, dot2, dot3]);
 
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [pulseAnim]);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhraseIndex(prev => (prev + 1) % THINKING_PHRASES.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  const displayPhrase = retrying || THINKING_PHRASES[phraseIndex];
+
   return (
-    <View style={[styles.messageBubbleRow, styles.agentRow]}>
-      <View style={styles.agentAvatar}>
+    <Animated.View style={[styles.messageBubbleRow, styles.agentRow, { opacity: fadeAnim }]}>
+      <Animated.View style={[styles.agentAvatar, { transform: [{ scale: pulseAnim }] }]}>
         <Image
           source={require('../../../assets/casa_logo.png')}
           style={styles.agentAvatarImage}
         />
+      </Animated.View>
+      <View style={styles.messageColumn}>
+        <View style={[styles.messageBubble, styles.agentBubble, styles.thinkingBubble]}>
+          <View style={styles.thinkingRow}>
+            {[dot1, dot2, dot3].map((dot, i) => (
+              <Animated.View
+                key={i}
+                style={[
+                  styles.thinkingDot,
+                  { opacity: Animated.add(0.3, Animated.multiply(dot, 0.7)) },
+                ]}
+              />
+            ))}
+            <Text style={styles.thinkingText}>{displayPhrase}</Text>
+          </View>
+          {elapsed >= 5 && (
+            <Text style={styles.thinkingElapsed}>
+              {elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
+            </Text>
+          )}
+        </View>
       </View>
-      <View style={[styles.messageBubble, styles.agentBubble, styles.typingBubble]}>
-        {[dot1, dot2, dot3].map((dot, i) => (
-          <Animated.View
-            key={i}
-            style={[styles.typingDot, { opacity: Animated.add(0.3, Animated.multiply(dot, 0.7)) }]}
-          />
-        ))}
-      </View>
-    </View>
+    </Animated.View>
   );
 }
 
+interface SuggestionChip {
+  label: string;
+  message: string;
+  priority: number;
+}
+
+function useTenantSuggestionChips() {
+  const { tenancy } = useMyTenancy();
+  const { requests } = useMyMaintenance();
+  const { user } = useAuth();
+  const [extraData, setExtraData] = useState<{
+    inArrears: boolean;
+    upcomingInspection: boolean;
+    pendingDocuments: number;
+  }>({ inArrears: false, upcomingInspection: false, pendingDocuments: 0 });
+
+  useEffect(() => {
+    if (!user || !tenancy) return;
+
+    let cancelled = false;
+    const fetchExtraContext = async () => {
+      try {
+        const supabase = getSupabaseClient();
+
+        // Check for active arrears records for this tenant
+        const { data: arrearsData } = await (supabase
+          .from('arrears_records') as ReturnType<typeof supabase.from>)
+          .select('id')
+          .eq('tenant_id', user.id)
+          .eq('is_resolved', false)
+          .limit(1);
+
+        // Check for upcoming inspections on the tenancy's property
+        const now = new Date().toISOString().split('T')[0];
+        const { data: inspectionData } = await (supabase
+          .from('inspections') as ReturnType<typeof supabase.from>)
+          .select('id')
+          .eq('property_id', tenancy.property_id)
+          .in('status', ['scheduled'])
+          .gte('scheduled_date', now)
+          .limit(1);
+
+        // Check for documents pending tenant signature (lease sent but not fully signed)
+        const hasUnsignedLease = tenancy.lease_sent_at && !tenancy.all_signed_at;
+
+        if (!cancelled) {
+          setExtraData({
+            inArrears: (arrearsData && arrearsData.length > 0) || false,
+            upcomingInspection: (inspectionData && inspectionData.length > 0) || false,
+            pendingDocuments: hasUnsignedLease ? 1 : 0,
+          });
+        }
+      } catch {
+        // Silently fail -- suggestion chips are non-critical
+      }
+    };
+
+    fetchExtraContext();
+    return () => { cancelled = true; };
+  }, [user, tenancy]);
+
+  return useMemo(() => {
+    const chips: SuggestionChip[] = [];
+
+    // No tenancy: offer connection flow
+    if (!tenancy) {
+      chips.push({
+        label: 'Connect with my landlord',
+        message: 'I have a connection code from my landlord',
+        priority: 0,
+      });
+      chips.push({
+        label: 'When is my rent due?',
+        message: 'When is my rent due?',
+        priority: 90,
+      });
+      chips.push({
+        label: 'What are my lease terms?',
+        message: 'What are my lease terms?',
+        priority: 91,
+      });
+      return chips.map(c => ({ label: c.label, message: c.message }));
+    }
+
+    // 1. Rent due within 3 days
+    if (tenancy.rent_due_day) {
+      const today = new Date();
+      const currentDay = today.getDate();
+      const dueDay = tenancy.rent_due_day;
+      const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      // Calculate days until next rent due
+      let daysUntilDue = dueDay - currentDay;
+      if (daysUntilDue < 0) daysUntilDue += daysInMonth;
+      if (daysUntilDue <= 3) {
+        chips.push({
+          label: 'Pay my rent',
+          message: "I'd like to pay my rent",
+          priority: 1,
+        });
+      }
+    }
+
+    // 2. Active maintenance request(s)
+    const openRequests = requests.filter(
+      r => r.status !== 'completed' && r.status !== 'cancelled'
+    );
+    if (openRequests.length > 0) {
+      chips.push({
+        label: 'Check repair status',
+        message: 'Can you give me an update on my maintenance request?',
+        priority: 2,
+      });
+    }
+
+    // 3. Upcoming inspection
+    if (extraData.upcomingInspection) {
+      chips.push({
+        label: 'View inspection details',
+        message: 'Can you show me details about my upcoming inspection?',
+        priority: 3,
+      });
+    }
+
+    // 4. In arrears
+    if (extraData.inArrears) {
+      chips.push({
+        label: 'Discuss payment options',
+        message: "I'd like to discuss payment options for my overdue rent",
+        priority: 4,
+      });
+    }
+
+    // 5. Lease expiring within 90 days
+    if (tenancy.lease_end_date) {
+      const leaseEnd = new Date(tenancy.lease_end_date);
+      const daysUntilEnd = Math.floor(
+        (leaseEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+      if (daysUntilEnd <= 90 && daysUntilEnd > 0) {
+        chips.push({
+          label: 'Ask about renewal',
+          message: 'My lease is expiring soon. What are my renewal options?',
+          priority: 5,
+        });
+      }
+    }
+
+    // 6. Documents pending signature
+    if (extraData.pendingDocuments > 0) {
+      chips.push({
+        label: 'View documents to sign',
+        message: 'Are there any documents I need to sign?',
+        priority: 6,
+      });
+    }
+
+    // Fallback suggestions if few contextual chips
+    if (openRequests.length === 0) {
+      chips.push({
+        label: 'Report a maintenance issue',
+        message: 'I need to report a maintenance issue',
+        priority: 80,
+      });
+    }
+    chips.push({
+      label: 'When is my rent due?',
+      message: 'When is my rent due?',
+      priority: 90,
+    });
+    chips.push({
+      label: 'What are my lease terms?',
+      message: 'What are my lease terms?',
+      priority: 91,
+    });
+
+    // Sort by priority, take the top 5
+    chips.sort((a, b) => a.priority - b.priority);
+    const unique = chips.filter(
+      (chip, idx, arr) => arr.findIndex(c => c.label === chip.label) === idx
+    );
+    return unique.slice(0, 5).map(c => ({ label: c.label, message: c.message }));
+  }, [tenancy, requests, extraData]);
+}
+
 function EmptyState({ onSuggestionSelect }: { onSuggestionSelect: (text: string) => void }) {
+  const chips = useTenantSuggestionChips();
+
   return (
     <TouchableOpacity
       style={styles.emptyState}
       activeOpacity={1}
       onPress={Keyboard.dismiss}
     >
-      <View style={styles.emptyIconContainer}>
-        <Image
-          source={require('../../../assets/casa_logo.png')}
-          style={styles.emptyLogoImage}
-        />
+      <View style={styles.emptyContent}>
+        <View style={styles.emptyIconContainer}>
+          <Image
+            source={require('../../../assets/casa_logo.png')}
+            style={styles.emptyLogoImage}
+          />
+        </View>
+        <Text style={styles.emptyTitle}>Chat with Casa</Text>
+        <Text style={styles.emptyText}>
+          Ask anything about your rent, maintenance, lease, or tenancy. Casa will handle it.
+        </Text>
       </View>
-      <Text style={styles.emptyTitle}>Chat with Casa</Text>
-      <Text style={styles.emptyText}>
-        Ask about your rent, maintenance, lease, or anything else about your tenancy.
-      </Text>
-      <View style={styles.suggestionsContainer}>
-        {[
-          'When is my rent due?',
-          'I need to report a maintenance issue',
-          'What are my lease terms?',
-        ].map((suggestion) => (
+      <View style={styles.emptyChipsWrap}>
+        {chips.map(chip => (
           <TouchableOpacity
-            key={suggestion}
-            style={styles.suggestionChip}
-            onPress={() => onSuggestionSelect(suggestion)}
+            key={chip.label}
+            style={styles.emptyChip}
+            onPress={() => onSuggestionSelect(chip.message)}
             activeOpacity={0.7}
           >
-            <Text style={styles.suggestionText}>{suggestion}</Text>
+            <Text style={styles.emptyChipText}>{chip.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
     </TouchableOpacity>
+  );
+}
+
+function InlineChips({ onSelect }: { onSelect: (text: string) => void }) {
+  const chips = useTenantSuggestionChips();
+
+  return (
+    <View style={styles.inlineChipsRow}>
+      {chips.slice(0, 3).map(chip => (
+        <TouchableOpacity
+          key={chip.label}
+          style={styles.inlineChip}
+          onPress={() => onSelect(chip.message)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.inlineChipText} numberOfLines={1}>{chip.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 }
 
@@ -272,23 +658,38 @@ export default function ChatScreen() {
     error,
     sendMessage,
     startNewConversation,
+    approveAction,
+    rejectAction,
     submitFeedback,
+    clearError,
   } = useAgentChat();
 
   const [inputText, setInputText] = useState('');
+  const [sendStartTime, setSendStartTime] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+
+  const subtitle = useMemo(() => {
+    if (sending) return 'Working on your request...';
+    if (error && error.includes('retrying')) return 'Busy — retrying...';
+    return 'Help with your tenancy';
+  }, [sending, error]);
 
   const handleSend = async (text?: string) => {
     const messageText = (text || inputText).trim();
     if (!messageText || sending) return;
 
     setInputText('');
+    setSendStartTime(Date.now());
 
     if (!currentConversation) {
       await startNewConversation();
     }
 
     await sendMessage(messageText);
+  };
+
+  const handleSuggestionSelect = (text: string) => {
+    handleSend(text);
   };
 
   useEffect(() => {
@@ -317,25 +718,40 @@ export default function ChatScreen() {
           </View>
           <View>
             <Text style={styles.title}>Casa</Text>
-            <Text style={styles.subtitle}>
-              {sending ? 'Thinking...' : 'Help with your tenancy'}
-            </Text>
+            <Text style={styles.subtitle}>{subtitle}</Text>
           </View>
         </View>
-        <TouchableOpacity
-          style={styles.newChatButton}
-          onPress={() => startNewConversation()}
-          activeOpacity={0.7}
-        >
-          <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-            <Path
-              d="M12 5v14M5 12h14"
-              stroke={THEME.colors.textPrimary}
-              strokeWidth={2}
-              strokeLinecap="round"
-            />
-          </Svg>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.push('/(app)/chat-history' as any)}
+            activeOpacity={0.7}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M12 8v4l3 3M3 12a9 9 0 1018 0 9 9 0 00-18 0z"
+                stroke={THEME.colors.textPrimary}
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => startNewConversation()}
+            activeOpacity={0.7}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M12 5v14M5 12h14"
+                stroke={THEME.colors.textPrimary}
+                strokeWidth={2}
+                strokeLinecap="round"
+              />
+            </Svg>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (
@@ -343,25 +759,51 @@ export default function ChatScreen() {
           <ActivityIndicator size="large" color={THEME.colors.brand} />
         </View>
       ) : !hasMessages ? (
-        <EmptyState onSuggestionSelect={(text) => handleSend(text)} />
+        <EmptyState onSuggestionSelect={handleSuggestionSelect} />
       ) : (
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} onFeedback={submitFeedback} />}
+          renderItem={({ item }) => (
+            <MessageBubble
+              message={item}
+              onApproveAction={approveAction}
+              onRejectAction={rejectAction}
+              onFeedback={submitFeedback}
+            />
+          )}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          ListFooterComponent={sending ? <TypingIndicator /> : null}
+          ListFooterComponent={sending ? <ThinkingIndicator startTime={sendStartTime} retrying={error && error.includes('retrying') ? error : null} /> : null}
         />
       )}
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
+      {error && !sending && (
+        <TouchableOpacity
+          style={[
+            styles.errorContainer,
+            error.includes('retrying') && styles.retryingContainer,
+          ]}
+          onPress={() => clearError()}
+          activeOpacity={0.7}
+        >
+          <Text style={[
+            styles.errorText,
+            error.includes('retrying') && styles.retryingText,
+          ]}>
+            {error}
+          </Text>
+          {!error.includes('retrying') && (
+            <Text style={styles.errorDismissHint}>Tap to dismiss</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {hasMessages && !sending && (
+        <InlineChips onSelect={handleSuggestionSelect} />
       )}
 
       <View style={styles.inputBar}>
@@ -451,7 +893,12 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     marginTop: 1,
   },
-  newChatButton: {
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -466,57 +913,82 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: THEME.spacing.xl,
   },
+  emptyContent: {
+    alignItems: 'center',
+    marginBottom: THEME.spacing.xl,
+  },
   emptyIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: THEME.colors.subtle,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: THEME.spacing.base,
+    marginBottom: THEME.spacing.sm,
     overflow: 'hidden',
   },
   emptyLogoImage: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     resizeMode: 'contain',
   },
   emptyTitle: {
-    fontSize: THEME.fontSize.h2,
+    fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
     color: THEME.colors.textPrimary,
-    marginBottom: THEME.spacing.sm,
+    marginBottom: THEME.spacing.xs,
   },
   emptyText: {
-    fontSize: THEME.fontSize.body,
+    fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: THEME.spacing.lg,
+    lineHeight: 20,
   },
-  suggestionsContainer: {
+  emptyChipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    width: '100%',
-    marginTop: THEME.spacing.md,
     justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: THEME.spacing.sm,
   },
-  suggestionChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+  emptyChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.radius.lg,
+    borderRadius: THEME.radius.full,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
-  suggestionText: {
+  emptyChipText: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    fontWeight: '500',
+  },
+  inlineChipsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: THEME.spacing.base,
+    paddingVertical: 6,
+    gap: 6,
+    backgroundColor: THEME.colors.canvas,
+  },
+  inlineChip: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.full,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    alignItems: 'center',
+  },
+  inlineChipText: {
     fontSize: 12,
     color: THEME.colors.textSecondary,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   messagesList: {
     paddingHorizontal: THEME.spacing.base,
@@ -652,18 +1124,31 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     paddingLeft: THEME.spacing.base,
   },
-  typingBubble: {
+  thinkingBubble: {
+    paddingVertical: THEME.spacing.md,
+    paddingHorizontal: THEME.spacing.base,
+  },
+  thinkingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: THEME.spacing.base,
-    paddingHorizontal: THEME.spacing.lg,
   },
-  typingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: THEME.colors.textTertiary,
+  thinkingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: THEME.colors.brand,
+  },
+  thinkingText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
+  thinkingElapsed: {
+    fontSize: 10,
+    color: THEME.colors.textTertiary,
+    marginTop: 4,
   },
   errorContainer: {
     paddingHorizontal: THEME.spacing.base,
@@ -674,9 +1159,22 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.error,
   },
+  errorDismissHint: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.error,
+    opacity: 0.6,
+    marginTop: 2,
+  },
+  retryingContainer: {
+    backgroundColor: THEME.colors.warningBg,
+  },
+  retryingText: {
+    color: THEME.colors.warning,
+  },
   inputBar: {
     paddingHorizontal: THEME.spacing.base,
-    paddingVertical: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    paddingBottom: THEME.spacing.xs,
     backgroundColor: THEME.colors.surface,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.border,
@@ -711,5 +1209,94 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.4,
+  },
+  inlineActionsContainer: {
+    marginTop: THEME.spacing.sm,
+    gap: THEME.spacing.sm,
+  },
+  inlineActionCard: {
+    backgroundColor: THEME.colors.canvas,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    padding: THEME.spacing.md,
+    gap: THEME.spacing.sm,
+  },
+  inlineActionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: THEME.spacing.sm,
+  },
+  inlineActionIcon: {
+    marginTop: 2,
+  },
+  inlineActionInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  inlineActionLabel: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+  },
+  inlineActionDesc: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
+  inlineActionButtons: {
+    flexDirection: 'row',
+    gap: THEME.spacing.sm,
+  },
+  inlineApproveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 34,
+    backgroundColor: THEME.colors.brand,
+    borderRadius: THEME.radius.sm,
+  },
+  inlineApproveBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textInverse,
+  },
+  inlineRejectBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 34,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.border,
+  },
+  inlineRejectBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textSecondary,
+  },
+  inlineNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 34,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: THEME.colors.subtle,
+  },
+  inlineNavBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.brandIndigo,
+  },
+  inlineActionResolved: {
+    alignItems: 'center',
+    paddingVertical: THEME.spacing.xs,
+  },
+  inlineActionResolvedText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
   },
 });

@@ -122,14 +122,20 @@ export function useCompliance(propertyId?: string): UseComplianceReturn {
     // Create compliance records for mandatory requirements
     const inserts = reqs
       .filter(r => r.is_mandatory)
-      .map(r => ({
-        property_id: propId,
-        requirement_id: r.id,
-        status: 'pending' as ComplianceStatus,
-        next_due_date: r.frequency_months > 0
-          ? new Date(Date.now() + r.frequency_months * 30 * 24 * 60 * 60 * 1000).toISOString()
-          : null,
-      }));
+      .map(r => {
+        let nextDue: string | null = null;
+        if (r.frequency_months != null && r.frequency_months > 0) {
+          const d = new Date();
+          d.setMonth(d.getMonth() + r.frequency_months);
+          nextDue = d.toISOString();
+        }
+        return {
+          property_id: propId,
+          requirement_id: r.id,
+          status: 'pending' as ComplianceStatus,
+          next_due_date: nextDue,
+        };
+      });
 
     if (inserts.length > 0) {
       const compTable = supabase.from('property_compliance' as any) as any;
@@ -149,11 +155,14 @@ export function useCompliance(propertyId?: string): UseComplianceReturn {
     const item = items.find(i => i.id === complianceId);
     if (!item) return;
 
-    // Calculate next due date based on frequency
+    // Calculate next due date using proper month arithmetic
     const req = item.requirement;
-    const nextDue = req && req.frequency_months > 0
-      ? new Date(Date.now() + req.frequency_months * 30 * 24 * 60 * 60 * 1000).toISOString()
-      : null;
+    let nextDue: string | null = null;
+    if (req && req.frequency_months != null && req.frequency_months > 0) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + req.frequency_months);
+      nextDue = d.toISOString();
+    }
 
     const update: PropertyComplianceUpdate = {
       status: 'compliant',

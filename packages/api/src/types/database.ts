@@ -2235,6 +2235,29 @@ export interface DocumentWithSignatures extends DocumentRow {
   signatures: DocumentSignatureRow[];
 }
 
+// Document Comments / Revision Requests
+export type DocumentCommentType = 'comment' | 'revision_request';
+
+export interface DocumentCommentRow {
+  id: string;
+  document_id: string;
+  author_id: string;
+  content: string;
+  comment_type: DocumentCommentType;
+  is_resolved: boolean;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentCommentInsert {
+  document_id: string;
+  author_id: string;
+  content: string;
+  comment_type: DocumentCommentType;
+}
+
 // ============================================================
 // Mission 16: Document Management
 // ============================================================

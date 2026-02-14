@@ -124,9 +124,10 @@ describe('useProfile', () => {
 
     const { result } = renderHook(() => useProfile());
 
+    // Profile fetch retries up to 3 times with delays before failing
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, { timeout: 10000 });
 
     expect(result.current.profile).toBe(null);
     expect(result.current.error).toBe(errorMessage);

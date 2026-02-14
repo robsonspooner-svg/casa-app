@@ -203,7 +203,7 @@ export default function OwnerMaintenanceDetailScreen() {
     );
   }
 
-  const statusConfig = STATUS_CONFIG[request.status];
+  const statusConfig = STATUS_CONFIG[request.status] || { label: request.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), color: THEME.colors.textSecondary, bg: THEME.colors.subtle };
   const transitions = STATUS_TRANSITIONS[request.status] || [];
 
   return (

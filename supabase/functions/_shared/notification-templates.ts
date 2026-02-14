@@ -289,6 +289,52 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
     return { subject: `Payment plan confirmed for ${addr}`, title: 'Payment Plan Confirmed', headerColour: CASA_NAVY, content };
   },
 
+  autopay_failed: (data) => {
+    const name = (data.tenant_name as string) || 'there';
+    const addr = (data.property_address as string) || 'your property';
+    const amount = (data.amount as string) || '$0.00';
+    const content = [
+      greeting(name),
+      paragraph(`Your scheduled AutoPay charge of <strong>${amount}</strong> for <strong>${addr}</strong> has failed.`),
+      paragraph('Please update your payment method or make a manual payment to avoid falling into arrears.'),
+      ctaButton('Make Payment', 'casa://payments/pay'),
+    ].join('');
+    return { subject: 'AutoPay Payment Failed \u2014 Casa', title: 'AutoPay Payment Failed', headerColour: DANGER_RED, content };
+  },
+
+  // --- Documents ---
+
+  document_revision_requested: (data) => {
+    const name = (data.owner_name as string) || 'there';
+    const tenantName = (data.tenant_name as string) || 'Your tenant';
+    const documentName = (data.document_name as string) || 'a document';
+    const revisionNotes = (data.revision_notes as string) || '';
+    const requestDate = (data.request_date as string) || new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const content = [
+      greeting(name),
+      paragraph(`<strong>${tenantName}</strong> has requested changes to <strong>${documentName}</strong>.`),
+      infoCard([
+        { label: 'Document', value: documentName },
+        { label: 'Requested By', value: tenantName },
+        { label: 'Date Requested', value: requestDate },
+        ...(revisionNotes ? [{ label: 'Notes', value: revisionNotes }] : []),
+      ]),
+      ctaButton('View Document', 'casa://documents'),
+    ].join('');
+    return { subject: 'Document Revision Requested \u2014 Casa', title: 'Document Revision Requested', headerColour: WARNING_AMBER, content };
+  },
+
+  document_shared: (data) => {
+    const name = (data.tenant_name as string) || 'there';
+    const documentName = (data.document_name as string) || 'a document';
+    const content = [
+      greeting(name),
+      paragraph(`Your property manager has shared a new document with you: <strong>${documentName}</strong>.`),
+      ctaButton('View Document', 'casa://documents'),
+    ].join('');
+    return { subject: 'New Document Shared \u2014 Casa', title: 'New Document Shared', headerColour: CASA_NAVY, content };
+  },
+
   // --- Lease ---
 
   lease_renewal_offer: (data) => {
@@ -336,6 +382,22 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
       ctaButton('View Lease Details', 'casa://leases'),
     ].join('');
     return { subject: `Rent increase notice: ${addr}`, title: 'Rent Increase Notice', headerColour: WARNING_AMBER, content };
+  },
+
+  lease_signed: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const addr = (data.property_address as string) || 'your property';
+    const signingDate = (data.signing_date as string) || new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const content = [
+      greeting(name),
+      paragraph(`The lease agreement for <strong>${addr}</strong> has been fully signed by all parties.`),
+      infoCard([
+        { label: 'Property', value: addr },
+        { label: 'Signing Date', value: signingDate },
+      ]),
+      ctaButton('View Document', 'casa://documents'),
+    ].join('');
+    return { subject: 'Lease Agreement Signed \u2014 Casa', title: 'Lease Agreement Signed', headerColour: SUCCESS_GREEN, content };
   },
 
   // --- Maintenance ---
@@ -525,6 +587,111 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
       ctaButton('View Arrears', 'casa://payments/arrears'),
     ].join('');
     return { subject: `Arrears escalation: ${tenant} - ${daysOverdue} days overdue`, title: 'Arrears Escalation', headerColour: DANGER_RED, content };
+  },
+
+  // --- Tenant Connection ---
+
+  tenant_connected: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const tenantName = (data.tenant_name as string) || 'A tenant';
+    const addr = (data.property_address as string) || 'your property';
+    const content = [greeting(name), paragraph(`<strong>${tenantName}</strong> has connected to your property at <strong>${addr}</strong> via the Casa app.`),
+      ctaButton('View Connections', 'casa://connections')].join('');
+    return { subject: `${tenantName} connected to ${addr}`, title: 'Tenant Connected', headerColour: SUCCESS_GREEN, content };
+  },
+
+  maintenance_status_update: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const issue = (data.issue_title as string) || (data.title as string) || 'Maintenance request';
+    const status = (data.new_status as string) || (data.status as string) || 'updated';
+    const addr = (data.property_address as string) || 'your property';
+    const statusLabel = status.replace(/_/g, ' ');
+    const colour = status === 'completed' ? SUCCESS_GREEN : CASA_NAVY;
+    const content = [greeting(name), paragraph(`Your maintenance request for <strong>${addr}</strong> has been updated.`),
+      infoCard([{ label: 'Issue', value: issue }, { label: 'New Status', value: statusLabel, colour }]),
+      ctaButton('View Request', 'casa://maintenance')].join('');
+    return { subject: `Maintenance update: ${issue} — ${statusLabel}`, title: 'Maintenance Update', headerColour: colour, content };
+  },
+
+  work_order_created: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const issue = (data.issue_title as string) || (data.title as string) || 'Maintenance request';
+    const addr = (data.property_address as string) || 'your property';
+    const content = [greeting(name), paragraph(`A tradesperson has been assigned to handle the maintenance request at <strong>${addr}</strong>.`),
+      infoCard([{ label: 'Issue', value: issue }]),
+      paragraph('You will receive further updates as the work progresses.'),
+      ctaButton('View Details', 'casa://maintenance')].join('');
+    return { subject: `Tradesperson assigned: ${issue}`, title: 'Work Ordered', headerColour: CASA_NAVY, content };
+  },
+
+  work_order_update: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const issue = (data.issue_title as string) || (data.title as string) || 'Maintenance';
+    const status = (data.status as string) || 'updated';
+    const statusLabel = status.replace(/_/g, ' ');
+    const colour = status === 'completed' ? SUCCESS_GREEN : CASA_NAVY;
+    const content = [greeting(name), paragraph(`Work on your maintenance request has been updated to <strong>${statusLabel}</strong>.`),
+      infoCard([{ label: 'Issue', value: issue }, { label: 'Status', value: statusLabel, colour }]),
+      ctaButton('View Details', 'casa://maintenance')].join('');
+    return { subject: `Work order ${statusLabel}: ${issue}`, title: 'Work Order Update', headerColour: colour, content };
+  },
+
+  inspection_review_requested: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const addr = (data.property_address as string) || 'your property';
+    const content = [greeting(name), paragraph(`The inspection report for <strong>${addr}</strong> is ready for your review and signature.`),
+      paragraph('Please review the findings and let us know if you have any concerns.'),
+      ctaButton('Review Inspection', 'casa://inspections')].join('');
+    return { subject: `Inspection report ready for review: ${addr}`, title: 'Inspection Review', headerColour: CASA_NAVY, content };
+  },
+
+  arrears_escalated: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const newLevel = (data.new_level as string) || 'escalated';
+    const addr = (data.property_address as string) || 'your property';
+    const content = [greeting(name), paragraph(`Your rent arrears at <strong>${addr}</strong> have been escalated to <strong>${newLevel}</strong>. Please contact your landlord to discuss payment options.`),
+      ctaButton('View Details', 'casa://payments')].join('');
+    return { subject: `Arrears escalation: ${addr}`, title: 'Arrears Escalated', headerColour: DANGER_RED, content };
+  },
+
+  arrears_resolved: (data) => {
+    const name = (data.recipient_name as string) || 'there';
+    const tenant = (data.tenant_name as string) || '';
+    const addr = (data.property_address as string) || 'your property';
+    const amount = (data.amount as string) || '$0.00';
+    const resolvedDate = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const isOwnerView = !!tenant;
+    const content = isOwnerView
+      ? [greeting(name),
+          paragraph(`The arrears for <strong>${addr}</strong> have been resolved. <strong>${tenant}</strong> has cleared the outstanding balance.`),
+          infoCard([{ label: 'Property', value: addr }, { label: 'Tenant', value: tenant }, { label: 'Amount Cleared', value: amount, colour: SUCCESS_GREEN }, { label: 'Resolved', value: resolvedDate }]),
+          ctaButton('View Payments', 'casa://payments')].join('')
+      : [greeting(name),
+          paragraph('Your arrears have been resolved. Thank you for bringing your payments up to date.'),
+          infoCard([{ label: 'Property', value: addr }, { label: 'Amount Cleared', value: amount, colour: SUCCESS_GREEN }, { label: 'Resolved', value: resolvedDate }]),
+          ctaButton('View Payment History', 'casa://payments')].join('');
+    return { subject: `Arrears resolved: ${addr}`, title: 'Arrears Resolved', headerColour: SUCCESS_GREEN, content };
+  },
+
+  // --- Rent Reminders ---
+
+  rent_due_soon: (data) => {
+    const name = (data.tenant_name as string) || 'there';
+    const addr = (data.property_address as string) || 'your property';
+    const amount = (data.amount as string) || '$0.00';
+    const dueDate = (data.due_date as string) || '';
+    const daysUntilDue = (data.days_until_due as number) || 0;
+    const content = [
+      greeting(name),
+      paragraph(`Your rent payment of <strong>${amount}</strong> for <strong>${addr}</strong> is due in <strong>${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}</strong>.`),
+      infoCard([
+        { label: 'Property', value: addr },
+        { label: 'Amount Due', value: amount },
+        { label: 'Due Date', value: dueDate },
+      ]),
+      ctaButton('Pay Now', 'casa://payments/pay'),
+    ].join('');
+    return { subject: `Rent due in ${daysUntilDue} days: ${addr}`, title: 'Rent Due Soon', headerColour: CASA_NAVY, content };
   },
 
   // --- Agent Activity ---

@@ -143,24 +143,58 @@ export default function TaskDetailScreen() {
 
     try {
       const supabase = getSupabaseClient();
-      const taskTable = supabase.from('agent_tasks' as any) as any;
 
-      const { data: taskData, error: taskErr } = await taskTable
+      // Try agent_tasks first
+      const { data: taskData, error: taskErr } = await (supabase
+        .from('agent_tasks') as any)
         .select('*')
         .eq('id', id)
         .single();
 
-      if (taskErr) throw taskErr;
-      setTask(taskData as TaskData);
+      if (taskData && !taskErr) {
+        setTask(taskData as TaskData);
 
-      // Fetch entity-specific context based on related_entity_type
-      if (taskData.related_entity_type && taskData.related_entity_id) {
-        await fetchEntityContext(
-          supabase,
-          taskData.related_entity_type,
-          taskData.related_entity_id,
-          taskData.category,
-        );
+        if (taskData.related_entity_type && taskData.related_entity_id) {
+          await fetchEntityContext(
+            supabase,
+            taskData.related_entity_type,
+            taskData.related_entity_id,
+            taskData.category,
+          );
+        }
+      } else {
+        // Fallback: look in agent_pending_actions (pending actions may not have a linked task)
+        const { data: actionData, error: actionErr } = await (supabase
+          .from('agent_pending_actions') as any)
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (actionData && !actionErr) {
+          const preview = actionData.preview_data as Record<string, unknown> | null;
+          setTask({
+            id: actionData.id,
+            title: actionData.title || actionData.tool_name || 'Pending Action',
+            description: actionData.description || null,
+            category: actionData.action_type || 'general',
+            status: actionData.status || 'pending_input',
+            priority: actionData.autonomy_level <= 1 ? 'urgent' : 'normal',
+            timeline: [],
+            recommendation: actionData.recommendation || null,
+            related_entity_type: preview?.entity_type as string || null,
+            related_entity_id: preview?.entity_id as string || actionData.property_id || null,
+            deep_link: null,
+            created_at: actionData.created_at,
+            updated_at: actionData.updated_at || actionData.created_at,
+          });
+
+          // Try to load entity context from preview data or property_id
+          const entityType = preview?.entity_type as string || (actionData.property_id ? 'property' : null);
+          const entityId = preview?.entity_id as string || actionData.property_id;
+          if (entityType && entityId) {
+            await fetchEntityContext(supabase, entityType, entityId, actionData.action_type || 'general');
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to load task:', err);

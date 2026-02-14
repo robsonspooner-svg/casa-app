@@ -54,14 +54,32 @@ const TOOL_NAME_LABELS: Record<string, string> = {
   create_payment_plan: 'Create payment plan',
   lodge_bond: 'Lodge bond',
   generate_report: 'Generate report',
+  tenant_connect_with_code: 'Connect tenant with code',
+  suggest_navigation: 'Navigation suggestion',
+  get_owner_properties: 'View properties',
+  get_tenancies: 'View tenancies',
+  get_maintenance_requests: 'View maintenance',
+  estimate_cost: 'Cost estimate',
+  web_search: 'Web search',
 };
 
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
+function humanizeToolName(name: string): string {
+  return name
+    .replace(/^(get|search|list)_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function humanizeText(text: string): string {
   const trimmed = text.split(':')[0].trim();
   if (TOOL_NAME_LABELS[trimmed]) return TOOL_NAME_LABELS[trimmed];
+  // Auto-convert snake_case tool names
+  if (/^[a-z_]+$/.test(trimmed)) return humanizeToolName(trimmed);
   let cleaned = text.replace(UUID_REGEX, '').trim();
+  // Strip JSON objects/arrays
+  cleaned = cleaned.replace(/\{[^}]*\}/g, '').replace(/\[[^\]]*\]/g, '').trim();
   cleaned = cleaned.replace(/\b\w+_id:\s*/gi, '').trim();
   cleaned = cleaned.replace(/[,:]+\s*$/, '').trim();
   if (!cleaned || cleaned.length < 3) return 'Task';
@@ -346,6 +364,13 @@ function EmptyState() {
       <Text style={styles.emptyText}>
         No pending tasks. Casa will notify you when something needs attention.
       </Text>
+      <TouchableOpacity
+        style={styles.askCasaBtn}
+        onPress={() => router.push('/(app)/(tabs)/chat' as any)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.askCasaBtnText}>Chat with Casa</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -860,5 +885,17 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.error,
+  },
+  askCasaBtn: {
+    marginTop: THEME.spacing.base,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: THEME.colors.subtle,
+    borderRadius: THEME.radius.full,
+  },
+  askCasaBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.brandIndigo,
   },
 });

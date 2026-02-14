@@ -15,7 +15,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { useTenancy, useProfile, generateLeaseHTML, type LeaseData } from '@casa/api';
+import { useTenancy, useProfile, generateLeaseHTML, getSupabaseClient, type LeaseData } from '@casa/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
@@ -133,6 +133,8 @@ export default function GenerateLeaseScreen() {
     };
   }, [tenancy, profile, specialConditions]);
 
+  const [savedDocId, setSavedDocId] = useState<string | null>(null);
+
   const handleGeneratePDF = async () => {
     if (!leaseData) {
       Alert.alert('Missing Data', 'Tenancy data is not available to generate the lease.');
@@ -147,6 +149,101 @@ export default function GenerateLeaseScreen() {
     setGenerating(true);
     try {
       const html = generateLeaseHTML(leaseData);
+      const supabase = getSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Save to documents table
+      const { data: doc, error: docErr } = await (supabase
+        .from('documents') as any)
+        .insert({
+          owner_id: user.id,
+          property_id: tenancy!.property?.id || null,
+          tenancy_id: id,
+          document_type: 'lease',
+          title: `Lease Agreement — ${tenancy!.property?.address_line_1 || 'Property'}`,
+          html_content: html,
+          status: 'draft',
+          requires_signature: true,
+        })
+        .select('id')
+        .single();
+
+      if (docErr) throw new Error(docErr.message);
+      setSavedDocId(doc.id);
+
+      // Offer to send to tenant
+      const tenantEmail = primaryTenant?.profile?.email;
+      const tenantName = primaryTenant?.profile?.full_name || 'the tenant';
+
+      if (tenantEmail) {
+        Alert.alert(
+          'Lease Saved',
+          `The lease has been saved to your documents. Would you like to send it to ${tenantName} (${tenantEmail})?`,
+          [
+            { text: 'Just Save', style: 'cancel', onPress: () => {
+              Alert.alert('Saved', 'Lease saved to your documents tab.');
+              router.push(`/(app)/documents/${doc.id}` as never);
+            }},
+            { text: 'Send to Tenant', onPress: () => sendToTenant(doc.id, tenantEmail, tenantName) },
+            { text: 'Share PDF', onPress: () => sharePDF(html) },
+          ],
+        );
+      } else {
+        Alert.alert(
+          'Lease Saved',
+          'The lease has been saved to your documents tab.',
+          [
+            { text: 'View Document', onPress: () => router.push(`/(app)/documents/${doc.id}` as never) },
+            { text: 'Share PDF', onPress: () => sharePDF(html) },
+          ],
+        );
+      }
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to generate the lease.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const sendToTenant = async (docId: string, _email: string, name: string) => {
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      // Call the send-document-email Edge Function — handles everything:
+      // branded lease email template, HTML attachment, tenant_id + status update
+      const resp = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-document-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ documentId: docId }),
+        },
+      );
+
+      const result = await resp.json();
+
+      if (resp.ok && result.success) {
+        Alert.alert('Sent', `Lease sent to ${result.tenantName || name}.`, [
+          { text: 'View Document', onPress: () => router.push(`/(app)/documents/${docId}` as never) },
+        ]);
+      } else {
+        Alert.alert('Send Failed', result.error || 'Could not send the email. The lease is still saved in your documents.');
+        router.push(`/(app)/documents/${docId}` as never);
+      }
+    } catch {
+      Alert.alert('Send Failed', 'Could not send the email. The lease is still saved in your documents.');
+      router.push(`/(app)/documents/${docId}` as never);
+    }
+  };
+
+  const sharePDF = async (html: string) => {
+    try {
       const { uri } = await Print.printToFileAsync({ html });
       await Sharing.shareAsync(uri, {
         mimeType: 'application/pdf',
@@ -154,13 +251,8 @@ export default function GenerateLeaseScreen() {
         UTI: 'com.adobe.pdf',
       });
     } catch (err) {
-      if (err instanceof Error && err.message.includes('cancel')) {
-        // User cancelled sharing, no alert needed
-        return;
-      }
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to generate the lease PDF.');
-    } finally {
-      setGenerating(false);
+      if (err instanceof Error && err.message.includes('cancel')) return;
+      Alert.alert('Error', 'Failed to share PDF.');
     }
   };
 
@@ -357,7 +449,7 @@ export default function GenerateLeaseScreen() {
           {generating ? (
             <ActivityIndicator size="small" color={THEME.colors.textInverse} />
           ) : (
-            <Text style={styles.generateButtonText}>Generate & Share PDF</Text>
+            <Text style={styles.generateButtonText}>Generate & Save Lease</Text>
           )}
         </TouchableOpacity>
       </View>

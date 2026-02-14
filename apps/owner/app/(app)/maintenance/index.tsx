@@ -55,7 +55,7 @@ export default function MaintenanceDashboard() {
   const { requests, loading, refreshing, error, refreshRequests, summary } = useMaintenance(filter);
 
   const renderItem = ({ item }: { item: MaintenanceListItem }) => {
-    const statusConfig = STATUS_CONFIG[item.status];
+    const statusConfig = STATUS_CONFIG[item.status] || { label: item.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), color: THEME.colors.textSecondary, bg: THEME.colors.subtle };
     const urgencyConfig = URGENCY_CONFIG[item.urgency];
 
     return (
@@ -186,6 +186,13 @@ export default function MaintenanceDashboard() {
               ? 'No active maintenance requests.'
               : `No ${FILTER_OPTIONS.find(o => o.value === filterStatus)?.label.toLowerCase()} requests.`}
           </Text>
+          <TouchableOpacity
+            style={styles.askCasaBtn}
+            onPress={() => router.push('/(app)/(tabs)/chat' as any)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.askCasaBtnText}>Ask Casa about maintenance</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -382,5 +389,17 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.body,
     color: THEME.colors.error,
     textAlign: 'center',
+  },
+  askCasaBtn: {
+    marginTop: THEME.spacing.base,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: THEME.colors.subtle,
+    borderRadius: THEME.radius.full,
+  },
+  askCasaBtnText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.brandIndigo,
   },
 });

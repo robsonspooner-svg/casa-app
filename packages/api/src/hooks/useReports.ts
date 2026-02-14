@@ -42,7 +42,8 @@ export function useReports() {
         (supabase.from('scheduled_reports') as ReturnType<typeof supabase.from>)
           .select('*')
           .eq('owner_id', user.id)
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .limit(50),
       ]);
 
       if (generatedResult.error) throw generatedResult.error;
@@ -124,6 +125,35 @@ export function useReports() {
     await fetchReports();
   }, [fetchReports]);
 
+  // Retry a failed report generation
+  const retryReport = useCallback(async (id: string) => {
+    const supabase = getSupabaseClient();
+
+    // Reset status to 'generating'
+    const { error: updateErr } = await (supabase.from('generated_reports') as ReturnType<typeof supabase.from>)
+      .update({ status: 'generating', error_message: null })
+      .eq('id', id);
+    if (updateErr) throw updateErr;
+
+    // Re-trigger the Edge Function
+    try {
+      const { error: fnError } = await supabase.functions.invoke('generate-report', {
+        body: { report_id: id },
+      });
+      if (fnError) {
+        await (supabase.from('generated_reports') as ReturnType<typeof supabase.from>)
+          .update({ status: 'failed', error_message: fnError.message || 'Retry failed' })
+          .eq('id', id);
+      }
+    } catch (invokeErr: any) {
+      await (supabase.from('generated_reports') as ReturnType<typeof supabase.from>)
+        .update({ status: 'failed', error_message: invokeErr.message || 'Retry failed' })
+        .eq('id', id);
+    }
+
+    await fetchReports();
+  }, [fetchReports]);
+
   // Create a scheduled report
   const createScheduledReport = useCallback(async (input: Omit<ScheduledReportInsert, 'owner_id'>) => {
     const supabase = getSupabaseClient();
@@ -169,6 +199,7 @@ export function useReports() {
     refreshReports: fetchReports,
     generateReport,
     deleteReport,
+    retryReport,
     createScheduledReport,
     updateScheduledReport,
     deleteScheduledReport,

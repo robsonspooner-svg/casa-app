@@ -146,38 +146,34 @@ describe('calculateStripeFee', () => {
 });
 
 describe('calculatePlatformFee', () => {
-  it('should calculate 1.5% platform fee', () => {
-    // $500 = 50000 cents
-    // Fee = 50000 * 1.5% = 750 cents = $7.50
+  it('should return 0 (subscription-only revenue model)', () => {
     const fee = calculatePlatformFee(50000);
-    expect(fee).toBe(750);
+    expect(fee).toBe(0);
   });
 
-  it('should round to nearest cent', () => {
-    // $33.33 = 3333 cents
-    // Fee = 3333 * 1.5% = 49.995 -> 50 cents
+  it('should return 0 for any amount', () => {
     const fee = calculatePlatformFee(3333);
-    expect(fee).toBe(50);
+    expect(fee).toBe(0);
   });
 });
 
 describe('calculateNetAmount', () => {
-  it('should subtract both fees from card payment', () => {
+  it('should subtract Stripe fee only from card payment (0% platform fee)', () => {
     // $500 = 50000 cents
     // Stripe fee (card) = 905 cents
-    // Platform fee = 750 cents
-    // Net = 50000 - 905 - 750 = 48345 cents = $483.45
+    // Platform fee = 0 cents
+    // Net = 50000 - 905 - 0 = 49095 cents = $490.95
     const net = calculateNetAmount(50000, false);
-    expect(net).toBe(48345);
+    expect(net).toBe(49095);
   });
 
-  it('should subtract both fees from BECS payment', () => {
+  it('should subtract Stripe fee only from BECS payment (0% platform fee)', () => {
     // $500 = 50000 cents
     // BECS fee = 350 cents (capped)
-    // Platform fee = 750 cents
-    // Net = 50000 - 350 - 750 = 48900 cents = $489.00
+    // Platform fee = 0 cents
+    // Net = 50000 - 350 - 0 = 49650 cents = $496.50
     const net = calculateNetAmount(50000, true);
-    expect(net).toBe(48900);
+    expect(net).toBe(49650);
   });
 
   it('should be less than gross amount', () => {
@@ -258,7 +254,7 @@ describe('calculateProRata', () => {
 
 describe('Constants values', () => {
   it('should have valid fee percentages', () => {
-    expect(PLATFORM_FEE_PERCENT).toBe(1.5);
+    expect(PLATFORM_FEE_PERCENT).toBe(0);
     expect(STRIPE_FEE_PERCENT).toBe(1.75);
     expect(BECS_FEE_PERCENT).toBe(1.0);
   });

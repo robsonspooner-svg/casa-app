@@ -63,6 +63,11 @@ export default function SignUpScreen() {
       return;
     }
 
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      setLocalError('Password must include uppercase, lowercase, and a number');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setLocalError('Passwords do not match');
       return;
@@ -82,6 +87,7 @@ export default function SignUpScreen() {
     try {
       const url = await signInWithOAuth('google', {
         redirectTo: 'casa-owner://auth/callback',
+        role: 'owner',
       });
       if (url) {
         await Linking.openURL(url);
@@ -163,7 +169,7 @@ export default function SignUpScreen() {
 
           <Input
             label="Password"
-            placeholder="At least 8 characters"
+            placeholder="8+ chars, upper, lower, number"
             value={password}
             onChangeText={setPassword}
             secureTextEntry

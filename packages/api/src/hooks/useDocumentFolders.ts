@@ -2,6 +2,7 @@
 // CRUD operations for document folder system per property
 
 import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import type { DocumentFolderRow, DocumentFolderInsert, DocumentFolderUpdate } from '../types/database';
 
@@ -31,9 +32,9 @@ export function useDocumentFolders(propertyId?: string): UseDocumentFoldersRetur
     error: null,
   });
 
-  const fetchFolders = useCallback(async () => {
+  const fetchFolders = useCallback(async (isRefresh = false) => {
     try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
+      setState(prev => ({ ...prev, loading: !isRefresh, error: null }));
       const supabase = getSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -65,6 +66,13 @@ export function useDocumentFolders(propertyId?: string): UseDocumentFoldersRetur
   useEffect(() => {
     fetchFolders();
   }, [fetchFolders]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      fetchFolders(true);
+    }, [fetchFolders])
+  );
 
   const createFolder = useCallback(async (
     data: Omit<DocumentFolderInsert, 'owner_id'>,
@@ -101,10 +109,14 @@ export function useDocumentFolders(propertyId?: string): UseDocumentFoldersRetur
   ): Promise<boolean> => {
     try {
       const supabase = getSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       const { error } = await (supabase
         .from('document_folders') as ReturnType<typeof supabase.from>)
         .update(data)
-        .eq('id', folderId);
+        .eq('id', folderId)
+        .eq('owner_id', user.id);
 
       if (error) throw error;
 
@@ -125,6 +137,8 @@ export function useDocumentFolders(propertyId?: string): UseDocumentFoldersRetur
   const deleteFolder = useCallback(async (folderId: string): Promise<boolean> => {
     try {
       const supabase = getSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
       // Check if it's a system folder
       const folder = state.folders.find(f => f.id === folderId);
@@ -136,7 +150,8 @@ export function useDocumentFolders(propertyId?: string): UseDocumentFoldersRetur
       const { error } = await (supabase
         .from('document_folders') as ReturnType<typeof supabase.from>)
         .delete()
-        .eq('id', folderId);
+        .eq('id', folderId)
+        .eq('owner_id', user.id);
 
       if (error) throw error;
 

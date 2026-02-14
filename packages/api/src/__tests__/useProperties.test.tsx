@@ -322,15 +322,18 @@ describe('usePropertyMutations', () => {
   });
 
   it('should soft delete a property', async () => {
-    const mockUpdate = vi.fn().mockReturnThis();
-    // Create a chainable eq mock that returns itself and eventually resolves
-    const mockEq = vi.fn().mockImplementation(() => ({
+    // Mock the chainable Supabase query for both property update and listing cascade
+    const mockIn = vi.fn().mockResolvedValue({ error: null });
+    const mockEqInner = vi.fn().mockImplementation(() => ({
       eq: vi.fn().mockResolvedValue({ error: null }),
+      in: mockIn,
+    }));
+    const mockUpdate = vi.fn().mockImplementation(() => ({
+      eq: mockEqInner,
     }));
 
     mockFrom.mockReturnValue({
       update: mockUpdate,
-      eq: mockEq,
     });
 
     const { result } = renderHook(() => usePropertyMutations());
@@ -344,6 +347,8 @@ describe('usePropertyMutations', () => {
     // Check that deleted_at was set (any date string)
     const updateCall = mockUpdate.mock.calls[0][0];
     expect(updateCall.deleted_at).toBeDefined();
+    // Check that listings cascade was called
+    expect(mockFrom).toHaveBeenCalledWith('listings');
   });
 
   it('should throw error when not authenticated', async () => {

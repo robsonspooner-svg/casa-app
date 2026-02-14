@@ -2,6 +2,7 @@
 // Mission 07: Rent Collection & Payments
 
 import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import { useAuth } from './useAuth';
 import type { Payment, PaymentStatus, PaymentWithDetails } from '../types/database';
@@ -74,7 +75,8 @@ export function usePayments(filter?: PaymentsFilter): PaymentsState & { refreshP
         const { data: methods } = await (supabase
           .from('payment_methods') as ReturnType<typeof supabase.from>)
           .select('id, type, last_four, brand, bank_name')
-          .in('id', methodIds);
+          .in('id', methodIds)
+          .eq('is_active', true);
 
         if (methods) {
           methodsMap = (methods as Array<{ id: string; type: string; last_four: string; brand?: string; bank_name?: string }>)
@@ -139,6 +141,42 @@ export function usePayments(filter?: PaymentsFilter): PaymentsState & { refreshP
       fetchPayments();
     }
   }, [fetchPayments, isAuthenticated]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        fetchPayments(true);
+      }
+    }, [fetchPayments, isAuthenticated])
+  );
+
+  // Realtime subscription for live payment updates
+  useEffect(() => {
+    if (!user) return;
+
+    const supabase = getSupabaseClient();
+
+    const channel = supabase
+      .channel('payment-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payments',
+        },
+        () => {
+          // Re-fetch on any change to payments
+          fetchPayments();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchPayments]);
 
   const refreshPayments = useCallback(async () => {
     await fetchPayments(true);

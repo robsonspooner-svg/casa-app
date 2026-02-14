@@ -139,23 +139,12 @@ export default function NotificationSettingsScreen() {
             value={preferences?.email_enabled ?? true}
             onValueChange={(val) => handleToggleChannel('email_enabled', val)}
           />
-          <View style={styles.settingRow}>
-            <View style={styles.settingContent}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.settingLabel}>SMS Notifications</Text>
-                <View style={{ backgroundColor: THEME.colors.brand + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: THEME.radius.sm }}>
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: THEME.colors.brand }}>Coming Soon</Text>
-                </View>
-              </View>
-              <Text style={styles.settingDescription}>Text messages for urgent matters</Text>
-            </View>
-            <Switch
-              value={false}
-              disabled
-              trackColor={{ false: THEME.colors.border, true: THEME.colors.brand + '66' }}
-              thumbColor={THEME.colors.canvas}
-            />
-          </View>
+          <SettingRow
+            label="SMS Notifications"
+            description="Text messages for urgent matters"
+            value={preferences?.sms_enabled ?? false}
+            onValueChange={(val) => handleToggleChannel('sms_enabled', val)}
+          />
         </View>
 
         {/* Quiet Hours */}

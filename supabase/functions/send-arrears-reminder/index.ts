@@ -297,6 +297,188 @@ serve(async (req: Request) => {
       }
     }
 
+    // === Day 7+ Formal Breach Notice ===
+    // Send formal breach notices for arrears 7+ days overdue (if not already sent)
+    const { data: breachTemplates } = await supabase
+      .from('reminder_templates')
+      .select('*')
+      .eq('is_active', true)
+      .eq('is_breach_notice', true)
+      .order('days_overdue', { ascending: true });
+
+    if (breachTemplates && breachTemplates.length > 0) {
+      // Re-query arrears records that are 7+ days overdue
+      const breachQuery = supabase
+        .from('arrears_records')
+        .select(`
+          id,
+          tenancy_id,
+          tenant_id,
+          days_overdue,
+          total_overdue,
+          first_overdue_date,
+          tenancies!inner(
+            id,
+            properties!inner(
+              id,
+              address_line_1,
+              suburb,
+              state,
+              postcode,
+              owner_id,
+              profiles!properties_owner_id_fkey(
+                full_name,
+                email
+              )
+            )
+          ),
+          profiles!arrears_records_tenant_id_fkey(
+            id,
+            full_name,
+            email
+          )
+        `)
+        .eq('is_resolved', false)
+        .gte('days_overdue', 7);
+
+      const { data: breachRecords } = body.arrearsRecordId
+        ? await breachQuery.eq('id', body.arrearsRecordId)
+        : await breachQuery;
+
+      for (const arrears of breachRecords || []) {
+        const tenant = (arrears as any).profiles;
+        const tenancy = (arrears as any).tenancies;
+        const property = tenancy?.properties;
+        const owner = property?.profiles;
+
+        if (!tenant?.email) continue;
+
+        // Find the appropriate breach template
+        let selectedBreachTemplate = breachTemplates[0];
+        for (const template of breachTemplates) {
+          if (arrears.days_overdue >= template.days_overdue) {
+            selectedBreachTemplate = template;
+          } else {
+            break;
+          }
+        }
+
+        // Check if this breach notice was already sent
+        const { data: existingBreachAction } = await supabase
+          .from('arrears_actions')
+          .select('id')
+          .eq('arrears_record_id', arrears.id)
+          .eq('action_type', 'breach_notice_email')
+          .eq('template_used', selectedBreachTemplate.name)
+          .maybeSingle();
+
+        if (existingBreachAction) continue;
+
+        const propertyAddress = [
+          property?.address_line_1,
+          property?.suburb,
+          property?.state,
+          property?.postcode,
+        ].filter(Boolean).join(', ');
+
+        const variables: Record<string, string> = {
+          tenant_name: tenant.full_name || 'Tenant',
+          owner_name: owner?.full_name || 'Property Owner',
+          property_address: propertyAddress,
+          amount: `$${(arrears.total_overdue || 0).toFixed(2)}`,
+          total_arrears: `$${(arrears.total_overdue || 0).toFixed(2)}`,
+          days_overdue: String(arrears.days_overdue),
+          due_date: new Date(arrears.first_overdue_date).toLocaleDateString('en-AU'),
+          today: new Date().toLocaleDateString('en-AU'),
+        };
+
+        const subject = renderTemplate(selectedBreachTemplate.subject, variables);
+        const bodyText = renderTemplate(selectedBreachTemplate.body, variables);
+
+        const htmlContent = `
+          <div style="font-family: 'Inter', -apple-system, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #C53030 0%, #9B2C2C 100%); padding: 32px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: white; margin: 0; font-size: 24px;">Formal Breach Notice</h1>
+            </div>
+            <div style="background: #f8f9fa; padding: 32px; border-radius: 0 0 12px 12px;">
+              ${bodyText.split('\n').map(line =>
+                line.trim() ? `<p style="color: #1B2B4B; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">${line}</p>` : '<br/>'
+              ).join('')}
+              <div style="margin-top: 24px;">
+                <a href="https://www.casaapp.com.au/pay" style="display: inline-block; background: #C53030; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                  Pay Now to Resolve
+                </a>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const emailResult = await sendEmail({
+          to: tenant.email,
+          toName: tenant.full_name,
+          subject,
+          htmlContent,
+          textContent: bodyText,
+        });
+
+        if (emailResult.success) {
+          await supabase.from('arrears_actions').insert({
+            arrears_record_id: arrears.id,
+            action_type: 'breach_notice_email',
+            description: `Sent formal breach notice: ${selectedBreachTemplate.name}`,
+            template_used: selectedBreachTemplate.name,
+            sent_to: tenant.email,
+            sent_at: new Date().toISOString(),
+            delivered: true,
+            performed_by: userId,
+            is_automated: !body.arrearsRecordId,
+            metadata: { message_id: emailResult.messageId },
+          });
+
+          // Also notify the owner that a breach notice was sent
+          if (owner?.email) {
+            await sendEmail({
+              to: owner.email,
+              toName: owner.full_name,
+              subject: `Breach notice sent: ${propertyAddress}`,
+              htmlContent: `<p>A formal breach notice has been sent to ${tenant.full_name} for ${propertyAddress}. Amount overdue: ${variables.amount}, ${variables.days_overdue} days overdue.</p>`,
+              textContent: `A formal breach notice has been sent to ${tenant.full_name} for ${propertyAddress}. Amount overdue: ${variables.amount}, ${variables.days_overdue} days overdue.`,
+            }).catch(() => {});
+          }
+
+          results.push({
+            arrearsRecordId: arrears.id,
+            tenantEmail: tenant.email,
+            templateUsed: `BREACH: ${selectedBreachTemplate.name}`,
+            success: true,
+          });
+
+          console.log(`Sent breach notice to ${tenant.email} for arrears ${arrears.id}`);
+        } else {
+          await supabase.from('arrears_actions').insert({
+            arrears_record_id: arrears.id,
+            action_type: 'breach_notice_email',
+            description: `Failed to send breach notice: ${emailResult.error}`,
+            template_used: selectedBreachTemplate.name,
+            sent_to: tenant.email,
+            sent_at: new Date().toISOString(),
+            delivered: false,
+            performed_by: userId,
+            is_automated: !body.arrearsRecordId,
+            metadata: { error: emailResult.error },
+          });
+
+          results.push({
+            arrearsRecordId: arrears.id,
+            tenantEmail: tenant.email,
+            templateUsed: `BREACH: ${selectedBreachTemplate.name}`,
+            success: false,
+            error: emailResult.error,
+          });
+        }
+      }
+    }
+
     const sent = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
 

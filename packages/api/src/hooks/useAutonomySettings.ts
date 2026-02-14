@@ -203,6 +203,12 @@ export function useAutonomySettings(): UseAutonomySettingsReturn {
   const updateCategoryLevel = useCallback(async (category: string, level: AutonomyLevel): Promise<boolean> => {
     if (!user) return false;
 
+    const validCategories: string[] = Object.keys(PRESET_DEFAULTS.balanced);
+    if (!validCategories.includes(category)) {
+      setState(prev => ({ ...prev, error: `Invalid category: ${category}` }));
+      return false;
+    }
+
     try {
       const supabase = getSupabaseClient();
 

@@ -24,7 +24,7 @@
       "associatedDomains": [
         "applinks:www.casaapp.com.au"
       ],
-      "buildNumber": "19"
+      "buildNumber": "24"
     },
     "android": {
       "adaptiveIcon": {
@@ -68,7 +68,8 @@
           "color": "#0D7377"
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true

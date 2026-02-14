@@ -18,7 +18,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { useDocument } from '@casa/api';
+import { useDocument, useDocumentComments, getSupabaseClient } from '@casa/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Paths, File as ExpoFile } from 'expo-file-system';
@@ -150,10 +150,16 @@ function formatFileSize(bytes: number | null | undefined): string {
 export default function DocumentViewerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { document: doc, savedSignature, loading, signing, error, signDocument, refreshDocument } = useDocument(id);
+  const {
+    comments: revisionRequests,
+    loading: loadingRevisions,
+    resolveComment,
+  } = useDocumentComments(id, 'revision_request');
   const [exporting, setExporting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [sendingToTenant, setSendingToTenant] = useState(false);
 
   const statusConfig = doc ? STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft : STATUS_CONFIG.draft;
 
@@ -208,6 +214,43 @@ export default function DocumentViewerScreen() {
       Alert.alert('Document Signed', 'Your signature has been recorded.');
     }
   }, [signDocument]);
+
+  const handleSendToTenant = useCallback(async () => {
+    if (!doc || !doc.tenancy_id) return;
+    setSendingToTenant(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      // Call the send-document-email Edge Function — handles everything:
+      // tenant lookup, branded email template, HTML attachment, tenant_id update, status update
+      const resp = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-document-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ documentId: doc.id }),
+        },
+      );
+
+      const result = await resp.json();
+
+      if (resp.ok && result.success) {
+        Alert.alert('Sent', `Document sent to ${result.tenantName || 'tenant'} (${result.tenantEmail}).`);
+        refreshDocument();
+      } else {
+        Alert.alert('Send Failed', result.error || 'Could not send the email. Please try again.');
+      }
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to send document.');
+    } finally {
+      setSendingToTenant(false);
+    }
+  }, [doc, refreshDocument]);
 
   // Determine if current user needs to sign
   const needsOwnerSignature = doc?.status === 'pending_owner_signature' || (doc?.requires_signature && doc?.status === 'draft');
@@ -406,6 +449,63 @@ export default function DocumentViewerScreen() {
         </View>
       )}
 
+      {/* Revision Requests Section */}
+      {revisionRequests.length > 0 && (
+        <View style={styles.revisionSection}>
+          <Text style={styles.revisionSectionTitle}>
+            Revision Requests ({revisionRequests.filter(r => !r.is_resolved).length})
+          </Text>
+          {revisionRequests.map((request) => (
+            <View
+              key={request.id}
+              style={[
+                styles.revisionCard,
+                request.is_resolved && styles.revisionCardResolved,
+              ]}
+            >
+              <View style={styles.revisionCardHeader}>
+                <View
+                  style={[
+                    styles.revisionBadge,
+                    request.is_resolved
+                      ? { backgroundColor: THEME.colors.successBg }
+                      : { backgroundColor: THEME.colors.warningBg },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.revisionBadgeText,
+                      request.is_resolved
+                        ? { color: THEME.colors.success }
+                        : { color: THEME.colors.warning },
+                    ]}
+                  >
+                    {request.is_resolved ? 'Addressed' : 'Pending'}
+                  </Text>
+                </View>
+                <Text style={styles.revisionDate}>
+                  {new Date(request.created_at).toLocaleDateString('en-AU', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+              <Text style={styles.revisionContent}>{request.content}</Text>
+              {!request.is_resolved && (
+                <TouchableOpacity
+                  style={styles.revisionAddressButton}
+                  onPress={() => resolveComment(request.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.revisionAddressText}>Mark as Addressed</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Footer action */}
       <View style={styles.footer}>
         {needsOwnerSignature && (
@@ -449,6 +549,24 @@ export default function DocumentViewerScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.signButtonText}>Export PDF</Text>
+          </TouchableOpacity>
+        )}
+
+        {doc.tenancy_id && doc.status !== 'pending_tenant_signature' && doc.status !== 'signed' && (
+          <TouchableOpacity
+            style={[styles.sendToTenantButton, sendingToTenant && styles.buttonDisabled]}
+            onPress={handleSendToTenant}
+            disabled={sendingToTenant}
+            activeOpacity={0.8}
+          >
+            {sendingToTenant ? (
+              <ActivityIndicator size="small" color={THEME.colors.brand} />
+            ) : (
+              <>
+                <ShareIcon />
+                <Text style={styles.sendToTenantText}>Send to Tenant</Text>
+              </>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -769,5 +887,88 @@ const styles = StyleSheet.create({
     color: THEME.colors.textInverse,
     fontWeight: '600',
     fontSize: THEME.fontSize.body,
+  },
+  sendToTenantButton: {
+    borderRadius: THEME.radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.brand,
+    backgroundColor: THEME.colors.surface,
+  },
+  sendToTenantText: {
+    color: THEME.colors.brand,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  revisionSection: {
+    backgroundColor: THEME.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: THEME.colors.border,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  revisionSectionTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    marginBottom: 12,
+  },
+  revisionCard: {
+    backgroundColor: THEME.colors.warningBg,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: THEME.colors.warning,
+  },
+  revisionCardResolved: {
+    backgroundColor: THEME.colors.canvas,
+    borderLeftColor: THEME.colors.success,
+    opacity: 0.7,
+  },
+  revisionCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  revisionBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: THEME.radius.full,
+  },
+  revisionBadgeText: {
+    fontSize: THEME.fontSize.caption,
+    fontWeight: '600',
+  },
+  revisionDate: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textTertiary,
+  },
+  revisionContent: {
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textPrimary,
+    lineHeight: 20,
+  },
+  revisionAddressButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: THEME.colors.brand,
+  },
+  revisionAddressText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: '600',
+    color: THEME.colors.textInverse,
   },
 });

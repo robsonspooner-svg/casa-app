@@ -33,9 +33,43 @@ function formatTime(dateStr: string): string {
   return date.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatToolName(name: string): string {
+  return name
+    .replace(/^handle_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getToolSummary(tc: { name?: string; type?: string; input?: Record<string, unknown>; result?: Record<string, unknown> }): string {
+  const name = tc.name || tc.type || 'Unknown';
+  const input = tc.input || {};
+  const result = tc.result || {};
+  const friendly = formatToolName(name);
+
+  if (name.startsWith('create_') && result.id) return `Created: ${(input.title as string) || (input.address_line_1 as string) || friendly}`;
+  if (name.startsWith('update_') && input.id) return `Updated: ${friendly.replace('Update ', '')}`;
+  if (name.startsWith('get_') || name.startsWith('search_')) return friendly;
+  if (name === 'suggest_navigation') return `Navigate: ${(input.label as string) || 'Link'}`;
+  return friendly;
+}
+
 function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
   const [expanded, setExpanded] = useState(false);
   if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return null;
+
+  const actionCount = (toolCalls as { name?: string }[]).filter(tc => {
+    const n = tc.name || '';
+    return n.startsWith('create_') || n.startsWith('update_') || n.startsWith('delete_') ||
+      n.startsWith('send_') || n.startsWith('invite_') || n.startsWith('publish_');
+  }).length;
+  const queryCount = toolCalls.length - actionCount;
+
+  let headerText = `${toolCalls.length} tool${toolCalls.length > 1 ? 's' : ''} used`;
+  if (actionCount > 0 && queryCount > 0) {
+    headerText = `${actionCount} action${actionCount > 1 ? 's' : ''}, ${queryCount} lookup${queryCount > 1 ? 's' : ''}`;
+  } else if (actionCount > 0) {
+    headerText = `${actionCount} action${actionCount > 1 ? 's' : ''} taken`;
+  }
 
   return (
     <TouchableOpacity
@@ -54,7 +88,7 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
           />
         </Svg>
         <Text style={styles.toolCallTitle}>
-          {toolCalls.length} tool{toolCalls.length > 1 ? 's' : ''} used
+          {headerText}
         </Text>
         <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
           <Path
@@ -68,9 +102,9 @@ function ToolCallSummary({ toolCalls }: { toolCalls: unknown }) {
       </View>
       {expanded && (
         <View style={styles.toolCallDetails}>
-          {toolCalls.map((tc: { name?: string; type?: string }, idx: number) => (
+          {toolCalls.map((tc: { name?: string; type?: string; input?: Record<string, unknown>; result?: Record<string, unknown> }, idx: number) => (
             <Text key={idx} style={styles.toolCallItem}>
-              {tc.name || tc.type || `Tool ${idx + 1}`}
+              {getToolSummary(tc)}
             </Text>
           ))}
         </View>
@@ -179,8 +213,8 @@ function formatMessageContent(content: string): string {
   text = text.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
   // Remove inline code backticks
   text = text.replace(/`([^`]+)`/g, '$1');
-  // Convert markdown links [text](url) → text
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  // Convert markdown links [text](url) → text (url)
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)');
   // Remove horizontal rules
   text = text.replace(/^[-*_]{3,}\s*$/gm, '');
   // Clean up bullet point markers (- item → • item)

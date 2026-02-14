@@ -11,6 +11,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  ScrollView,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Svg, { Path } from 'react-native-svg';
@@ -20,6 +21,7 @@ import type { SavedSignatureRow } from '@casa/api';
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const PAD_HEIGHT = SCREEN_HEIGHT * 0.5;
 const CANVAS_HEIGHT = PAD_HEIGHT - 200; // Space for buttons and header
+const CANVAS_HEIGHT_WITH_SAVED = Math.max(CANVAS_HEIGHT - 80, 120); // Shorter canvas when saved signature is shown above
 
 interface SignaturePadProps {
   visible: boolean;
@@ -244,87 +246,95 @@ export default function SignaturePad({ visible, onClose, onSign, savedSignature,
             </TouchableOpacity>
           </View>
 
-          {/* Saved signature option */}
-          {savedSignature && !useSaved && (
-            <View style={styles.savedSection}>
-              <Text style={styles.savedLabel}>Saved Signature</Text>
-              <TouchableOpacity style={styles.savedCard} onPress={handleUseSaved}>
+          <ScrollView
+            style={styles.sheetScrollContent}
+            contentContainerStyle={styles.sheetScrollInner}
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Saved signature option */}
+            {savedSignature && !useSaved && (
+              <View style={styles.savedSection}>
+                <Text style={styles.savedLabel}>Saved Signature</Text>
+                <TouchableOpacity style={styles.savedCard} onPress={handleUseSaved}>
+                  <Image
+                    source={{ uri: savedSignature.signature_image }}
+                    style={styles.savedImage}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.savedAction}>Use Saved Signature</Text>
+                </TouchableOpacity>
+                <View style={styles.orDivider}>
+                  <View style={styles.orLine} />
+                  <Text style={styles.orText}>or draw a new one below</Text>
+                  <View style={styles.orLine} />
+                </View>
+              </View>
+            )}
+
+            {/* Using saved signature view */}
+            {useSaved && savedSignature && (
+              <View style={styles.savedActiveSection}>
                 <Image
                   source={{ uri: savedSignature.signature_image }}
-                  style={styles.savedImage}
+                  style={styles.savedActiveImage}
                   resizeMode="contain"
                 />
-                <Text style={styles.savedAction}>Use Saved Signature</Text>
-              </TouchableOpacity>
-              <View style={styles.orDivider}>
-                <View style={styles.orLine} />
-                <Text style={styles.orText}>or draw a new one below</Text>
-                <View style={styles.orLine} />
+                <TouchableOpacity onPress={handleDrawNew}>
+                  <Text style={styles.drawNewText}>Draw a new signature instead</Text>
+                </TouchableOpacity>
               </View>
-            </View>
-          )}
+            )}
 
-          {/* Using saved signature view */}
-          {useSaved && savedSignature && (
-            <View style={styles.savedActiveSection}>
-              <Image
-                source={{ uri: savedSignature.signature_image }}
-                style={styles.savedActiveImage}
-                resizeMode="contain"
-              />
-              <TouchableOpacity onPress={handleDrawNew}>
-                <Text style={styles.drawNewText}>Draw a new signature instead</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Signature canvas */}
-          {!useSaved && (
-            <View style={[styles.canvasContainer, { height: Math.max(CANVAS_HEIGHT, 160) }]}>
-              <WebView
-                ref={webViewRef}
-                source={{ html: SIGNATURE_CANVAS_HTML }}
-                style={styles.canvas}
-                scrollEnabled={false}
-                bounces={false}
-                onMessage={handleMessage}
-                javaScriptEnabled
-                originWhitelist={['*']}
-              />
-              <TouchableOpacity style={styles.clearButton} onPress={handleClear}>
-                <Text style={styles.clearText}>Clear</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Action buttons */}
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.saveSignButton}
-              onPress={handleSignWithSave}
-              disabled={signing}
-              activeOpacity={0.8}
-            >
-              {signing ? (
-                <ActivityIndicator size="small" color={THEME.colors.textInverse} />
-              ) : (
-                <Text style={styles.saveSignButtonText}>
-                  {useSaved ? 'Sign Document' : 'Save Signature & Sign'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
+            {/* Signature canvas */}
             {!useSaved && (
+              <View style={[styles.canvasContainer, { height: Math.max(savedSignature ? CANVAS_HEIGHT_WITH_SAVED : CANVAS_HEIGHT, 140) }]}>
+                <WebView
+                  ref={webViewRef}
+                  source={{ html: SIGNATURE_CANVAS_HTML }}
+                  style={styles.canvas}
+                  scrollEnabled={false}
+                  bounces={false}
+                  onMessage={handleMessage}
+                  javaScriptEnabled
+                  originWhitelist={['*']}
+                />
+                <TouchableOpacity style={styles.clearButton} onPress={handleClear}>
+                  <Text style={styles.clearText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Action buttons */}
+            <View style={styles.actions}>
               <TouchableOpacity
-                style={styles.signOnlyButton}
-                onPress={handleSignOnly}
+                style={styles.saveSignButton}
+                onPress={handleSignWithSave}
                 disabled={signing}
                 activeOpacity={0.8}
               >
-                <Text style={styles.signOnlyButtonText}>Sign Document</Text>
+                {signing ? (
+                  <ActivityIndicator size="small" color={THEME.colors.textInverse} />
+                ) : (
+                  <Text style={styles.saveSignButtonText}>
+                    {useSaved ? 'Sign Document' : 'Save Signature & Sign'}
+                  </Text>
+                )}
               </TouchableOpacity>
-            )}
-          </View>
+
+              {!useSaved && (
+                <TouchableOpacity
+                  style={styles.signOnlyButton}
+                  onPress={handleSignOnly}
+                  disabled={signing}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.signOnlyButtonText}>Sign Document</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -344,8 +354,14 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: PAD_HEIGHT + 60,
+    maxHeight: SCREEN_HEIGHT * 0.85,
     paddingBottom: 34, // Safe area
+  },
+  sheetScrollContent: {
+    flex: 1,
+  },
+  sheetScrollInner: {
+    flexGrow: 1,
   },
   handleBar: {
     alignItems: 'center',

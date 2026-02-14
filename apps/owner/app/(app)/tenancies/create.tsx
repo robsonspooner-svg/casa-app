@@ -108,6 +108,13 @@ export default function CreateTenancyScreen() {
       return;
     }
 
+    const dueDayNum = parseInt(rentDueDay) || 1;
+    const maxDueDay = rentFrequency === 'weekly' ? 7 : rentFrequency === 'fortnightly' ? 14 : 28;
+    if (dueDayNum < 1 || dueDayNum > maxDueDay) {
+      Alert.alert('Invalid Due Day', `Due day must be between 1 and ${maxDueDay} for ${rentFrequency} payments.`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       // Auto-activate tenancy if start date is today or in the past
@@ -124,7 +131,7 @@ export default function CreateTenancyScreen() {
           lease_type: leaseType,
           rent_amount: rent,
           rent_frequency: rentFrequency,
-          rent_due_day: parseInt(rentDueDay) || 1,
+          rent_due_day: dueDayNum,
           bond_amount: bond,
           status: tenancyStatus,
           notes: notes || undefined,
@@ -252,7 +259,9 @@ export default function CreateTenancyScreen() {
             ))}
           </View>
 
-          <Text style={styles.fieldLabel}>Due Day (1-31)</Text>
+          <Text style={styles.fieldLabel}>
+            Due Day (1-{rentFrequency === 'weekly' ? '7' : rentFrequency === 'fortnightly' ? '14' : '28'})
+          </Text>
           <TextInput
             style={styles.input}
             value={rentDueDay}

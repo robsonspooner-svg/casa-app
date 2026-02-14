@@ -126,6 +126,21 @@ serve(async (req: Request) => {
       );
     }
 
+    // Verify Stripe account is fully ready to accept payments
+    const stripeAccount = await stripe.accounts.retrieve(ownerStripeAccount.stripe_account_id);
+    if (!stripeAccount.details_submitted) {
+      return new Response(
+        JSON.stringify({ error: 'Owner has not finished submitting Stripe Connect details' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    if (stripeAccount.requirements?.currently_due && stripeAccount.requirements.currently_due.length > 0) {
+      return new Response(
+        JSON.stringify({ error: 'Owner needs to complete outstanding Stripe requirements before accepting payments' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Calculate fees
     const platformFee = calculatePlatformFee(amount);
     const stripeFee = calculateStripeFee(amount);

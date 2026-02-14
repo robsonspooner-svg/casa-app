@@ -117,8 +117,12 @@ export default function AddPropertyWizard() {
           Alert.alert('Required', 'Please enter a suburb');
           return false;
         }
-        if (!formData.postcode.trim() || formData.postcode.length !== 4) {
+        if (!formData.postcode.trim() || !/^\d{4}$/.test(formData.postcode.trim())) {
           Alert.alert('Required', 'Please enter a valid 4-digit postcode');
+          return false;
+        }
+        if (!formData.state?.trim()) {
+          Alert.alert('Required', 'Please select a state');
           return false;
         }
         return true;

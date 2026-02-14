@@ -312,6 +312,57 @@ describe('useReports', () => {
       expect(report).toBeDefined();
     });
   });
+
+  it('should retry a failed report', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'generated_reports') {
+        return buildMockChain({ data: [{ ...mockGeneratedReport, status: 'failed' }], error: null });
+      }
+      return buildMockChain({ data: [mockScheduledReport], error: null });
+    });
+
+    mockFunctionsInvoke.mockResolvedValue({ data: { success: true }, error: null });
+
+    const { result } = renderHook(() => useReports());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.retryReport('report-1');
+    });
+
+    // Should reset status to 'generating' then re-invoke the Edge Function
+    expect(mockFrom).toHaveBeenCalledWith('generated_reports');
+    expect(mockFunctionsInvoke).toHaveBeenCalledWith('generate-report', {
+      body: { report_id: 'report-1' },
+    });
+  });
+
+  it('should mark as failed when retry Edge Function fails', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'generated_reports') {
+        return buildMockChain({ data: [{ ...mockGeneratedReport, status: 'failed' }], error: null });
+      }
+      return buildMockChain({ data: [mockScheduledReport], error: null });
+    });
+
+    mockFunctionsInvoke.mockResolvedValue({ data: null, error: { message: 'Timeout' } });
+
+    const { result } = renderHook(() => useReports());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Should not throw — marks as failed internally
+    await act(async () => {
+      await result.current.retryReport('report-1');
+    });
+
+    expect(mockFunctionsInvoke).toHaveBeenCalled();
+  });
 });
 
 // ─── useExpenses Tests ─────────────────────────────────────────

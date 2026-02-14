@@ -368,7 +368,8 @@ export function useInspectionMutations() {
     try {
       const supabase = getSupabaseClient();
 
-      const storagePath = `${user.id}/${inspectionId}/${Date.now()}_${fileName}`;
+      const uniqueSuffix = Math.random().toString(36).slice(2, 8);
+      const storagePath = `${user.id}/${inspectionId}/${Date.now()}_${uniqueSuffix}_${fileName}`;
       const response = await fetch(uri);
       const blob = await response.blob();
 

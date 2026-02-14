@@ -1,10 +1,14 @@
 // useConnection Hook - Tenant Connection to Properties/Owners
 // Tenant-Owner Connection System
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { getSupabaseClient } from '../client';
 import { useAuth } from './useAuth';
 import type { ConnectionType } from '../types/database';
+
+const CODE_ATTEMPT_COOLDOWN_MS = 3000; // 3 seconds between attempts
+const MAX_ATTEMPTS_PER_WINDOW = 5;
+const ATTEMPT_WINDOW_MS = 60000; // 1 minute window
 
 export interface ConnectionResult {
   success: boolean;
@@ -38,6 +42,8 @@ export function useConnection(): ConnectionState & ConnectionActions {
     error: null,
     lastResult: null,
   });
+  const lastAttemptRef = useRef<number>(0);
+  const attemptTimestampsRef = useRef<number[]>([]);
 
   /**
    * Validate and use a connection code.
@@ -54,6 +60,37 @@ export function useConnection(): ConnectionState & ConnectionActions {
         ownerId: null,
       };
     }
+
+    // Rate limiting: enforce cooldown between attempts
+    const now = Date.now();
+    if (now - lastAttemptRef.current < CODE_ATTEMPT_COOLDOWN_MS) {
+      return {
+        success: false,
+        message: 'Please wait a moment before trying again',
+        connectionType: null,
+        propertyId: null,
+        tenancyId: null,
+        ownerId: null,
+      };
+    }
+
+    // Rate limiting: max attempts per window
+    attemptTimestampsRef.current = attemptTimestampsRef.current.filter(
+      t => now - t < ATTEMPT_WINDOW_MS
+    );
+    if (attemptTimestampsRef.current.length >= MAX_ATTEMPTS_PER_WINDOW) {
+      return {
+        success: false,
+        message: 'Too many attempts. Please try again in a minute.',
+        connectionType: null,
+        propertyId: null,
+        tenancyId: null,
+        ownerId: null,
+      };
+    }
+
+    lastAttemptRef.current = now;
+    attemptTimestampsRef.current.push(now);
 
     setState(prev => ({ ...prev, connecting: true, error: null }));
 
@@ -179,6 +216,57 @@ export function useConnection(): ConnectionState & ConnectionActions {
         .eq('status', 'pending');
 
       setState(prev => ({ ...prev, connecting: false, error: null }));
+
+      // Notify the property owner about the new tenant connection
+      try {
+        const { data: tenancyData } = await (supabase
+          .from('tenancies') as ReturnType<typeof supabase.from>)
+          .select('properties!inner(owner_id, address_line_1, suburb, state, postcode)')
+          .eq('id', tenancyId)
+          .single();
+
+        const { data: tenantProfile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .single();
+
+        if (tenancyData) {
+          const prop = (tenancyData as any).properties;
+          if (prop?.owner_id) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const propertyAddress = [prop.address_line_1, prop.suburb, prop.state, prop.postcode].filter(Boolean).join(', ');
+              fetch(
+                `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/dispatch-notification`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    user_id: prop.owner_id,
+                    type: 'tenant_connected',
+                    title: 'Tenant Connected',
+                    body: `${(tenantProfile as any)?.full_name || 'A tenant'} has connected to ${propertyAddress}.`,
+                    data: {
+                      tenant_name: (tenantProfile as any)?.full_name || 'Unknown',
+                      property_address: propertyAddress,
+                    },
+                    related_type: 'tenancy',
+                    related_id: tenancyId,
+                    channels: ['push', 'email'],
+                  }),
+                }
+              ).catch(() => {});
+            }
+          }
+        }
+      } catch {
+        // Non-blocking: notification failure shouldn't prevent connection
+      }
+
       return true;
     } catch (caught) {
       const errorMessage = caught instanceof Error ? caught.message : 'Failed to connect to tenancy';
@@ -243,6 +331,54 @@ export function useConnection(): ConnectionState & ConnectionActions {
       }
 
       setState(prev => ({ ...prev, connecting: false, error: null }));
+
+      // Notify the property owner about the new tenant connection
+      try {
+        const { data: propertyData } = await (supabase
+          .from('properties') as ReturnType<typeof supabase.from>)
+          .select('owner_id, address_line_1, suburb, state, postcode')
+          .eq('id', propertyId)
+          .single();
+
+        const { data: tenantProfile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .single();
+
+        if (propertyData && (propertyData as any).owner_id) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const propertyAddress = [(propertyData as any).address_line_1, (propertyData as any).suburb, (propertyData as any).state, (propertyData as any).postcode].filter(Boolean).join(', ');
+            fetch(
+              `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/dispatch-notification`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  user_id: (propertyData as any).owner_id,
+                  type: 'tenant_connected',
+                  title: 'Tenant Connected',
+                  body: `${(tenantProfile as any)?.full_name || 'A tenant'} has connected to ${propertyAddress}.`,
+                  data: {
+                    tenant_name: (tenantProfile as any)?.full_name || 'Unknown',
+                    property_address: propertyAddress,
+                  },
+                  related_type: 'property',
+                  related_id: propertyId,
+                  channels: ['push', 'email'],
+                }),
+              }
+            ).catch(() => {});
+          }
+        }
+      } catch {
+        // Non-blocking: notification failure shouldn't prevent connection
+      }
+
       return true;
     } catch (caught) {
       const errorMessage = caught instanceof Error ? caught.message : 'Failed to connect to property';

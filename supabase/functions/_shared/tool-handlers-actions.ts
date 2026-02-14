@@ -6,6 +6,46 @@ type SupabaseClient = any;
 type ToolResult = { success: boolean; data?: unknown; error?: string };
 type ToolInput = Record<string, unknown>;
 
+// ---------------------------------------------------------------------------
+// Notification Dispatch Helper
+// ---------------------------------------------------------------------------
+async function dispatchNotif(
+  sb: SupabaseClient,
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  data?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await sb.functions.invoke('dispatch-notification', {
+      body: { user_id: userId, type, title, body, data: data || {} },
+    });
+  } catch { /* notification dispatch is best-effort */ }
+}
+
+// Look up tenant user IDs linked to a tenancy
+async function getTenantIds(tenancyId: string, sb: SupabaseClient): Promise<string[]> {
+  const { data } = await sb
+    .from('tenancy_tenants')
+    .select('tenant_id')
+    .eq('tenancy_id', tenancyId);
+  return (data || []).map((r: any) => r.tenant_id);
+}
+
+// Look up tenant IDs for a property via its active tenancy
+async function getTenantIdsForProperty(propertyId: string, sb: SupabaseClient): Promise<string[]> {
+  const { data: tenancy } = await sb
+    .from('tenancies')
+    .select('id')
+    .eq('property_id', propertyId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (!tenancy) return [];
+  return getTenantIds(tenancy.id, sb);
+}
+
 async function verifyPropertyOwnership(pid: string, uid: string, sb: SupabaseClient) {
   const { data, error } = await sb.from('properties').select('id').eq('id', pid).eq('owner_id', uid).is('deleted_at', null).single();
   return !error && !!data;
@@ -515,6 +555,20 @@ export async function handle_update_maintenance_status(input: ToolInput, userId:
   // Log status change
   await sb.from('maintenance_status_history').insert({ request_id: input.request_id, old_status: oldStatus, new_status: input.status, changed_by: userId, notes: input.notes || null });
 
+  // Notify tenants about maintenance status changes
+  const { data: mReq } = await sb.from('maintenance_requests').select('property_id, title').eq('id', input.request_id as string).single();
+  if (mReq) {
+    const tenantIds = await getTenantIdsForProperty((mReq as any).property_id, sb);
+    const statusLabel = (input.status as string).replace(/_/g, ' ');
+    for (const tid of tenantIds) {
+      dispatchNotif(sb, tid, 'maintenance_status_update',
+        `Maintenance Update: ${(mReq as any).title}`,
+        `Your maintenance request has been updated to "${statusLabel}".`,
+        { request_id: input.request_id, new_status: input.status, property_id: (mReq as any).property_id },
+      );
+    }
+  }
+
   return { success: true, data: { request_id: input.request_id, old_status: oldStatus, new_status: input.status } };
 }
 
@@ -533,7 +587,7 @@ export async function handle_record_maintenance_cost(input: ToolInput, userId: s
   // Verify ownership: maintenance_requests → properties.owner_id
   const { data: req, error: reqErr } = await sb
     .from('maintenance_requests')
-    .select('id, property_id, properties!inner(owner_id)')
+    .select('id, property_id, title, properties!inner(owner_id)')
     .eq('id', input.request_id as string)
     .eq('properties.owner_id', userId)
     .single();
@@ -553,6 +607,25 @@ export async function handle_record_maintenance_cost(input: ToolInput, userId: s
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // When actual_cost is set, create a manual_expenses record for financial reporting
+  if (input.actual_cost !== undefined && Number(input.actual_cost) > 0) {
+    try {
+      await sb.from('manual_expenses').insert({
+        owner_id: userId,
+        property_id: (req as any).property_id,
+        description: `Maintenance: ${(req as any).title || 'Repair'}`,
+        amount: Number(input.actual_cost),
+        expense_date: new Date().toISOString().split('T')[0],
+        is_tax_deductible: true,
+        tax_category: 'repairs',
+        notes: `Auto-created from maintenance request ${input.request_id}`,
+      });
+    } catch {
+      // Non-blocking: expense recording failure shouldn't prevent cost recording
+    }
+  }
+
   return { success: true, data };
 }
 
@@ -642,6 +715,18 @@ export async function handle_schedule_inspection(input: ToolInput, userId: strin
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants about the scheduled inspection
+  const tenantIds = await getTenantIdsForProperty(input.property_id as string, sb);
+  const dateStr = (input.preferred_date as string || '').split('T')[0];
+  for (const tid of tenantIds) {
+    dispatchNotif(sb, tid, 'inspection_scheduled',
+      'Inspection Scheduled',
+      `A ${inspectionType} inspection has been scheduled for ${dateStr}.`,
+      { inspection_id: (data as any).id, property_id: input.property_id, scheduled_date: input.preferred_date },
+    );
+  }
+
   return {
     success: true,
     data: {
@@ -741,6 +826,19 @@ export async function handle_submit_inspection_to_tenant(input: ToolInput, userI
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants to review the inspection
+  if ((data as any).tenancy_id) {
+    const tenantIds = await getTenantIds((data as any).tenancy_id, sb);
+    for (const tid of tenantIds) {
+      dispatchNotif(sb, tid, 'inspection_review_requested',
+        'Inspection Report Ready for Review',
+        'Please review and sign the inspection report.',
+        { inspection_id: input.inspection_id, tenancy_id: (data as any).tenancy_id },
+      );
+    }
+  }
+
   return { success: true, data: { ...data, message: input.message || 'Inspection submitted for tenant review' } };
 }
 
@@ -748,7 +846,7 @@ export async function handle_finalize_inspection(input: ToolInput, userId: strin
   // Verify ownership
   const { data: inspection } = await sb
     .from('inspections')
-    .select('id, property_id, status, properties!inner(owner_id)')
+    .select('id, property_id, inspection_type, status, scheduled_date, completed_at, properties!inner(owner_id, address_line_1, suburb, state)')
     .eq('id', input.inspection_id as string)
     .single();
 
@@ -767,7 +865,169 @@ export async function handle_finalize_inspection(input: ToolInput, userId: strin
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+
+  // Auto-save inspection report as a document
+  try {
+    const prop = (inspection as any).properties;
+    const propertyAddress = [prop?.address_line_1, prop?.suburb, prop?.state].filter(Boolean).join(', ');
+    const inspType = (inspection as any).inspection_type || 'routine';
+    const inspDate = (inspection as any).completed_at
+      ? new Date((inspection as any).completed_at).toLocaleDateString('en-AU')
+      : new Date().toLocaleDateString('en-AU');
+
+    // Fetch inspection items for the report
+    const { data: items } = await sb
+      .from('inspection_items')
+      .select('id, room_name, item_name, condition, notes, action_required, estimated_cost')
+      .eq('inspection_id', input.inspection_id as string)
+      .order('room_name', { ascending: true });
+
+    // Build HTML report content
+    const roomGroups: Record<string, any[]> = {};
+    for (const item of items || []) {
+      const room = (item as any).room_name || 'General';
+      if (!roomGroups[room]) roomGroups[room] = [];
+      roomGroups[room].push(item);
+    }
+
+    let roomsHtml = '';
+    for (const [room, roomItems] of Object.entries(roomGroups)) {
+      roomsHtml += `<h3 style="color:#1B2B4B;margin-top:20px;">${room}</h3><table style="width:100%;border-collapse:collapse;margin-bottom:10px;">`;
+      roomsHtml += '<tr style="background:#f5f5f5;"><th style="padding:8px;text-align:left;border:1px solid #ddd;">Item</th><th style="padding:8px;text-align:left;border:1px solid #ddd;">Condition</th><th style="padding:8px;text-align:left;border:1px solid #ddd;">Notes</th></tr>';
+      for (const item of roomItems) {
+        const condColors: Record<string, string> = { excellent: '#22c55e', good: '#4ade80', fair: '#fbbf24', poor: '#f97316', damaged: '#ef4444' };
+        const condColor = condColors[(item as any).condition] || '#6b7280';
+        roomsHtml += `<tr><td style="padding:8px;border:1px solid #ddd;">${(item as any).item_name}</td><td style="padding:8px;border:1px solid #ddd;color:${condColor};font-weight:600;">${(item as any).condition || 'N/A'}</td><td style="padding:8px;border:1px solid #ddd;">${(item as any).notes || '-'}</td></tr>`;
+      }
+      roomsHtml += '</table>';
+    }
+
+    const actionItems = (items || []).filter((i: any) => i.action_required);
+    let actionsHtml = '';
+    if (actionItems.length > 0) {
+      actionsHtml = '<h3 style="color:#ef4444;margin-top:20px;">Action Required</h3><ul>';
+      for (const item of actionItems) {
+        actionsHtml += `<li><strong>${(item as any).room_name} — ${(item as any).item_name}</strong>: ${(item as any).notes || 'Requires attention'}${(item as any).estimated_cost ? ` (est. $${(item as any).estimated_cost})` : ''}</li>`;
+      }
+      actionsHtml += '</ul>';
+    }
+
+    const htmlContent = `<div style="font-family:system-ui,sans-serif;max-width:700px;margin:0 auto;">
+<h1 style="color:#1B2B4B;">${inspType.charAt(0).toUpperCase() + inspType.slice(1)} Inspection Report</h1>
+<p style="color:#6b7280;">${propertyAddress} — ${inspDate}</p>
+<hr style="border:1px solid #e5e7eb;margin:16px 0;">
+${roomsHtml}
+${actionsHtml}
+<hr style="border:1px solid #e5e7eb;margin:16px 0;">
+<p style="color:#9ca3af;font-size:12px;">Report generated by Casa on ${new Date().toLocaleDateString('en-AU')}</p>
+</div>`;
+
+    const title = `${inspType.charAt(0).toUpperCase() + inspType.slice(1)} Inspection Report — ${propertyAddress}`;
+
+    // Get active tenancy for this property
+    const { data: tenancy } = await sb
+      .from('tenancies')
+      .select('id')
+      .eq('property_id', (inspection as any).property_id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+
+    const { data: docData } = await sb
+      .from('documents')
+      .insert({
+        owner_id: userId,
+        title,
+        document_type: 'inspection_report',
+        html_content: htmlContent,
+        property_id: (inspection as any).property_id,
+        tenancy_id: tenancy?.id || null,
+        status: 'signed',
+        tags: ['inspection', inspType, 'auto-generated'],
+      })
+      .select('id')
+      .single();
+
+    // Auto-share with tenant and notify
+    if (docData && tenancy) {
+      const tenantIds = await getTenantIds(tenancy.id, sb);
+      for (const tid of tenantIds) {
+        await sb.from('document_shares').insert({
+          document_id: (docData as any).id,
+          shared_with_id: tid,
+          can_download: true,
+        }).then(() => {});
+
+        dispatchNotif(sb, tid, 'inspection_report_shared',
+          'Inspection Report Available',
+          `The ${inspType} inspection report for ${propertyAddress} is now available in your documents.`,
+          { document_id: (docData as any).id, property_address: propertyAddress },
+        );
+      }
+    }
+
+    // Notify owner and tenant that inspection report is ready (fire-and-forget)
+    try {
+      const prop = (inspection as any).properties;
+      const reportAddress = [prop?.address_line_1, prop?.suburb, prop?.state].filter(Boolean).join(', ');
+      const reportType = (inspection as any).inspection_type || 'routine';
+
+      // Notify owner
+      dispatchNotif(sb, userId, 'inspection_report_ready',
+        'Inspection Report Ready',
+        `The ${reportType} inspection report for ${reportAddress} is now available.`,
+        { inspection_id: input.inspection_id as string, property_address: reportAddress },
+      );
+
+      // Notify tenant(s) if active tenancy exists
+      if (tenancy) {
+        const tenantIdsForNotif = await getTenantIds(tenancy.id, sb);
+        for (const tid of tenantIdsForNotif) {
+          dispatchNotif(sb, tid, 'inspection_report_ready',
+            'Inspection Report Available',
+            `The ${reportType} inspection report for your property is now available to view.`,
+            { inspection_id: input.inspection_id as string, property_address: reportAddress },
+          );
+        }
+      }
+    } catch { /* notification dispatch is best-effort, don't break finalization */ }
+
+    // Auto-create maintenance requests for items flagged as action_required
+    let maintenanceCreated = 0;
+    if (actionItems.length > 0 && tenancy) {
+      for (const item of actionItems) {
+        try {
+          await sb.from('maintenance_requests').insert({
+            property_id: (inspection as any).property_id,
+            tenancy_id: tenancy.id,
+            tenant_id: null,
+            category: 'other',
+            urgency: 'routine',
+            title: `Inspection: ${(item as any).room_name} — ${(item as any).item_name}`,
+            description: (item as any).notes || `Issue found during ${inspType} inspection on ${inspDate}. Requires attention.`,
+            status: 'submitted',
+            reported_by: 'inspector',
+          });
+          maintenanceCreated++;
+        } catch { /* best-effort */ }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        ...(data as any),
+        report_document_id: docData ? (docData as any).id : null,
+        action_items: actionItems.length,
+        maintenance_requests_created: maintenanceCreated,
+        message: `Inspection finalized. Report saved${docData ? ' and shared with tenant' : ''}.${actionItems.length > 0 ? ` ${actionItems.length} item(s) require action — ${maintenanceCreated} maintenance request(s) auto-created.` : ''}`,
+      },
+    };
+  } catch (reportErr) {
+    // Non-blocking: finalization succeeded even if report generation fails
+    console.error('Failed to auto-generate inspection report:', reportErr);
+    return { success: true, data: { ...(data as any), report_error: 'Report auto-generation failed but inspection was finalized' } };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -798,6 +1058,17 @@ export async function handle_create_work_order(input: ToolInput, userId: string,
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants that a work order has been created for their maintenance request
+  const tenantIds = await getTenantIdsForProperty((req as any).property_id, sb);
+  for (const tid of tenantIds) {
+    dispatchNotif(sb, tid, 'work_order_created',
+      'Maintenance Work Ordered',
+      `A tradesperson has been assigned to "${(req as any).title}".`,
+      { work_order_id: (data as any).id, request_id: input.request_id, property_id: (req as any).property_id },
+    );
+  }
+
   return { success: true, data };
 }
 
@@ -811,25 +1082,58 @@ export async function handle_update_work_order_status(input: ToolInput, userId: 
     .update(updates)
     .eq('id', input.work_order_id as string)
     .eq('owner_id', userId)
-    .select('id, status, final_amount')
+    .select('id, status, final_amount, property_id, title')
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants about work order status changes
+  if ((data as any).property_id) {
+    const tenantIds = await getTenantIdsForProperty((data as any).property_id, sb);
+    const statusLabel = ((input.status as string) || '').replace(/_/g, ' ');
+    for (const tid of tenantIds) {
+      dispatchNotif(sb, tid, 'work_order_update',
+        `Work Order ${statusLabel === 'completed' ? 'Completed' : 'Updated'}`,
+        `Work order for "${(data as any).title || 'maintenance'}" is now ${statusLabel}.`,
+        { work_order_id: input.work_order_id, status: input.status, property_id: (data as any).property_id },
+      );
+    }
+  }
+
   return { success: true, data };
 }
 
 export async function handle_approve_quote(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
-  const { error } = await sb
+  const { data: wo, error } = await sb
     .from('work_orders')
     .update({ status: 'approved', scheduled_date: input.preferred_schedule || null })
     .eq('id', input.quote_id as string)
-    .eq('owner_id', userId);
+    .eq('owner_id', userId)
+    .select('id, property_id, trade_id, maintenance_request_id, title, quoted_amount, scheduled_date')
+    .single();
 
   if (error) return { success: false, error: error.message };
 
   // Update maintenance request status
-  if (input.request_id) {
-    await sb.from('maintenance_requests').update({ status: 'approved' }).eq('id', input.request_id as string);
+  const requestId = (input.request_id as string) || (wo as any)?.maintenance_request_id;
+  if (requestId) {
+    await sb.from('maintenance_requests').update({ status: 'approved' }).eq('id', requestId);
+  }
+
+  // Notify tenants that their maintenance request has been approved and a trade is booked
+  if ((wo as any)?.property_id) {
+    const tenantIds = await getTenantIdsForProperty((wo as any).property_id, sb);
+    const tradeName = (wo as any)?.trade_id
+      ? await sb.from('trades').select('business_name').eq('id', (wo as any).trade_id).single().then(r => (r.data as any)?.business_name || 'a tradesperson')
+      : 'a tradesperson';
+    const dateStr = (wo as any)?.scheduled_date ? ` for ${((wo as any).scheduled_date as string).split('T')[0]}` : '';
+    for (const tid of tenantIds) {
+      dispatchNotif(sb, tid, 'maintenance_status_update',
+        'Maintenance Approved',
+        `A quote from ${tradeName} has been approved for "${(wo as any).title || 'your maintenance request'}"${dateStr}. You will be contacted to arrange access.`,
+        { work_order_id: (wo as any).id, request_id: requestId, property_id: (wo as any).property_id, status: 'approved' },
+      );
+    }
   }
 
   return { success: true, data: { quote_id: input.quote_id, status: 'approved' } };
@@ -951,6 +1255,17 @@ export async function handle_create_payment_plan(input: ToolInput, userId: strin
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants about the payment plan
+  const tenantIds = await getTenantIds(input.tenancy_id as string, sb);
+  for (const tid of tenantIds) {
+    dispatchNotif(sb, tid, 'payment_plan_created',
+      'Payment Plan Created',
+      `A payment plan of $${input.installment_amount}/week for ${totalInstallments} installments has been set up.`,
+      { tenancy_id: input.tenancy_id, installment_amount: input.installment_amount, total_installments: totalInstallments },
+    );
+  }
+
   return { success: true, data };
 }
 
@@ -973,6 +1288,16 @@ export async function handle_escalate_arrears(input: ToolInput, userId: string, 
     performed_by: userId,
     is_automated: false,
   });
+
+  // Notify tenants about arrears escalation
+  const tenantIds = await getTenantIds(input.tenancy_id as string, sb);
+  for (const tid of tenantIds) {
+    dispatchNotif(sb, tid, 'arrears_escalated',
+      'Rent Arrears Escalation',
+      `Your rent arrears have been escalated to level "${input.next_level}". Please contact your landlord.`,
+      { tenancy_id: input.tenancy_id, new_level: input.next_level },
+    );
+  }
 
   return { success: true, data: { arrears_id: (arrears as any).id, previous_level: input.current_level, new_level: input.next_level } };
 }
@@ -1132,6 +1457,17 @@ export async function handle_create_rent_increase(input: ToolInput, userId: stri
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Notify tenants about the rent increase notice
+  const tenantIds = await getTenantIds(input.tenancy_id as string, sb);
+  for (const tid of tenantIds) {
+    dispatchNotif(sb, tid, 'rent_increase_notice',
+      'Rent Increase Notice',
+      `Your rent will change to $${input.new_amount}/${(tenancy as any)?.rent_frequency || 'week'} effective ${input.effective_date}.`,
+      { tenancy_id: input.tenancy_id, new_amount: input.new_amount, effective_date: input.effective_date },
+    );
+  }
+
   return {
     success: true,
     data: {
@@ -1561,4 +1897,48 @@ export async function handle_cancel_rent_increase(input: ToolInput, userId: stri
 
   if (error) return { success: false, error: error.message };
   return { success: true, data };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MANUAL EXPENSES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_add_manual_expense(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify property ownership
+  if (!await verifyPropertyOwnership(input.property_id as string, userId, sb))
+    return { success: false, error: 'Property not found or access denied' };
+
+  const expenseDate = (input.expense_date as string) || new Date().toISOString().split('T')[0];
+
+  const { data, error } = await sb
+    .from('manual_expenses')
+    .insert({
+      owner_id: userId,
+      property_id: input.property_id as string,
+      description: input.description as string,
+      amount: input.amount as number,
+      expense_date: expenseDate,
+      tax_category: (input.tax_category as string) || 'other',
+      is_tax_deductible: input.is_tax_deductible !== false,
+      is_recurring: (input.is_recurring as boolean) || false,
+      recurring_frequency: (input.recurring_frequency as string) || null,
+      notes: (input.notes as string) || null,
+    })
+    .select('id, description, amount, expense_date, tax_category, is_tax_deductible')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  // Get property address for the response
+  const { data: prop } = await sb.from('properties').select('address_line_1, suburb, state').eq('id', input.property_id as string).single();
+  const address = prop ? `${(prop as any).address_line_1}, ${(prop as any).suburb}` : '';
+
+  return {
+    success: true,
+    data: {
+      ...(data as any),
+      property_address: address,
+      message: `Expense of $${(input.amount as number).toFixed(2)} recorded for ${address}: ${input.description}`,
+    },
+  };
 }

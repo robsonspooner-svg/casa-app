@@ -13,6 +13,8 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -110,7 +112,7 @@ export default function MaintenanceDetailScreen() {
     );
   }
 
-  const statusConfig = STATUS_CONFIG[request.status];
+  const statusConfig = STATUS_CONFIG[request.status] || { label: request.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), color: THEME.colors.textSecondary, bg: THEME.colors.subtle };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -175,6 +177,35 @@ export default function MaintenanceDetailScreen() {
           <Text style={styles.sectionTitle}>Description</Text>
           <Text style={styles.descriptionText}>{request.description}</Text>
         </View>
+
+        {/* Photos */}
+        {request.images && request.images.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Photos ({request.images.length})
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.imageScroll}
+            >
+              {request.images.map((img) => (
+                <View key={img.id} style={styles.imageCard}>
+                  <Image
+                    source={{ uri: img.url }}
+                    style={styles.maintenanceImage}
+                    resizeMode="cover"
+                  />
+                  {img.caption && (
+                    <Text style={styles.imageCaption} numberOfLines={2}>
+                      {img.caption}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Details */}
         <View style={styles.section}>
@@ -557,6 +588,26 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  imageScroll: {
+    gap: THEME.spacing.md,
+  },
+  imageCard: {
+    width: Dimensions.get('window').width * 0.6,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
+    backgroundColor: THEME.colors.canvas,
+  },
+  maintenanceImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: THEME.radius.md,
+  },
+  imageCaption: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    marginTop: THEME.spacing.xs,
+    paddingHorizontal: THEME.spacing.xs,
   },
   centered: {
     flex: 1,

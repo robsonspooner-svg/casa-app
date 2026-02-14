@@ -135,11 +135,13 @@ export function useConnectionCodes(): ConnectionCodesState & ConnectionCodesActi
     try {
       const supabase = getSupabaseClient();
 
-      // Generate a unique code using the database function
+      // Generate a unique code using cryptographic random
       const codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const randomValues = new Uint32Array(6);
+      crypto.getRandomValues(randomValues);
       let code = '';
       for (let i = 0; i < 6; i++) {
-        code += codeChars[Math.floor(Math.random() * codeChars.length)];
+        code += codeChars[randomValues[i] % codeChars.length];
       }
 
       // Calculate expiry date if specified

@@ -35,6 +35,7 @@ export const mockProfile = {
 
 // Create mock functions
 export const mockSignInWithPassword = vi.fn();
+export const mockSignInWithOAuth = vi.fn();
 export const mockSignUp = vi.fn();
 export const mockSignOut = vi.fn();
 export const mockGetSession = vi.fn();
@@ -54,6 +55,7 @@ export const mockStorage = {
 export const createMockSupabaseClient = () => ({
   auth: {
     signInWithPassword: mockSignInWithPassword,
+    signInWithOAuth: mockSignInWithOAuth,
     signUp: mockSignUp,
     signOut: mockSignOut,
     getSession: mockGetSession,
@@ -69,6 +71,7 @@ export const createMockSupabaseClient = () => ({
 // Reset all mocks
 export const resetMocks = () => {
   mockSignInWithPassword.mockReset();
+  mockSignInWithOAuth.mockReset();
   mockSignUp.mockReset();
   mockSignOut.mockReset();
   mockGetSession.mockReset();

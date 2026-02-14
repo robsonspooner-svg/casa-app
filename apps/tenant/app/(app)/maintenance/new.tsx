@@ -12,14 +12,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import * as ImagePicker from 'expo-image-picker';
 import { THEME } from '@casa/config';
 import { Button } from '@casa/ui';
 import { useMyTenancy, useMaintenanceMutations } from '@casa/api';
 import type { MaintenanceCategory, MaintenanceUrgency } from '@casa/api';
+
+const MAX_PHOTOS = 5;
 
 const CATEGORIES: { value: MaintenanceCategory; label: string; icon: string }[] = [
   { value: 'plumbing', label: 'Plumbing', icon: 'water' },
@@ -48,7 +52,7 @@ const LOCATIONS = [
 
 export default function NewMaintenanceScreen() {
   const { tenancy } = useMyTenancy();
-  const { createRequest } = useMaintenanceMutations();
+  const { createRequest, uploadImage } = useMaintenanceMutations();
 
   const [category, setCategory] = useState<MaintenanceCategory | null>(null);
   const [urgency, setUrgency] = useState<MaintenanceUrgency>('routine');
@@ -57,9 +61,33 @@ export default function NewMaintenanceScreen() {
   const [location, setLocation] = useState('');
   const [accessInstructions, setAccessInstructions] = useState('');
   const [preferredTimes, setPreferredTimes] = useState('');
+  const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const canSubmit = category && title.trim() && description.trim() && tenancy;
+
+  const handlePickImages = async () => {
+    if (images.length >= MAX_PHOTOS) {
+      Alert.alert('Limit Reached', `You can attach up to ${MAX_PHOTOS} photos.`);
+      return;
+    }
+
+    const remaining = MAX_PHOTOS - images.length;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      setImages(prev => [...prev, ...result.assets].slice(0, MAX_PHOTOS));
+    }
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit || !tenancy) return;
@@ -79,6 +107,15 @@ export default function NewMaintenanceScreen() {
       });
 
       if (requestId) {
+        // Upload photos in background (non-blocking)
+        if (images.length > 0) {
+          for (const img of images) {
+            const fileName = img.fileName || `photo_${Date.now()}.jpg`;
+            const mimeType = img.mimeType || 'image/jpeg';
+            uploadImage(requestId, img.uri, fileName, mimeType, true).catch(() => {});
+          }
+        }
+
         Alert.alert(
           'Request Submitted',
           urgency === 'emergency'
@@ -190,6 +227,34 @@ export default function NewMaintenanceScreen() {
             numberOfLines={4}
             textAlignVertical="top"
           />
+
+          {/* Photos */}
+          <Text style={styles.fieldLabel}>Photos</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll} contentContainerStyle={styles.photoScrollContent}>
+            {images.map((img, index) => (
+              <View key={index} style={styles.photoThumb}>
+                <Image source={{ uri: img.uri }} style={styles.photoImage} />
+                <TouchableOpacity
+                  style={styles.photoRemove}
+                  onPress={() => handleRemoveImage(index)}
+                >
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
+                  </Svg>
+                </TouchableOpacity>
+              </View>
+            ))}
+            {images.length < MAX_PHOTOS && (
+              <TouchableOpacity style={styles.photoAdd} onPress={handlePickImages}>
+                <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                  <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={THEME.colors.textTertiary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M12 17a4 4 0 100-8 4 4 0 000 8z" stroke={THEME.colors.textTertiary} strokeWidth={1.5} />
+                </Svg>
+                <Text style={styles.photoAddText}>Add Photos</Text>
+                <Text style={styles.photoAddHint}>{images.length}/{MAX_PHOTOS}</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
 
           {/* Location */}
           <Text style={styles.fieldLabel}>Location in Property</Text>
@@ -387,6 +452,56 @@ const styles = StyleSheet.create({
   locationChipTextSelected: {
     color: THEME.colors.textInverse,
     fontWeight: THEME.fontWeight.medium,
+  },
+  photoScroll: {
+    marginBottom: THEME.spacing.sm,
+  },
+  photoScrollContent: {
+    gap: THEME.spacing.sm,
+  },
+  photoThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoAdd: {
+    width: 80,
+    height: 80,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: THEME.colors.surface,
+    gap: 2,
+  },
+  photoAddText: {
+    fontSize: 10,
+    fontWeight: THEME.fontWeight.medium,
+    color: THEME.colors.textTertiary,
+    marginTop: 2,
+  },
+  photoAddHint: {
+    fontSize: 9,
+    color: THEME.colors.textTertiary,
   },
   submitContainer: {
     marginTop: THEME.spacing.xl,

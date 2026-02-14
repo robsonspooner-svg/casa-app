@@ -2,6 +2,7 @@
 // Fetches a document by ID, handles signing and saved signatures
 
 import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import type {
   DocumentRow,
@@ -35,14 +36,14 @@ export function useDocument(documentId: string | undefined): UseDocumentReturn {
     error: null,
   });
 
-  const fetchDocument = useCallback(async () => {
+  const fetchDocument = useCallback(async (isRefresh = false) => {
     if (!documentId) {
       setState(prev => ({ ...prev, loading: false }));
       return;
     }
 
     try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
+      setState(prev => ({ ...prev, loading: !isRefresh, error: null }));
       const supabase = getSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -93,6 +94,15 @@ export function useDocument(documentId: string | undefined): UseDocumentReturn {
   useEffect(() => {
     fetchDocument();
   }, [fetchDocument]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (documentId) {
+        fetchDocument(true);
+      }
+    }, [fetchDocument, documentId])
+  );
 
   const getSavedSignature = useCallback(async (): Promise<SavedSignatureRow | null> => {
     try {
@@ -158,13 +168,20 @@ export function useDocument(documentId: string | undefined): UseDocumentReturn {
 
       if (sigError) throw sigError;
 
-      // Update document status based on who signed
+      // Update document status based on who signed and who still needs to sign
+      const existingSignatures = state.document.signatures || [];
+      const allSignerIds = new Set(existingSignatures.map(s => s.signer_id));
+      allSignerIds.add(user.id); // Include current signer
+
       let newStatus: CasaDocumentStatus;
-      if (signerRole === 'owner' && state.document.tenant_id) {
-        // Owner signed, tenant needs to sign next
+      const needsOwnerSig = state.document.owner_id && !allSignerIds.has(state.document.owner_id);
+      const needsTenantSig = state.document.tenant_id && !allSignerIds.has(state.document.tenant_id);
+
+      if (needsOwnerSig) {
+        newStatus = 'pending_owner_signature';
+      } else if (needsTenantSig) {
         newStatus = 'pending_tenant_signature';
       } else {
-        // Fully signed (tenant signed, or no tenant needed)
         newStatus = 'signed';
       }
 

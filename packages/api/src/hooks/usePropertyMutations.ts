@@ -76,7 +76,9 @@ export function usePropertyMutations(): PropertyMutations {
             });
             await (supabase.from('property_compliance') as ReturnType<typeof supabase.from>).insert(complianceRecords);
           }
-        } catch { /* compliance init is best-effort — don't block property creation */ }
+        } catch (complianceErr) {
+          console.warn('Compliance init failed:', complianceErr instanceof Error ? complianceErr.message : complianceErr);
+        }
       }
 
       return property;
@@ -113,15 +115,23 @@ export function usePropertyMutations(): PropertyMutations {
       }
 
       const supabase = getSupabaseClient();
+      const now = new Date().toISOString();
 
       // Soft delete - set deleted_at timestamp
       const { error } = await (supabase
         .from('properties') as ReturnType<typeof supabase.from>)
-        .update({ deleted_at: new Date().toISOString() })
+        .update({ deleted_at: now })
         .eq('id', id)
         .eq('owner_id', user.id);
 
       if (error) throw new Error(error.message);
+
+      // Cascade: deactivate any active listings for this property
+      await (supabase
+        .from('listings') as ReturnType<typeof supabase.from>)
+        .update({ status: 'closed' })
+        .eq('property_id', id)
+        .in('status', ['draft', 'active']);
     },
     [user]
   );
@@ -135,6 +145,18 @@ export function usePropertyMutations(): PropertyMutations {
     ): Promise<PropertyImage> => {
       if (!user) {
         throw new Error('Not authenticated');
+      }
+
+      // Validate file size (10MB max)
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+      if (file.size > MAX_IMAGE_SIZE) {
+        throw new Error('Image must be smaller than 10MB');
+      }
+
+      // Validate MIME type
+      const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+      if (file.type && !ALLOWED_TYPES.includes(file.type)) {
+        throw new Error('Image must be a JPEG, PNG, WebP, or HEIC file');
       }
 
       const supabase = getSupabaseClient();

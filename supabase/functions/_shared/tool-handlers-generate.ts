@@ -965,6 +965,65 @@ export async function handle_create_document(input: ToolInput, userId: string, s
   };
 }
 
+export async function handle_update_document(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const documentId = input.document_id as string;
+  const htmlContent = input.html_content as string;
+
+  if (!documentId || !htmlContent) {
+    return { success: false, error: 'Missing required fields: document_id, html_content' };
+  }
+
+  // Fetch the existing document and verify ownership
+  const { data: existing, error: fetchErr } = await sb
+    .from('documents')
+    .select('id, title, html_content, document_type, version, owner_id')
+    .eq('id', documentId)
+    .eq('owner_id', userId)
+    .single();
+
+  if (fetchErr || !existing) return { success: false, error: 'Document not found or access denied' };
+
+  // Save previous version to document_versions table
+  const currentVersion = (existing as any).version || 1;
+  await sb.from('document_versions').insert({
+    document_id: documentId,
+    version_number: currentVersion,
+    html_content: (existing as any).html_content,
+    title: (existing as any).title,
+    created_by: userId,
+  });
+
+  // Update the document with new content
+  const updates: Record<string, unknown> = {
+    html_content: htmlContent,
+    version: currentVersion + 1,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.title) updates.title = input.title as string;
+  if (input.tags) updates.tags = input.tags;
+
+  const { data: updated, error: updateErr } = await sb
+    .from('documents')
+    .update(updates)
+    .eq('id', documentId)
+    .select('id, title, document_type, status, version, updated_at')
+    .single();
+
+  if (updateErr) return { success: false, error: updateErr.message };
+
+  return {
+    success: true,
+    data: {
+      document_id: (updated as any).id,
+      title: (updated as any).title,
+      version: (updated as any).version,
+      previous_version: currentVersion,
+      status: (updated as any).status,
+      view_route: `/(app)/documents/${(updated as any).id}`,
+    },
+  };
+}
+
 export async function handle_submit_document_email(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
   const documentId = input.document_id as string;
   const toEmail = input.to_email as string;
@@ -1053,6 +1112,37 @@ export async function handle_submit_document_email(input: ToolInput, userId: str
       .update({ status: doc.document_type === 'notice' ? 'submitted' : 'draft' })
       .eq('id', documentId);
 
+    // Create document_shares record if recipient is a known user
+    let sharedWithId: string | null = null;
+    const { data: recipientProfile } = await sb
+      .from('profiles')
+      .select('id')
+      .eq('email', toEmail)
+      .maybeSingle();
+
+    if (recipientProfile) {
+      sharedWithId = (recipientProfile as any).id;
+      await sb.from('document_shares').insert({
+        document_id: documentId,
+        share_type: 'user',
+        shared_with_id: sharedWithId,
+        shared_by: userId,
+      });
+
+      // Send push notification to the recipient
+      try {
+        await sb.functions.invoke('dispatch-notification', {
+          body: {
+            user_id: sharedWithId,
+            type: 'document_shared',
+            title: 'New Document',
+            body: `${ownerName} sent you a document: ${doc.title}`,
+            data: { document_id: documentId, route: `/(app)/documents/${documentId}` },
+          },
+        });
+      } catch { /* notification dispatch is best-effort */ }
+    }
+
     return {
       success: true,
       data: {
@@ -1060,6 +1150,7 @@ export async function handle_submit_document_email(input: ToolInput, userId: str
         document_id: documentId,
         to_email: toEmail,
         subject: emailSubject,
+        shared_with_user: sharedWithId ? true : false,
       },
     };
   } catch (err: any) {
@@ -1385,11 +1476,11 @@ export async function handle_generate_work_order(input: ToolInput, userId: strin
 }
 
 // ── REAL INTEGRATION: Resend Email ────────────────────────────────────────
-export async function handle_send_email_sendgrid(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
-  const resendApiKey = Deno.env.get('RESEND_API_KEY');
-  if (!resendApiKey) {
-    return { success: false, error: 'RESEND_API_KEY not configured. Set it in Supabase secrets to enable email sending.' };
-  }
+// Legacy alias — redirects to the new handler
+export const handle_send_email_sendgrid = handle_send_email_resend;
+
+export async function handle_send_email_resend(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { sendEmail, isValidEmailContext, resolveEmailSender } = await import('../_shared/email.ts');
 
   const to = input.to as string;
   const subject = input.subject as string;
@@ -1397,32 +1488,52 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
   const cc = (input.cc as string[]) || [];
   const bcc = (input.bcc as string[]) || [];
   const replyTo = (input.reply_to as string) || undefined;
+  const contextType = (input.context_type as string) || '';
 
   if (!to || !subject || !htmlContent) {
     return { success: false, error: 'Missing required fields: to, subject, html_content' };
   }
 
-  // Validate primary recipient. Owners can email: themselves, their tenants,
-  // or trades in their network. Tenants can only email their own owner (via
-  // the agent with owner approval). Tenants must NOT email trades directly —
-  // trade correspondence flows through the owner or agent-on-owner's-behalf.
+  // ── SECURITY: Validate email context type ────────────────────────────────
+  // Every email MUST declare a valid context type from the allowlist.
+  // This prevents users from tricking the agent into sending arbitrary emails.
+  if (!contextType || !isValidEmailContext(contextType)) {
+    return {
+      success: false,
+      error: `Invalid or missing context_type "${contextType}". Emails must declare a valid context type (e.g. "rent_reminder", "trade_quote_request", "owner_to_tenant"). Arbitrary email sending is not permitted.`,
+    };
+  }
+
+  // ── SECURITY: Validate recipient is in the user's network ────────────────
   const { data: ownProfile } = await sb.from('profiles').select('email, role').eq('id', userId).single();
   const isOwnerEmail = ownProfile?.email?.toLowerCase() === to.toLowerCase();
   const callerIsOwner = ownProfile?.role === 'owner';
 
   if (!isOwnerEmail) {
     // Check if recipient is a tenant associated with the owner's properties
-    const { data: tenantProfile, error: tpErr } = await sb
+    const { data: tenantProfile } = await sb
       .from('profiles')
-      .select('id, email, tenancies!inner(property_id, properties!inner(owner_id))')
+      .select('id, email')
       .eq('email', to)
-      .eq('tenancies.properties.owner_id', userId)
       .limit(1)
       .maybeSingle();
 
-    if (tpErr || !tenantProfile) {
+    let recipientIsTenant = false;
+    let recipientIsTrade = false;
+
+    if (tenantProfile) {
+      const { data: tenantLink } = await sb
+        .from('tenancy_tenants')
+        .select('tenant_id, tenancies!inner(property_id, properties!inner(owner_id))')
+        .eq('tenant_id', tenantProfile.id)
+        .eq('tenancies.properties.owner_id', userId)
+        .limit(1)
+        .maybeSingle();
+      recipientIsTenant = !!tenantLink;
+    }
+
+    if (!recipientIsTenant) {
       if (callerIsOwner) {
-        // Owners can email any trade in their network
         const { data: tradeProfile } = await sb
           .from('trades')
           .select('id, email, owner_trades!inner(owner_id)')
@@ -1430,85 +1541,204 @@ export async function handle_send_email_sendgrid(input: ToolInput, userId: strin
           .eq('owner_trades.owner_id', userId)
           .limit(1)
           .maybeSingle();
+        recipientIsTrade = !!tradeProfile;
 
-        if (!tradeProfile) {
-          return { success: false, error: 'Recipient email is not associated with any of your properties or trade network. You can only email your own tenants and tradespeople.' };
+        if (!recipientIsTrade) {
+          return { success: false, error: 'Recipient email is not associated with any of your tenants or trade network. You can only email people connected to your properties.' };
         }
       } else {
-        // Tenants can only email trades already assigned to a work order on
-        // their property — they cannot cold-email trades from the owner's
-        // network. The owner or agent must initiate trade contact first.
         const { data: assignedTrade } = await sb
           .from('trades')
-          .select('id, email, work_orders!inner(id, property_id, status, properties!inner(id, tenancies!inner(tenant_id)))')
+          .select('id, email, work_orders!inner(id, property_id, status)')
           .eq('email', to)
-          .eq('work_orders.properties.tenancies.tenant_id', userId)
           .in('work_orders.status', ['sent', 'quoted', 'approved', 'in_progress'])
           .limit(1)
           .maybeSingle();
+        recipientIsTrade = !!assignedTrade;
 
-        if (!assignedTrade) {
-          return { success: false, error: 'You can only email tradespeople who have been assigned to a job at your property. Please raise a maintenance request and your landlord or Casa will coordinate with trades on your behalf.' };
+        if (!recipientIsTrade) {
+          return { success: false, error: 'You can only email tradespeople assigned to a job at your property. Raise a maintenance request and Casa will coordinate with trades on your behalf.' };
         }
       }
     }
+
+    // ── SECURITY: Validate context matches recipient type ──────────────────
+    const isTradeContext = contextType.startsWith('trade_') || contextType === 'owner_to_trade';
+    const isTenantContext = !isTradeContext;
+
+    if (recipientIsTrade && isTenantContext) {
+      return { success: false, error: `Context type "${contextType}" is for tenant emails, but the recipient is a tradesperson. Use a trade context type like "trade_quote_request" or "owner_to_trade".` };
+    }
+    if (recipientIsTenant && isTradeContext) {
+      return { success: false, error: `Context type "${contextType}" is for trade emails, but the recipient is a tenant. Use a tenant context type like "rent_reminder" or "owner_to_tenant".` };
+    }
   }
 
-  const fromEmail = Deno.env.get('EMAIL_FROM') || 'noreply@casaapp.com.au';
-  const fromName = Deno.env.get('EMAIL_FROM_NAME') || 'Casa';
+  // ── Resolve sender identity based on context ─────────────────────────────
+  const sender = resolveEmailSender(contextType as any, userId);
 
   try {
-    const emailPayload: Record<string, unknown> = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [to],
+    const result = await sendEmail({
+      to,
       subject,
-      html: htmlContent,
-      text: htmlContent.replace(/<[^>]*>/g, ''),
-    };
-    if (cc.length > 0) emailPayload.cc = cc;
-    if (bcc.length > 0) emailPayload.bcc = bcc;
-    if (replyTo) emailPayload.reply_to = replyTo;
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(emailPayload),
+      htmlContent,
+      textContent: htmlContent.replace(/<[^>]*>/g, ''),
+      cc: cc.length > 0 ? cc : undefined,
+      bcc: bcc.length > 0 ? bcc : undefined,
+      replyTo: replyTo || (sender.persona ? sender.persona.email : undefined),
+      fromEmail: sender.fromEmail,
+      fromName: sender.fromName,
     });
 
-    if (response.ok) {
-      const data = await response.json();
-
-      // Log to maintenance workflow if linked to a maintenance request
-      const maintenanceRequestId = input.maintenance_request_id as string;
-      if (maintenanceRequestId) {
-        await sb.from('maintenance_comments').insert({
-          request_id: maintenanceRequestId,
-          author_id: userId,
-          content: `📧 Email sent to ${to}${cc.length > 0 ? ` (CC: ${cc.join(', ')})` : ''}${bcc.length > 0 ? ` (BCC: ${bcc.join(', ')})` : ''} — Subject: ${subject}`,
-          is_internal: true,
-          metadata: {
-            type: 'email_sent',
-            email_type: 'general',
-            to,
-            cc,
-            bcc,
-            subject,
-            html_content: htmlContent,
-            message_id: data.id || null,
-          },
-        }).then(() => {}).catch(() => {}); // best-effort logging
-      }
-
-      return { success: true, data: { sent: true, to, cc, bcc, subject, messageId: data.id || undefined } };
+    if (!result.success) {
+      return { success: false, error: `Email send failed: ${result.error}` };
     }
-    const errorBody = await response.text();
-    return { success: false, error: `Resend error ${response.status}: ${errorBody}` };
+
+    // Log to maintenance workflow if linked to a maintenance request
+    const maintenanceRequestId = input.maintenance_request_id as string;
+    if (maintenanceRequestId) {
+      await sb.from('maintenance_comments').insert({
+        request_id: maintenanceRequestId,
+        author_id: userId,
+        content: `Email sent to ${to}${cc.length > 0 ? ` (CC: ${cc.join(', ')})` : ''} — Subject: ${subject}`,
+        is_internal: true,
+        metadata: {
+          type: 'email_sent',
+          email_type: contextType,
+          to, cc, bcc, subject,
+          persona: sender.persona?.name || null,
+          message_id: result.messageId || null,
+        },
+      }).then(() => {}).catch(() => {}); // best-effort logging
+    }
+
+    return {
+      success: true,
+      data: {
+        sent: true, to, cc, bcc, subject,
+        messageId: result.messageId,
+        sentAs: sender.persona?.name || 'Casa',
+        fromEmail: sender.fromEmail,
+      },
+    };
   } catch (err: any) {
     return { success: false, error: `Email send failed: ${err.message}` };
   }
+}
+
+// ── TRADE NEGOTIATION EMAIL ────────────────────────────────────────────────
+// Purpose-built tool for trade correspondence. Uses persona system so trades
+// feel they're dealing with a real property coordinator. The agent writes
+// the email body using the negotiation principles defined in email.ts.
+// This tool CANNOT be used by tenants or for non-trade recipients.
+export async function handle_trade_negotiation_email(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { sendEmail, getPersonaForOwner, TRADE_NEGOTIATION_PRINCIPLES } = await import('../_shared/email.ts');
+
+  const tradeId = input.trade_id as string;
+  const emailType = (input.email_type as string) || 'quote_request';
+  const jobTitle = input.job_title as string;
+  const propertyAddress = input.property_address as string;
+  const emailBody = input.email_body as string;
+  const maintenanceRequestId = (input.maintenance_request_id as string) || undefined;
+  const workOrderId = (input.work_order_id as string) || undefined;
+  const ccOwner = input.cc_owner !== false; // Default: CC the owner
+
+  if (!tradeId || !jobTitle || !propertyAddress || !emailBody) {
+    return { success: false, error: 'Missing required fields: trade_id, job_title, property_address, email_body' };
+  }
+
+  // Validate email_type
+  const validTypes = ['quote_request', 'negotiation', 'followup', 'work_order'] as const;
+  if (!validTypes.includes(emailType as any)) {
+    return { success: false, error: `Invalid email_type "${emailType}". Must be one of: ${validTypes.join(', ')}` };
+  }
+
+  // ── SECURITY: Only owners can use this tool ──────────────────────────────
+  const { data: ownerProfile } = await sb.from('profiles').select('email, role, full_name').eq('id', userId).single();
+  if (!ownerProfile || ownerProfile.role !== 'owner') {
+    return { success: false, error: 'Only property owners can send trade correspondence. Tenants should raise a maintenance request and Casa will coordinate with trades.' };
+  }
+
+  // ── SECURITY: Validate trade is in owner's network ───────────────────────
+  const { data: trade } = await sb
+    .from('trades')
+    .select('id, business_name, contact_name, email, phone, owner_trades!inner(owner_id)')
+    .eq('id', tradeId)
+    .eq('owner_trades.owner_id', userId)
+    .single();
+
+  if (!trade || !trade.email) {
+    return { success: false, error: 'Trade not found in your network or trade has no email address.' };
+  }
+
+  // Get the persona for this owner
+  const persona = getPersonaForOwner(userId);
+
+  // Build the subject line
+  const subject = TRADE_NEGOTIATION_PRINCIPLES.getSubject(
+    emailType as any,
+    jobTitle,
+    propertyAddress,
+  );
+
+  // Wrap the email body with persona signature
+  const fullHtml = `
+<div style="font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #1B2B4B; font-size: 15px; line-height: 1.6;">
+  <p>Hi ${trade.contact_name || trade.business_name},</p>
+  ${emailBody}
+  ${persona.signatureHtml}
+</div>`;
+
+  // CC the owner so they can see all trade correspondence
+  const ccList = ccOwner && ownerProfile.email ? [ownerProfile.email] : undefined;
+
+  const result = await sendEmail({
+    to: trade.email,
+    toName: trade.contact_name || trade.business_name,
+    subject,
+    htmlContent: fullHtml,
+    textContent: fullHtml.replace(/<[^>]*>/g, ''),
+    cc: ccList,
+    fromEmail: persona.email,
+    fromName: persona.name,
+    replyTo: persona.email,
+  });
+
+  if (!result.success) {
+    return { success: false, error: `Failed to send email to trade: ${result.error}` };
+  }
+
+  // Log to maintenance comments if linked to a request
+  if (maintenanceRequestId) {
+    await sb.from('maintenance_comments').insert({
+      request_id: maintenanceRequestId,
+      author_id: userId,
+      content: `Email sent to ${trade.business_name} (${trade.email}) as ${persona.name} — Subject: ${subject}`,
+      is_internal: true,
+      metadata: {
+        type: 'trade_email_sent',
+        email_type: emailType,
+        trade_id: tradeId,
+        work_order_id: workOrderId || null,
+        persona: persona.name,
+        message_id: result.messageId || null,
+      },
+    }).then(() => {}).catch(() => {}); // best-effort
+  }
+
+  return {
+    success: true,
+    data: {
+      sent: true,
+      to: trade.email,
+      tradeName: trade.business_name,
+      subject,
+      sentAs: persona.name,
+      personaEmail: persona.email,
+      messageId: result.messageId,
+      ccOwner: !!ccList,
+    },
+  };
 }
 
 // ── REAL INTEGRATION: Expo Push Notifications ─────────────────────────────
@@ -1839,6 +2069,79 @@ export async function handle_generate_proof_of_service(input: ToolInput, userId:
         trackingNumber: input.tracking_number || null,
         witnessName: input.witness_name || null,
       },
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENT SIGNATURE REMINDERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_remind_unsigned_documents(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Find documents pending signature
+  let query = sb
+    .from('documents')
+    .select(`id, title, document_type, status, created_at, updated_at,
+      properties(id, address_line_1, suburb, state),
+      document_signatures(id, signer_id, signed_at, profiles:signer_id(full_name, email))`)
+    .eq('owner_id', userId)
+    .in('status', ['pending_owner_signature', 'pending_tenant_signature'])
+    .order('created_at', { ascending: false });
+
+  if (input.property_id) query = query.eq('property_id', input.property_id as string);
+  if (input.document_id) query = query.eq('id', input.document_id as string);
+
+  const { data: docs, error } = await query;
+  if (error) return { success: false, error: error.message };
+
+  if (!docs || docs.length === 0) {
+    return { success: true, data: { message: 'No documents are currently awaiting signatures.', documents: [] } };
+  }
+
+  // Send reminders for each unsigned document
+  const reminders: Array<{ document_id: string; title: string; reminded: string[] }> = [];
+
+  for (const doc of docs) {
+    const reminded: string[] = [];
+    const docAny = doc as any;
+    const signatures = docAny.document_signatures || [];
+    const unsigned = signatures.filter((s: any) => !s.signed_at);
+
+    for (const sig of unsigned) {
+      if (sig.signer_id) {
+        try {
+          await sb.functions.invoke('dispatch-notification', {
+            body: {
+              user_id: sig.signer_id,
+              type: 'document_signature_reminder',
+              title: 'Document Awaiting Your Signature',
+              body: `"${docAny.title}" is waiting for your signature. Please review and sign at your earliest convenience.`,
+              data: {
+                document_id: docAny.id,
+                document_title: docAny.title,
+              },
+              channels: ['push', 'email'],
+            },
+          });
+          reminded.push(sig.profiles?.full_name || sig.signer_id);
+        } catch { /* best-effort */ }
+      }
+    }
+
+    reminders.push({
+      document_id: docAny.id,
+      title: docAny.title,
+      reminded,
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      documents_found: docs.length,
+      reminders_sent: reminders.reduce((sum, r) => sum + r.reminded.length, 0),
+      details: reminders,
+      message: `Found ${docs.length} document(s) awaiting signatures. Sent ${reminders.reduce((sum, r) => sum + r.reminded.length, 0)} reminder(s).`,
     },
   };
 }

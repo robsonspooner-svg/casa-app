@@ -159,16 +159,37 @@ export default function OnboardingScreen() {
   const markOnboardingComplete = useCallback(async () => {
     if (!user) return;
     const supabase = getSupabaseClient();
-    await (supabase
+    const { error } = await (supabase
       .from('profiles') as any)
       .update({ onboarding_completed: true })
       .eq('id', user.id);
+    if (error) throw error;
   }, [user]);
 
   const handleSkip = useCallback(async () => {
     setCompleting(true);
     try {
       await markOnboardingComplete();
+      // Send AI welcome message (fire-and-forget)
+      try {
+        const supabase = getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          fetch(
+            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                message: 'I just signed up for Casa. Give me a brief welcome and tell me what you can help me with as my AI property manager.',
+              }),
+            }
+          ).catch(() => {});
+        }
+      } catch { /* non-blocking */ }
       router.replace('/(app)/(tabs)' as never);
     } catch {
       Alert.alert('Error', 'Failed to complete onboarding. Please try again.');

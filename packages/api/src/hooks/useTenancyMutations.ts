@@ -88,8 +88,7 @@ export function useTenancyMutations(): TenancyMutations {
       });
 
       if (scheduleError) {
-        console.warn('Failed to generate rent schedule:', scheduleError);
-        // Non-fatal: tenancy created, schedule can be generated later
+        throw new Error(`Tenancy created but rent schedule failed: ${scheduleError.message || 'Unknown error'}`);
       }
     }
 
@@ -107,6 +106,23 @@ export function useTenancyMutations(): TenancyMutations {
       .eq('id', tenancyId);
 
     if (error) throw error;
+
+    // Regenerate rent schedule when lease terms change
+    const leaseFieldsChanged = data.rent_amount !== undefined
+      || data.rent_frequency !== undefined
+      || data.lease_start_date !== undefined
+      || data.lease_end_date !== undefined;
+
+    if (leaseFieldsChanged) {
+      // @ts-expect-error - RPC function types not generated for custom functions
+      const { error: scheduleError } = await supabase.rpc('generate_rent_schedule', {
+        p_tenancy_id: tenancyId,
+      });
+
+      if (scheduleError) {
+        console.warn('Rent schedule regeneration failed:', scheduleError.message);
+      }
+    }
   }, [user]);
 
   const updateTenancyStatus = useCallback(async (

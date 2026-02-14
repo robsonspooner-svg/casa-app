@@ -34,6 +34,18 @@ export function useMaintenanceMutations() {
     try {
       const supabase = getSupabaseClient();
 
+      // Validate property exists
+      const { data: property, error: propError } = await (supabase
+        .from('properties') as ReturnType<typeof supabase.from>)
+        .select('id')
+        .eq('id', input.property_id)
+        .is('deleted_at', null)
+        .single();
+
+      if (propError || !property) {
+        throw new Error('Property not found or has been deleted');
+      }
+
       const insertData: MaintenanceRequestInsert = {
         tenancy_id: input.tenancy_id,
         property_id: input.property_id,
@@ -55,7 +67,62 @@ export function useMaintenanceMutations() {
         .single();
 
       if (error) throw error;
-      return (data as any)?.id || null;
+
+      const requestId = (data as any)?.id || null;
+
+      // Notify the property owner about the new maintenance request
+      if (requestId) {
+        try {
+          const { data: propertyData } = await (supabase
+            .from('properties') as ReturnType<typeof supabase.from>)
+            .select('owner_id, address_line_1, suburb, state, postcode')
+            .eq('id', input.property_id)
+            .single();
+
+          if (propertyData?.owner_id) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const urgencyLabel = input.urgency === 'emergency' ? 'EMERGENCY: ' : '';
+              const propertyAddress = [
+                (propertyData as any).address_line_1,
+                (propertyData as any).suburb,
+                (propertyData as any).state,
+                (propertyData as any).postcode,
+              ].filter(Boolean).join(', ');
+              fetch(
+                `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/dispatch-notification`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    user_id: (propertyData as any).owner_id,
+                    type: 'maintenance_submitted',
+                    title: `${urgencyLabel}New Maintenance Request`,
+                    body: input.title,
+                    data: {
+                      request_id: requestId,
+                      category: input.category,
+                      urgency: input.urgency || 'routine',
+                      property_address: propertyAddress,
+                      issue_title: input.title,
+                    },
+                    related_type: 'maintenance_request',
+                    related_id: requestId,
+                    channels: ['push', 'email'],
+                  }),
+                }
+              ).catch(() => {});
+            }
+          }
+        } catch {
+          // Non-blocking: notification failure shouldn't prevent request creation
+        }
+      }
+
+      return requestId;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Failed to create request';
       throw new Error(message);
@@ -118,6 +185,55 @@ export function useMaintenanceMutations() {
           content: notes,
           is_internal: false,
         });
+      }
+
+      // Notify tenant about the status change
+      try {
+        const { data: reqData } = await (supabase
+          .from('maintenance_requests') as ReturnType<typeof supabase.from>)
+          .select('tenant_id, title, property_id, properties!inner(address_line_1, suburb, state, postcode)')
+          .eq('id', requestId)
+          .single();
+
+        if (reqData?.tenant_id) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const prop = (reqData as any).properties;
+            const propertyAddress = [prop?.address_line_1, prop?.suburb, prop?.state, prop?.postcode].filter(Boolean).join(', ');
+            const notifType = status === 'completed' ? 'maintenance_completed' : 'maintenance_status_update';
+            const statusLabel = status.replace(/_/g, ' ');
+            fetch(
+              `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/dispatch-notification`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  user_id: (reqData as any).tenant_id,
+                  type: notifType,
+                  title: status === 'completed' ? 'Maintenance Completed' : 'Maintenance Update',
+                  body: status === 'completed'
+                    ? `The maintenance request "${(reqData as any).title}" has been completed.`
+                    : `Your maintenance request "${(reqData as any).title}" has been updated to "${statusLabel}".`,
+                  data: {
+                    request_id: requestId,
+                    new_status: status,
+                    issue_title: (reqData as any).title,
+                    tenant_name: '', // dispatch-notification looks up recipient name
+                    property_address: propertyAddress,
+                  },
+                  related_type: 'maintenance_request',
+                  related_id: requestId,
+                  channels: ['push', 'email'],
+                }),
+              }
+            ).catch(() => {});
+          }
+        }
+      } catch {
+        // Non-blocking: notification failure shouldn't prevent status update
       }
 
       return true;
@@ -217,6 +333,35 @@ export function useMaintenanceMutations() {
         .eq('id', requestId);
 
       if (error) throw error;
+
+      // Create manual_expenses record for financial reporting when actual cost is recorded
+      if (actualCost !== undefined && actualCost > 0) {
+        try {
+          const { data: reqData } = await (supabase
+            .from('maintenance_requests') as ReturnType<typeof supabase.from>)
+            .select('title, property_id')
+            .eq('id', requestId)
+            .single();
+
+          if (reqData) {
+            await (supabase
+              .from('manual_expenses') as ReturnType<typeof supabase.from>)
+              .insert({
+                owner_id: user.id,
+                property_id: (reqData as any).property_id,
+                description: `Maintenance: ${(reqData as any).title || 'Repair'}`,
+                amount: actualCost,
+                expense_date: new Date().toISOString().split('T')[0],
+                is_tax_deductible: true,
+                tax_category: 'repairs',
+                notes: `Auto-created from maintenance request ${requestId}`,
+              });
+          }
+        } catch {
+          // Non-blocking: expense recording failure shouldn't prevent cost recording
+        }
+      }
+
       return true;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Failed to record cost';

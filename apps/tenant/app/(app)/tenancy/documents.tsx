@@ -29,7 +29,11 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 function DocumentRow({ document }: { document: TenancyDocument }) {
   return (
-    <TouchableOpacity style={styles.docRow} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.docRow}
+      activeOpacity={0.7}
+      onPress={() => router.push(`/(app)/documents/${document.id}` as never)}
+    >
       <View style={styles.docIcon}>
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.textSecondary} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
@@ -43,7 +47,9 @@ function DocumentRow({ document }: { document: TenancyDocument }) {
           {new Date(document.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
         </Text>
       </View>
-      <Text style={styles.downloadArrow}>↓</Text>
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+        <Path d="M9 18l6-6-6-6" stroke={THEME.colors.textTertiary} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
     </TouchableOpacity>
   );
 }
@@ -79,6 +85,13 @@ export default function TenancyDocumentsScreen() {
           <Text style={styles.emptySubtitle}>
             Documents related to your tenancy will appear here once uploaded by your landlord.
           </Text>
+          <TouchableOpacity
+            style={styles.askCasaBtn}
+            onPress={() => router.push('/(app)/(tabs)/chat' as any)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.askCasaBtnText}>Ask Casa about your documents</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -103,6 +116,8 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: THEME.colors.textPrimary, marginBottom: 8 },
   emptySubtitle: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: 'center' },
+  askCasaBtn: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 20, backgroundColor: THEME.colors.subtle, borderRadius: THEME.radius.full },
+  askCasaBtnText: { fontSize: THEME.fontSize.bodySmall, fontWeight: '500' as const, color: THEME.colors.brandIndigo },
   listContent: { paddingHorizontal: 20, paddingBottom: 20 },
   docRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: THEME.colors.border },
   docIcon: { width: 40, height: 40, borderRadius: THEME.radius.md, backgroundColor: `${THEME.colors.brand}10`, alignItems: 'center', justifyContent: 'center', marginRight: 12 },

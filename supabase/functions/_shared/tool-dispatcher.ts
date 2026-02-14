@@ -24,6 +24,8 @@ import {
   handle_get_tenancy_law,
   handle_get_property_health, handle_get_tenant_satisfaction,
   handle_get_market_intelligence, handle_get_portfolio_snapshot,
+  handle_analyze_payment_patterns,
+  handle_get_document_access_log,
 } from './tool-handlers.ts';
 
 import {
@@ -48,6 +50,7 @@ import {
   handle_send_receipt, handle_retry_payment, handle_claim_bond,
   handle_update_autopay, handle_cancel_rent_increase,
   handle_record_quote_response,
+  handle_add_manual_expense,
 } from './tool-handlers-actions.ts';
 
 import {
@@ -60,7 +63,7 @@ import {
   handle_generate_tax_report, handle_generate_property_summary,
   handle_generate_portfolio_report, handle_generate_cash_flow_forecast,
   handle_generate_lease, handle_assess_tenant_damage, handle_compare_quotes,
-  handle_create_document, handle_submit_document_email,
+  handle_create_document, handle_update_document, handle_submit_document_email,
   handle_request_document_signature, handle_update_document_status,
   handle_web_search, handle_find_local_trades, handle_parse_business_details,
   handle_create_service_provider, handle_request_quote, handle_get_market_data,
@@ -74,13 +77,15 @@ import {
   handle_run_credit_check, handle_run_tica_check,
   handle_collect_rent_stripe, handle_refund_payment_stripe,
   handle_send_docusign_envelope, handle_lodge_bond_state,
-  handle_send_sms_twilio, handle_send_email_sendgrid,
+  handle_send_sms_twilio, handle_send_email_sendgrid, handle_send_email_resend,
   handle_send_push_expo, handle_search_trades_hipages,
+  handle_trade_negotiation_email,
   handle_check_compliance_requirements, handle_track_authority_submission,
   handle_generate_proof_of_service,
   handle_generate_wealth_report, handle_generate_property_action_plan,
   handle_predict_vacancy_risk, handle_calculate_roi_metrics,
   handle_generate_work_order,
+  handle_remind_unsigned_documents,
 } from './tool-handlers-generate.ts';
 
 import { TOOL_META } from './tool-registry.ts';
@@ -182,6 +187,7 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   update_autopay: handle_update_autopay,
   cancel_rent_increase: handle_cancel_rent_increase,
   record_quote_response: handle_record_quote_response,
+  add_manual_expense: handle_add_manual_expense,
 
   // Generate tools
   generate_listing: handle_generate_listing,
@@ -207,9 +213,11 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
 
   // Work order document generation
   generate_work_order: handle_generate_work_order,
+  remind_unsigned_documents: handle_remind_unsigned_documents,
 
   // Document lifecycle tools
   create_document: handle_create_document,
+  update_document: handle_update_document,
   submit_document_email: handle_submit_document_email,
   request_document_signature: handle_request_document_signature,
   update_document_status: handle_update_document_status,
@@ -253,8 +261,10 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   send_docusign_envelope: handle_send_docusign_envelope,
   lodge_bond_state: handle_lodge_bond_state,
   send_sms_twilio: handle_send_sms_twilio,
-  send_email_sendgrid: handle_send_email_sendgrid,
+  send_email_sendgrid: handle_send_email_sendgrid, // legacy alias
+  send_email_resend: handle_send_email_resend,     // preferred name
   send_push_expo: handle_send_push_expo,
+  trade_negotiation_email: handle_trade_negotiation_email,
   search_trades_hipages: handle_search_trades_hipages,
 
   // Compliance / Authority tools
@@ -267,6 +277,8 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   get_tenant_satisfaction: handle_get_tenant_satisfaction,
   get_market_intelligence: handle_get_market_intelligence,
   get_portfolio_snapshot: handle_get_portfolio_snapshot,
+  analyze_payment_patterns: handle_analyze_payment_patterns,
+  get_document_access_log: handle_get_document_access_log,
   generate_wealth_report: handle_generate_wealth_report,
   generate_property_action_plan: handle_generate_property_action_plan,
   predict_vacancy_risk: handle_predict_vacancy_risk,
@@ -309,6 +321,26 @@ export async function executeToolHandler(
 /** Get count of implemented tool handlers */
 export function getImplementedToolCount(): number {
   return Object.keys(HANDLER_MAP).length;
+}
+
+/** Validate that all registered tools have handlers. Logs warnings for mismatches. */
+export function validateToolRegistry(): { missing: string[]; extra: string[] } {
+  const registeredTools = Object.keys(TOOL_META);
+  const handledTools = Object.keys(HANDLER_MAP);
+  const handledSet = new Set(handledTools);
+  const registeredSet = new Set(registeredTools);
+
+  const missing = registeredTools.filter(t => !handledSet.has(t) && !TOOL_META[t]?.isStub);
+  const extra = handledTools.filter(t => !registeredSet.has(t));
+
+  if (missing.length > 0) {
+    console.warn(`[tool-registry] ${missing.length} registered tools have no handler: ${missing.join(', ')}`);
+  }
+  if (extra.length > 0) {
+    console.warn(`[tool-registry] ${extra.length} handlers have no registry entry: ${extra.join(', ')}`);
+  }
+
+  return { missing, extra };
 }
 
 // ---------------------------------------------------------------------------

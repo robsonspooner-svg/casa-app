@@ -11,12 +11,16 @@ import {
   Alert,
   Dimensions,
   Image,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { useDocument } from '@casa/api';
+import { useDocument, useDocumentComments, getSupabaseClient } from '@casa/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import SignaturePad from '../../../components/SignaturePad';
@@ -114,8 +118,11 @@ function formatDateTime(dateStr: string): string {
 export default function TenantDocumentViewerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { document: doc, savedSignature, loading, signing, error, signDocument, refreshDocument } = useDocument(id);
+  const { addComment, submitting: submittingRevision } = useDocumentComments(id, 'revision_request');
   const [exporting, setExporting] = useState(false);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionText, setRevisionText] = useState('');
 
   const statusConfig = doc ? STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft : STATUS_CONFIG.draft;
 
@@ -144,6 +151,55 @@ export default function TenantDocumentViewerScreen() {
       Alert.alert('Document Signed', 'Your signature has been recorded.');
     }
   }, [signDocument]);
+
+  const handleSubmitRevision = useCallback(async () => {
+    if (!revisionText.trim() || !doc) return;
+
+    const success = await addComment(revisionText.trim(), 'revision_request');
+    if (success) {
+      // Send notification to document owner
+      try {
+        const supabase = getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && doc.owner_id) {
+          fetch(
+            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/dispatch-notification`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                user_id: doc.owner_id,
+                type: 'document_revision_requested',
+                title: 'Document Revision Requested',
+                body: `Tenant has requested changes to ${doc.title}.`,
+                data: {
+                  document_id: doc.id,
+                  document_title: doc.title,
+                },
+                related_type: 'document',
+                related_id: doc.id,
+                channels: ['push', 'email'],
+              }),
+            }
+          ).catch(() => {});
+        }
+      } catch {
+        // Non-blocking: notification failure shouldn't prevent revision request
+      }
+
+      setRevisionText('');
+      setShowRevisionModal(false);
+      Alert.alert('Revision Requested', 'Your change request has been sent to the owner.');
+    }
+  }, [revisionText, doc, addComment]);
+
+  // Tenant can request changes when the document is not yet signed by them
+  const canRequestChanges = doc && doc.status !== 'signed' && !doc.signatures.some(
+    (sig) => sig.signer_role === 'tenant',
+  );
 
   const needsTenantSignature = doc?.status === 'pending_tenant_signature';
   const isSigned = doc?.status === 'signed';
@@ -275,7 +331,73 @@ export default function TenantDocumentViewerScreen() {
             </Text>
           </View>
         )}
+
+        {canRequestChanges && (
+          <TouchableOpacity
+            style={styles.requestChangesButton}
+            onPress={() => setShowRevisionModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.requestChangesText}>Request Changes</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Revision Request Modal */}
+      <Modal
+        visible={showRevisionModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowRevisionModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Request Changes</Text>
+            <Text style={styles.modalSubtitle}>
+              Describe the changes you would like the owner to make to this document.
+            </Text>
+            <TextInput
+              style={styles.revisionInput}
+              placeholder="Describe the changes you'd like to see..."
+              placeholderTextColor={THEME.colors.textTertiary}
+              value={revisionText}
+              onChangeText={setRevisionText}
+              multiline
+              numberOfLines={5}
+              textAlignVertical="top"
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setRevisionText('');
+                  setShowRevisionModal(false);
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalSubmitButton,
+                  (!revisionText.trim() || submittingRevision) && styles.modalSubmitDisabled,
+                ]}
+                onPress={handleSubmitRevision}
+                disabled={!revisionText.trim() || submittingRevision}
+              >
+                {submittingRevision ? (
+                  <ActivityIndicator size="small" color={THEME.colors.textInverse} />
+                ) : (
+                  <Text style={styles.modalSubmitText}>Submit Request</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Signature Pad Modal */}
       <SignaturePad
@@ -493,5 +615,90 @@ const styles = StyleSheet.create({
     color: THEME.colors.textInverse,
     fontWeight: '600',
     fontSize: THEME.fontSize.body,
+  },
+  requestChangesButton: {
+    borderRadius: THEME.radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.warning,
+    backgroundColor: THEME.colors.warningBg,
+  },
+  requestChangesText: {
+    color: THEME.colors.warning,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: THEME.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 40,
+  },
+  modalTitle: {
+    fontSize: THEME.fontSize.h3,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    marginBottom: 16,
+  },
+  revisionInput: {
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textPrimary,
+    backgroundColor: THEME.colors.canvas,
+    minHeight: 120,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    backgroundColor: THEME.colors.surface,
+  },
+  modalCancelText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: '600',
+    color: THEME.colors.textSecondary,
+  },
+  modalSubmitButton: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: THEME.radius.md,
+    backgroundColor: THEME.colors.brand,
+  },
+  modalSubmitDisabled: {
+    opacity: 0.5,
+  },
+  modalSubmitText: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: '700',
+    color: THEME.colors.textInverse,
   },
 });

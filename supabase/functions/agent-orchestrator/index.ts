@@ -113,7 +113,10 @@ const COMPLEX_EVENT_TYPES = new Set([
 // Event Prompt Builder
 // ---------------------------------------------------------------------------
 
-function buildEventPrompt(event: QueueEvent): string {
+async function buildEventPrompt(
+  event: QueueEvent,
+  supabase: ReturnType<typeof getServiceClient>,
+): Promise<string> {
   const p = event.payload || {};
 
   switch (event.event_type) {
@@ -196,17 +199,64 @@ Please:
 4. Prepare to relist the property if appropriate
 5. Notify the owner with a summary of final actions needed`;
 
-    case 'inspection_finalized':
+    case 'inspection_finalized': {
+      const inspectionId = p.inspection_id as string | undefined;
+      let actionItemsPrompt = '';
+
+      if (inspectionId) {
+        // Query inspection items that need attention: poor/damaged condition or action_required
+        const { data: actionItems } = await supabase
+          .from('inspection_items')
+          .select('id, name, condition, notes, action_required, action_description, estimated_cost, room_id')
+          .in('room_id', (
+            await supabase
+              .from('inspection_rooms')
+              .select('id, name')
+              .eq('inspection_id', inspectionId)
+          ).data?.map((r: any) => r.id) || [])
+          .or('condition.in.(poor,damaged,missing),action_required.eq.true');
+
+        // Also get room names for context
+        const { data: rooms } = await supabase
+          .from('inspection_rooms')
+          .select('id, name')
+          .eq('inspection_id', inspectionId);
+
+        const roomNameMap: Record<string, string> = {};
+        (rooms || []).forEach((r: any) => { roomNameMap[r.id] = r.name; });
+
+        if (actionItems && actionItems.length > 0) {
+          actionItemsPrompt = `\n\nINSPECTION ITEMS REQUIRING ACTION (${actionItems.length}):\n`;
+          for (const item of actionItems) {
+            const roomName = roomNameMap[item.room_id] || 'Unknown room';
+            actionItemsPrompt += `  - [${roomName}] ${item.name}: condition=${item.condition || 'N/A'}`;
+            if (item.action_description) actionItemsPrompt += `, action: ${item.action_description}`;
+            if (item.estimated_cost) actionItemsPrompt += `, est. cost: $${item.estimated_cost}`;
+            if (item.notes) actionItemsPrompt += ` (${item.notes})`;
+            actionItemsPrompt += '\n';
+          }
+          actionItemsPrompt += `\nFor EACH item above, create a maintenance request using the create_maintenance_request tool. Set urgency based on condition severity (damaged/missing = urgent, poor = routine). Include the room name and item description in the maintenance request title and description.`;
+        }
+      }
+
+      // Get property address for context
+      const propertyAddress = p.property_id
+        ? (await supabase.from('properties').select('address_line_1, suburb').eq('id', p.property_id).maybeSingle()).data
+        : null;
+      const addressStr = propertyAddress ? `${propertyAddress.address_line_1}, ${propertyAddress.suburb}` : '[unknown property]';
+
       return `An inspection has been finalized:
 - Type: ${p.inspection_type || 'routine'}
+- Property: ${addressStr}
 - Overall condition: ${p.overall_condition || 'not assessed'}
-- Issues found: ${p.issues_count ?? 'unknown'}
+- Inspection ID: ${inspectionId || 'unknown'}${actionItemsPrompt}
 
 Please:
 1. Review the inspection findings
-2. Create maintenance requests for any issues found
-3. Notify the owner with a summary
+2. Create maintenance requests for any items listed above that need attention
+3. Notify the owner with a summary of the inspection and any maintenance requests created
 4. If exit inspection, compare with entry inspection for damage assessment`;
+    }
 
     case 'lease_expiring_soon':
       return `A lease is expiring soon:
@@ -441,13 +491,13 @@ async function executeToolLoop(
           await supabase.from('agent_pending_actions').insert({
             user_id: userId,
             action_type: toolMeta.category,
-            title: `${toolBlock.name}: ${toolBlock.input ? JSON.stringify(toolBlock.input).substring(0, 100) : ''}`,
+            title: toolBlock.name,
             description: toolDef?.description || toolBlock.name,
             tool_name: toolBlock.name,
             tool_params: toolBlock.input,
             autonomy_level: toolRequiredLevel,
             status: 'pending',
-            recommendation: `Autonomous orchestrator recommends this action (source: ${eventSource}). Your autonomy for "${toolMeta.category}" is L${userAutonomyLevel}, this requires L${toolRequiredLevel}.`,
+            recommendation: `Casa recommends this action based on ${eventSource}. Your autonomy settings require manual confirmation for ${toolMeta.category} actions.`,
           });
 
           // Log gated decision
@@ -481,7 +531,7 @@ async function executeToolLoop(
               await supabase.from('agent_pending_actions').insert({
                 user_id: userId,
                 action_type: toolMeta.category,
-                title: `${toolBlock.name}: ${toolBlock.input ? JSON.stringify(toolBlock.input).substring(0, 100) : ''}`,
+                title: toolBlock.name,
                 description: `Low confidence action (${Math.round(confidenceFactors.composite * 100)}%)`,
                 tool_name: toolBlock.name,
                 tool_params: toolBlock.input,
@@ -709,7 +759,7 @@ async function processInstantEvents(
           const autonomySettings = (autonomyResult.data as AutonomySettings | null);
           const userTier = profileResult.data?.subscription_tier || 'starter';
           const model = selectModel(event.event_type, 'instant');
-          const eventPrompt = buildEventPrompt(event);
+          const eventPrompt = await buildEventPrompt(event, supabase);
 
           // Augment system prompt with orchestrator context
           const orchestratorSystemPrompt = systemPrompt + `
@@ -851,8 +901,28 @@ async function buildDailyReviewPrompt(
   const compliance = complianceResult.data || [];
   const recentPayments = paymentsResult.data || [];
 
+  // Check if property is due for routine inspection
+  const { data: lastInspection } = await supabase
+    .from('inspections')
+    .select('id, inspection_type, completed_at, scheduled_date, status')
+    .eq('property_id', propertyId)
+    .eq('inspection_type', 'routine')
+    .in('status', ['completed', 'finalized'])
+    .order('completed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: pendingInspection } = await supabase
+    .from('inspections')
+    .select('id')
+    .eq('property_id', propertyId)
+    .in('status', ['scheduled', 'in_progress', 'tenant_review'])
+    .limit(1)
+    .maybeSingle();
+
   // Check for upcoming lease expiries (90 days)
   const ninetyDaysFromNow = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+  const sixtyDaysFromNow = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
   const expiringLeases = tenancies.filter((t: any) => t.lease_end_date && t.lease_end_date <= ninetyDaysFromNow);
 
   // Build the context
@@ -882,7 +952,11 @@ async function buildDailyReviewPrompt(
     prompt += `LEASE EXPIRIES (within 90 days):\n`;
     for (const t of expiringLeases) {
       const daysLeft = Math.ceil((new Date(t.lease_end_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-      prompt += `  - Lease ending in ${daysLeft} days (${t.lease_end_date}), rent: $${t.rent_amount}/${t.rent_frequency}\n`;
+      const urgency = daysLeft <= 60 ? ' ⚠ ACTION NEEDED — within 60 days' : '';
+      prompt += `  - Lease ending in ${daysLeft} days (${t.lease_end_date}), rent: $${t.rent_amount}/${t.rent_frequency}${urgency}\n`;
+      if (daysLeft <= 60) {
+        prompt += `    → This lease expires within 60 days. You MUST analyse the rent vs market rate, check tenant satisfaction, and recommend whether to renew, adjust rent, or let it lapse. Draft renewal terms if appropriate.\n`;
+      }
     }
     prompt += '\n';
   }
@@ -893,6 +967,40 @@ async function buildDailyReviewPrompt(
       prompt += `  - ${c.compliance_type}: status ${c.status}, due ${c.due_date || 'no date set'}\n`;
     }
     prompt += '\n';
+  }
+
+  // Inspection due detection
+  if (!pendingInspection) {
+    if (!lastInspection) {
+      prompt += 'INSPECTIONS: ⚠ No routine inspection on record for this property. Use the schedule_inspection tool to schedule one within the next 14 days. Check state regulations for required inspection frequency.\n\n';
+    } else {
+      const lastDate = lastInspection.completed_at ? new Date(lastInspection.completed_at) : null;
+      if (lastDate) {
+        const monthsSince = Math.floor((Date.now() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000));
+        if (monthsSince >= 3) {
+          prompt += `INSPECTIONS: ⚠ Last routine inspection was ${monthsSince} months ago (${lastDate.toISOString().split('T')[0]}). This property is OVERDUE for a routine inspection. Use the schedule_inspection tool to schedule one within the next 14 days.\n\n`;
+        }
+      }
+    }
+  }
+
+  // Auto-schedule exit inspection for expiring leases
+  const fourteenDaysFromNow = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const expiringForExit = tenancies.filter((t: any) => t.lease_end_date && t.lease_end_date <= fourteenDaysFromNow && t.status === 'active');
+  if (expiringForExit.length > 0 && !pendingInspection) {
+    const { data: exitInspection } = await supabase
+      .from('inspections')
+      .select('id')
+      .eq('property_id', propertyId)
+      .eq('inspection_type', 'exit')
+      .in('status', ['scheduled', 'in_progress', 'tenant_review'])
+      .limit(1)
+      .maybeSingle();
+
+    if (!exitInspection) {
+      const daysUntilEnd = Math.ceil((new Date(expiringForExit[0].lease_end_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      prompt += `EXIT INSPECTION NEEDED: ⚠ Lease expires in ${daysUntilEnd} days but no exit inspection is scheduled. Use the schedule_inspection tool to schedule an exit inspection BEFORE the lease ends.\n\n`;
+    }
   }
 
   prompt += `RECENT PAYMENTS (7 days): ${recentPayments.length} payments\n`;

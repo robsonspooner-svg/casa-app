@@ -5,6 +5,22 @@ type SupabaseClient = any;
 type ToolResult = { success: boolean; data?: unknown; error?: string };
 type ToolInput = Record<string, unknown>;
 
+// Notification dispatch helper (best-effort, fire-and-forget)
+async function dispatchNotif(
+  sb: SupabaseClient,
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  data?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await sb.functions.invoke('dispatch-notification', {
+      body: { user_id: userId, type, title, body, data: data || {} },
+    });
+  } catch { /* notification dispatch is best-effort */ }
+}
+
 // Helper: verify property belongs to owner
 async function verifyPropertyOwnership(propertyId: string, userId: string, supabase: SupabaseClient) {
   const { data, error } = await supabase
@@ -457,17 +473,61 @@ export async function handle_get_financial_summary(input: ToolInput, userId: str
 
   // Period filtering
   const now = new Date();
+  let periodStart: string | undefined;
   if (input.period === 'month') {
-    query = query.gte('month', new Date(now.getFullYear(), now.getMonth(), 1).toISOString());
+    periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    query = query.gte('month', periodStart);
   } else if (input.period === 'quarter') {
-    query = query.gte('month', new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString());
+    periodStart = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString();
+    query = query.gte('month', periodStart);
   } else if (input.period === 'year') {
-    query = query.gte('month', new Date(now.getFullYear(), 0, 1).toISOString());
+    periodStart = new Date(now.getFullYear(), 0, 1).toISOString();
+    query = query.gte('month', periodStart);
   }
 
   const { data, error } = await query.order('month', { ascending: false });
   if (error) return { success: false, error: error.message };
-  return { success: true, data };
+
+  // Aggregate maintenance costs from completed work orders and maintenance requests
+  let maintQuery = sb
+    .from('maintenance_requests')
+    .select('property_id, actual_cost, estimated_cost, status, completed_at')
+    .eq('owner_id', userId)
+    .in('status', ['completed', 'approved']);
+
+  if (input.property_id) maintQuery = maintQuery.eq('property_id', input.property_id as string);
+  if (periodStart) maintQuery = maintQuery.gte('created_at', periodStart);
+
+  const { data: maintData } = await maintQuery;
+
+  const maintenanceByProperty: Record<string, { total: number; count: number }> = {};
+  let maintenanceTotal = 0;
+  let maintenanceCount = 0;
+  if (maintData) {
+    for (const req of maintData) {
+      const cost = (req as any).actual_cost || (req as any).estimated_cost || 0;
+      if (cost > 0) {
+        const pid = (req as any).property_id || 'unknown';
+        if (!maintenanceByProperty[pid]) maintenanceByProperty[pid] = { total: 0, count: 0 };
+        maintenanceByProperty[pid].total += cost;
+        maintenanceByProperty[pid].count += 1;
+        maintenanceTotal += cost;
+        maintenanceCount += 1;
+      }
+    }
+  }
+
+  return {
+    success: true,
+    data: {
+      financial_summary: data,
+      maintenance_expenses: {
+        total: maintenanceTotal,
+        count: maintenanceCount,
+        by_property: maintenanceByProperty,
+      },
+    },
+  };
 }
 
 export async function handle_get_transactions(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
@@ -885,6 +945,29 @@ export async function handle_tenant_connect_with_code(input: ToolInput, userId: 
     }
   }
 
+  // Notify the property owner that a tenant has connected
+  if (result.owner_id) {
+    const { data: tenantProfile } = await sb.from('profiles').select('full_name').eq('id', userId).single();
+    const tenantName = (tenantProfile as any)?.full_name || 'A tenant';
+    dispatchNotif(sb, result.owner_id, 'tenant_connected',
+      'Tenant Connected',
+      `${tenantName} has connected to ${propertyAddress}.`,
+      { property_id: propertyId, tenant_id: userId, tenancy_id: tenancyId },
+    );
+  } else if (propertyId) {
+    // Fallback: look up owner from property
+    const { data: prop } = await sb.from('properties').select('owner_id').eq('id', propertyId).single();
+    if (prop) {
+      const { data: tenantProfile } = await sb.from('profiles').select('full_name').eq('id', userId).single();
+      const tenantName = (tenantProfile as any)?.full_name || 'A tenant';
+      dispatchNotif(sb, (prop as any).owner_id, 'tenant_connected',
+        'Tenant Connected',
+        `${tenantName} has connected to ${propertyAddress}.`,
+        { property_id: propertyId, tenant_id: userId, tenancy_id: tenancyId },
+      );
+    }
+  }
+
   return {
     success: true,
     data: {
@@ -1103,4 +1186,119 @@ export async function handle_get_portfolio_snapshot(input: ToolInput, userId: st
   if (!data || data.length === 0) return { success: true, data: { message: 'No portfolio snapshot available yet. Snapshots are generated monthly by the heartbeat system.', snapshots: [] } };
 
   return { success: true, data: { latest: data[0], history: includeHistory ? data : undefined, total_snapshots: data.length } };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAYMENT ANALYSIS & DOCUMENT ACCESS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handle_analyze_payment_patterns(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { owned } = await verifyTenancyOwnership(input.tenancy_id as string, userId, sb);
+  if (!owned) return { success: false, error: 'Tenancy not found or access denied' };
+
+  const months = (input.months as number) || 12;
+  const since = new Date();
+  since.setMonth(since.getMonth() - months);
+  const sinceStr = since.toISOString().split('T')[0];
+
+  // Get rent schedules with payment data
+  const { data: schedules, error } = await sb
+    .from('rent_schedules')
+    .select('id, due_date, amount, is_paid, paid_at')
+    .eq('tenancy_id', input.tenancy_id as string)
+    .gte('due_date', sinceStr)
+    .order('due_date', { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+
+  const total = (schedules || []).length;
+  const paid = (schedules || []).filter((s: any) => s.is_paid);
+  const unpaid = (schedules || []).filter((s: any) => !s.is_paid && new Date(s.due_date) < new Date());
+  const onTime: number[] = [];
+  const late: number[] = [];
+
+  for (const s of paid) {
+    if (s.paid_at && s.due_date) {
+      const dueDate = new Date(s.due_date);
+      const paidDate = new Date(s.paid_at);
+      const daysLate = Math.floor((paidDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysLate > 0) {
+        late.push(daysLate);
+      } else {
+        onTime.push(Math.abs(daysLate));
+      }
+    }
+  }
+
+  const avgDaysLate = late.length > 0 ? Math.round(late.reduce((a, b) => a + b, 0) / late.length) : 0;
+  const paymentRate = total > 0 ? Math.round((paid.length / total) * 100) : 100;
+  const onTimeRate = paid.length > 0 ? Math.round((onTime.length / paid.length) * 100) : 100;
+  const consistencyScore = Math.round((onTimeRate * 0.6) + (paymentRate * 0.4));
+
+  let riskLevel = 'low';
+  if (consistencyScore < 50 || unpaid.length >= 3) riskLevel = 'high';
+  else if (consistencyScore < 75 || unpaid.length >= 1) riskLevel = 'medium';
+
+  return {
+    success: true,
+    data: {
+      tenancy_id: input.tenancy_id,
+      period_months: months,
+      total_scheduled: total,
+      total_paid: paid.length,
+      total_unpaid_overdue: unpaid.length,
+      on_time_payments: onTime.length,
+      late_payments: late.length,
+      average_days_late: avgDaysLate,
+      max_days_late: late.length > 0 ? Math.max(...late) : 0,
+      payment_rate_pct: paymentRate,
+      on_time_rate_pct: onTimeRate,
+      consistency_score: consistencyScore,
+      risk_level: riskLevel,
+      instruction: `Analyse these payment patterns and provide insights. The consistency score is ${consistencyScore}/100. Risk level: ${riskLevel}. ${late.length > 0 ? `This tenant has been late ${late.length} times with an average of ${avgDaysLate} days late.` : 'This tenant has always paid on time.'} ${unpaid.length > 0 ? `There are ${unpaid.length} overdue unpaid payments.` : ''} Provide recommendations based on these patterns.`,
+    },
+  };
+}
+
+export async function handle_get_document_access_log(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Verify the document belongs to this user
+  const { data: doc, error: docErr } = await sb
+    .from('documents')
+    .select('id, title, owner_id')
+    .eq('id', input.document_id as string)
+    .eq('owner_id', userId)
+    .single();
+
+  if (docErr || !doc) return { success: false, error: 'Document not found or access denied' };
+
+  const limit = (input.limit as number) || 50;
+
+  // Get access log entries
+  const { data: logs, error } = await sb
+    .from('document_access_log')
+    .select('id, user_id, action, ip_address, user_agent, created_at, profiles:user_id(full_name, email)')
+    .eq('document_id', input.document_id as string)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return { success: false, error: error.message };
+
+  // Get share info
+  const { data: shares } = await sb
+    .from('document_shares')
+    .select('id, shared_with_id, access_count, last_accessed_at, created_at, profiles:shared_with_id(full_name, email)')
+    .eq('document_id', input.document_id as string);
+
+  return {
+    success: true,
+    data: {
+      document_id: input.document_id,
+      document_title: (doc as any).title,
+      access_log: logs || [],
+      shares: shares || [],
+      total_views: (logs || []).filter((l: any) => l.action === 'view').length,
+      total_downloads: (logs || []).filter((l: any) => l.action === 'download').length,
+      unique_viewers: [...new Set((logs || []).map((l: any) => l.user_id))].length,
+    },
+  };
 }

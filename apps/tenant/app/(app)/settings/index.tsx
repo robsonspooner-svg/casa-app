@@ -1,9 +1,12 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { THEME } from '@casa/config';
 import { useAuth, useProfile } from '@casa/api';
 import Svg, { Path, Circle } from 'react-native-svg';
+
+const APP_VERSION = Constants.expoConfig?.version || '0.1.0';
 
 function SettingsRow({
   icon,
@@ -152,7 +155,7 @@ export default function TenantSettingsScreen() {
             }
             iconColor={THEME.colors.textSecondary}
             title="App Version"
-            subtitle="Casa v1.0.0"
+            subtitle={`Casa v${APP_VERSION}`}
             onPress={() => {}}
             showChevron={false}
           />
@@ -170,7 +173,7 @@ export default function TenantSettingsScreen() {
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>Casa v1.0.0</Text>
+        <Text style={styles.versionText}>{`Casa v${APP_VERSION}`}</Text>
       </ScrollView>
     </View>
   );

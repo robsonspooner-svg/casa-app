@@ -602,6 +602,9 @@ export type { UploadProgress, UseDocumentUploadReturn } from './hooks/useDocumen
 export { useDocumentShares } from './hooks/useDocumentShares';
 export type { DocumentSharesState, UseDocumentSharesReturn } from './hooks/useDocumentShares';
 
+export { useDocumentComments } from './hooks/useDocumentComments';
+export type { DocumentCommentsState, UseDocumentCommentsReturn } from './hooks/useDocumentComments';
+
 export type {
   CasaDocumentType,
   CasaDocumentStatus,
@@ -627,6 +630,9 @@ export type {
   AnnotationType,
   DocumentAnnotationRow,
   DocumentAnnotationInsert,
+  DocumentCommentType,
+  DocumentCommentRow,
+  DocumentCommentInsert,
 } from './types/database';
 
 export { useAgentTasks } from './hooks/useAgentTasks';

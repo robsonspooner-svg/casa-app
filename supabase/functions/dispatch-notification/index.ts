@@ -219,11 +219,23 @@ serve(async (req: Request) => {
 
     // 3. Check user preferences for each channel
     for (const channel of requestedChannels) {
-      const { data: shouldSend } = await supabase.rpc('should_notify', {
-        p_user_id: user_id,
-        p_notification_type: type,
-        p_channel: channel,
-      });
+      let shouldSend = true;
+      try {
+        const { data, error: rpcError } = await supabase.rpc('should_notify', {
+          p_user_id: user_id,
+          p_notification_type: type,
+          p_channel: channel,
+        });
+        if (rpcError) {
+          console.warn(`should_notify RPC error for ${channel}:`, rpcError.message);
+          // Default to sending if preference check fails
+        } else {
+          shouldSend = data !== false;
+        }
+      } catch (rpcErr) {
+        console.warn(`should_notify RPC exception for ${channel}:`, rpcErr);
+        // Default to sending if RPC is unavailable
+      }
 
       if (!shouldSend) {
         results[channel] = false;
@@ -247,13 +259,20 @@ serve(async (req: Request) => {
           );
           results.push = pushResult.sent > 0;
 
-          // Update notification record
           if (pushResult.sent > 0) {
             await supabase
               .from('notifications')
               .update({ push_sent: true })
               .eq('id', notification.id);
           }
+
+          // Log failures for debugging
+          if (pushResult.failed > 0) {
+            console.warn(`Push: ${pushResult.sent} sent, ${pushResult.failed} failed for user ${user_id}`);
+          }
+        } else {
+          // No push tokens registered
+          results.push = false;
         }
       }
 
@@ -304,12 +323,14 @@ serve(async (req: Request) => {
       }
     }
 
-    // 4. Log delivery
+    // 4. Log delivery — use accurate status based on channel results
+    const anySuccess = Object.values(results).some(v => v === true);
+    const allFailed = Object.keys(results).length > 0 && !anySuccess;
     await supabase.from('notification_logs').insert({
       user_id,
       notification_type: type,
       channel: requestedChannels.join(','),
-      status: 'sent',
+      status: allFailed ? 'failed' : anySuccess ? 'sent' : 'skipped',
       metadata: { notification_id: notification.id, results },
     }).catch(() => { /* notification_logs may not exist yet */ });
 

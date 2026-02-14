@@ -59,7 +59,13 @@ export function useArrearsMutations() {
       const supabase = getSupabaseClient();
 
       // Calculate expected end date and total installments
+      if (input.installment_amount <= 0) {
+        throw new Error('Installment amount must be greater than zero');
+      }
       const totalInstallments = Math.ceil(input.total_arrears / input.installment_amount);
+      if (totalInstallments > 260) {
+        throw new Error('Payment plan would exceed 5 years. Please increase the installment amount.');
+      }
 
       // Create the payment plan
       const planData: PaymentPlanInsert = {
@@ -91,15 +97,16 @@ export function useArrearsMutations() {
       });
 
       if (installmentsError) {
-        console.warn('Failed to generate installments via RPC, installments may need manual creation:', installmentsError);
+        throw new Error(`Failed to generate installments: ${installmentsError.message}`);
       }
 
-      // Update arrears record to link payment plan
+      // Update arrears record to link payment plan and downgrade severity
       const { error: updateError } = await (supabase
         .from('arrears_records') as any)
         .update({
           has_payment_plan: true,
           payment_plan_id: plan.id,
+          severity: 'low',
         })
         .eq('id', input.arrears_record_id);
 

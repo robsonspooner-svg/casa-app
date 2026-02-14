@@ -100,6 +100,20 @@ export default function TerminateTenancyScreen() {
             <Text style={styles.noticeText}>No grounds: {noticePeriod.noGrounds} days</Text>
             <Text style={styles.noticeText}>End of lease: {noticePeriod.endOfLease} days</Text>
             <Text style={styles.noticeText}>Breach: {noticePeriod.breach} days</Text>
+            {reason && (() => {
+              const days = reason === 'Breach of lease' || reason === 'Non-payment of rent'
+                ? noticePeriod.breach
+                : reason === 'End of fixed term'
+                  ? noticePeriod.endOfLease
+                  : noticePeriod.noGrounds;
+              const earliest = new Date();
+              earliest.setDate(earliest.getDate() + days);
+              return (
+                <Text style={[styles.noticeText, { fontWeight: '600', marginTop: 8 }]}>
+                  Earliest end date: {earliest.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              );
+            })()}
           </View>
         )}
 

@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { User, Session, AuthChangeEvent, Provider } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSupabaseClient, isSupabaseConfigured } from '../client';
 import type { UserRole } from '../types/database';
 
@@ -16,6 +17,7 @@ export interface AuthState {
 export interface OAuthOptions {
   redirectTo?: string;
   scopes?: string;
+  role?: UserRole;
 }
 
 export interface AuthActions {
@@ -149,12 +151,22 @@ export function useAuthProvider(): AuthContextValue {
 
     try {
       const supabase = getSupabaseClient();
+
+      // Build redirect URL with role query param so the handle_new_user trigger
+      // can pick it up from raw_user_meta_data. Supabase passes queryParams
+      // through to the provider's redirect, and they're available on callback.
+      const redirectTo = options?.redirectTo;
+      const redirectWithRole = options?.role && redirectTo
+        ? `${redirectTo}?role=${options.role}`
+        : redirectTo;
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: options?.redirectTo,
+          redirectTo: redirectWithRole,
           scopes: options?.scopes,
           skipBrowserRedirect: true,
+          queryParams: options?.role ? { role: options.role } : undefined,
         },
       });
 
@@ -206,6 +218,15 @@ export function useAuthProvider(): AuthContextValue {
       const { error } = await supabase.auth.signOut();
 
       if (error) throw error;
+
+      // Clear app-specific cached data from AsyncStorage
+      const allKeys = await AsyncStorage.getAllKeys();
+      const appKeys = allKeys.filter(k =>
+        k.startsWith('casa_') || k.startsWith('onboarding_') || k.startsWith('tour_')
+      );
+      if (appKeys.length > 0) {
+        await AsyncStorage.multiRemove(appKeys);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to sign out';
       setState(prev => ({ ...prev, loading: false, error: message }));

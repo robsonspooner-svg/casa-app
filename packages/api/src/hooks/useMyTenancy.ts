@@ -2,6 +2,7 @@
 // Mission 06: Tenancies & Leases
 
 import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import { useAuth } from './useAuth';
 import type {
@@ -30,13 +31,13 @@ export function useMyTenancy(): MyTenancyState & { refreshMyTenancy: () => Promi
     error: null,
   });
 
-  const fetchMyTenancy = useCallback(async () => {
+  const fetchMyTenancy = useCallback(async (isRefresh = false) => {
     if (!user) {
       setState({ tenancy: null, allTenancies: [], loading: false, error: null });
       return;
     }
 
-    setState(prev => ({ ...prev, loading: true, error: null }));
+    setState(prev => ({ ...prev, loading: !isRefresh, error: null }));
 
     try {
       const supabase = getSupabaseClient();
@@ -98,12 +99,13 @@ export function useMyTenancy(): MyTenancyState & { refreshMyTenancy: () => Promi
 
       if (docsError) throw docsError;
 
-      // Fetch properties
+      // Fetch properties (exclude soft-deleted)
       const propertyIds = [...new Set(tenancies.map(t => t.property_id))];
       const { data: propertyData, error: propertyError } = await (supabase
         .from('properties') as ReturnType<typeof supabase.from>)
         .select('*')
-        .in('id', propertyIds);
+        .in('id', propertyIds)
+        .is('deleted_at', null);
 
       if (propertyError) throw propertyError;
 
@@ -156,6 +158,15 @@ export function useMyTenancy(): MyTenancyState & { refreshMyTenancy: () => Promi
       fetchMyTenancy();
     }
   }, [fetchMyTenancy, isAuthenticated]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        fetchMyTenancy(true);
+      }
+    }, [fetchMyTenancy, isAuthenticated])
+  );
 
   const refreshMyTenancy = useCallback(async () => {
     await fetchMyTenancy();

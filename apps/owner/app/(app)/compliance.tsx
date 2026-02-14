@@ -86,6 +86,16 @@ function RecordCompletionModal({
 
   if (!visible) return null;
 
+  const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10MB
+
+  const filterOversizedAssets = (assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] => {
+    const valid = assets.filter(a => !a.fileSize || a.fileSize <= MAX_PHOTO_SIZE);
+    if (valid.length < assets.length) {
+      Alert.alert('Photo too large', 'Some photos exceeded the 10MB limit and were skipped.');
+    }
+    return valid;
+  };
+
   const pickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -99,7 +109,8 @@ function RecordCompletionModal({
       selectionLimit: 5,
     });
     if (!result.canceled && result.assets) {
-      setPhotos((prev) => [...prev, ...result.assets.map((a) => a.uri)].slice(0, 5));
+      const valid = filterOversizedAssets(result.assets);
+      setPhotos((prev) => [...prev, ...valid.map((a) => a.uri)].slice(0, 5));
     }
   };
 
@@ -113,7 +124,10 @@ function RecordCompletionModal({
       quality: 0.7,
     });
     if (!result.canceled && result.assets) {
-      setPhotos((prev) => [...prev, result.assets[0].uri].slice(0, 5));
+      const valid = filterOversizedAssets(result.assets);
+      if (valid.length > 0) {
+        setPhotos((prev) => [...prev, valid[0].uri].slice(0, 5));
+      }
     }
   };
 

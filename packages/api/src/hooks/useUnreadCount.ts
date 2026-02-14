@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 
 export interface UseUnreadCountReturn {
@@ -15,10 +16,10 @@ export function useUnreadCount(userId: string | undefined): UseUnreadCountReturn
     try { return getSupabaseClient(); } catch { return null; }
   }, []);
 
-  const fetchCount = useCallback(async () => {
+  const fetchCount = useCallback(async (isRefresh = false) => {
     if (!supabase || !userId) return;
     try {
-      setLoading(true);
+      if (!isRefresh) setLoading(true);
       const { count: total, error } = await (supabase
         .from('notifications') as any)
         .select('*', { count: 'exact', head: true })
@@ -42,7 +43,7 @@ export function useUnreadCount(userId: string | undefined): UseUnreadCountReturn
     if (!supabase || !userId) return;
 
     const channel = supabase
-      .channel('unread-count-realtime')
+      .channel(`unread-count-realtime:${userId}`)
       .on(
         'postgres_changes',
         {
@@ -61,6 +62,15 @@ export function useUnreadCount(userId: string | undefined): UseUnreadCountReturn
       supabase.removeChannel(channel);
     };
   }, [supabase, userId, fetchCount]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        fetchCount(true);
+      }
+    }, [fetchCount, userId])
+  );
 
   return { count, loading, refresh: fetchCount };
 }

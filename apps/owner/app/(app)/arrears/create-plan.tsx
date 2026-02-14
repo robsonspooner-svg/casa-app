@@ -213,6 +213,10 @@ export default function CreatePaymentPlanScreen() {
             <Text style={styles.previewLabel}>Expected Completion</Text>
             <Text style={styles.previewValue}>{calculateEndDate()}</Text>
           </View>
+          <View style={[styles.previewRow, { borderTopWidth: 1, borderTopColor: THEME.colors.border, marginTop: 8, paddingTop: 12 }]}>
+            <Text style={[styles.previewLabel, { fontWeight: '700' }]}>Total Repayment</Text>
+            <Text style={[styles.previewValue, { fontWeight: '700', color: THEME.colors.brand }]}>{formatDollars(installmentValue * totalInstallments)}</Text>
+          </View>
         </Card>
       )}
 

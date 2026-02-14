@@ -6,6 +6,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
 import {
   mockSignInWithPassword,
+  mockSignInWithOAuth,
   mockSignUp,
   mockSignOut,
   mockGetSession,
@@ -221,6 +222,65 @@ describe('useAuthProvider', () => {
     });
 
     expect(mockUpdateUser).toHaveBeenCalledWith({ password: 'newPassword123' });
+  });
+
+  it('should pass role via queryParams when calling signInWithOAuth', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/o/oauth2/v2/auth?redirect=...' },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuthProvider());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let url: string | null = null;
+    await act(async () => {
+      url = await result.current.signInWithOAuth('google', {
+        redirectTo: 'casa-tenant://auth/callback',
+        role: 'tenant',
+      });
+    });
+
+    expect(url).toBe('https://accounts.google.com/o/oauth2/v2/auth?redirect=...');
+    expect(mockSignInWithOAuth).toHaveBeenCalledWith({
+      provider: 'google',
+      options: expect.objectContaining({
+        redirectTo: 'casa-tenant://auth/callback?role=tenant',
+        queryParams: { role: 'tenant' },
+        skipBrowserRedirect: true,
+      }),
+    });
+  });
+
+  it('should not pass queryParams when OAuth has no role', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/o/oauth2/v2/auth' },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuthProvider());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.signInWithOAuth('google', {
+        redirectTo: 'casa-owner://auth/callback',
+      });
+    });
+
+    expect(mockSignInWithOAuth).toHaveBeenCalledWith({
+      provider: 'google',
+      options: expect.objectContaining({
+        redirectTo: 'casa-owner://auth/callback',
+        queryParams: undefined,
+        skipBrowserRedirect: true,
+      }),
+    });
   });
 });
 

@@ -248,6 +248,75 @@ serve(async (req: Request) => {
               is_automated: true,
             });
 
+            // Notify tenant and owner about arrears resolution
+            try {
+              const { data: arrearsDetail } = await supabase
+                .from('arrears_records')
+                .select(`
+                  tenant_id,
+                  total_overdue,
+                  tenancies!inner(
+                    properties!inner(
+                      owner_id,
+                      address_line_1,
+                      suburb,
+                      state,
+                      postcode
+                    )
+                  )
+                `)
+                .eq('id', record.id)
+                .single();
+
+              if (arrearsDetail) {
+                const prop = (arrearsDetail as any).tenancies?.properties;
+                const propertyAddress = [prop?.address_line_1, prop?.suburb, prop?.state, prop?.postcode].filter(Boolean).join(', ');
+                const amount = `$${((arrearsDetail as any).total_overdue || 0).toFixed(2)}`;
+
+                // Notify tenant
+                if ((arrearsDetail as any).tenant_id) {
+                  await supabase.functions.invoke('dispatch-notification', {
+                    body: {
+                      user_id: (arrearsDetail as any).tenant_id,
+                      type: 'arrears_resolved',
+                      title: 'Arrears Resolved',
+                      body: `Your arrears for ${propertyAddress} have been cleared. Thank you for your payment.`,
+                      data: {
+                        tenant_name: '',
+                        property_address: propertyAddress,
+                        amount,
+                      },
+                      channels: ['push', 'email'],
+                    },
+                  });
+                }
+
+                // Notify owner
+                if (prop?.owner_id) {
+                  const tenantName = (arrearsDetail as any).tenant_id
+                    ? await supabase.from('profiles').select('full_name').eq('id', (arrearsDetail as any).tenant_id).single().then((r: any) => r.data?.full_name || 'Your tenant')
+                    : 'Your tenant';
+
+                  await supabase.functions.invoke('dispatch-notification', {
+                    body: {
+                      user_id: prop.owner_id,
+                      type: 'arrears_resolved',
+                      title: 'Arrears Resolved',
+                      body: `${tenantName}'s arrears for ${propertyAddress} have been resolved.`,
+                      data: {
+                        tenant_name: tenantName,
+                        property_address: propertyAddress,
+                        amount,
+                      },
+                      channels: ['push', 'email'],
+                    },
+                  });
+                }
+              }
+            } catch (notifErr) {
+              console.error('Error dispatching arrears resolution notification:', notifErr);
+            }
+
             results.push({
               tenancyId: record.tenancy_id,
               tenantId: '',

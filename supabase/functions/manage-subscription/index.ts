@@ -14,11 +14,20 @@ interface SubscriptionRequest {
 }
 
 // Stripe price IDs for each tier (configured in Stripe Dashboard)
+// These MUST be set via environment variables — fallbacks are for dev only
 const PRICE_MAP: Record<string, string> = {
   starter: Deno.env.get('STRIPE_PRICE_STARTER') || 'price_starter',
   pro: Deno.env.get('STRIPE_PRICE_PRO') || 'price_pro',
   hands_off: Deno.env.get('STRIPE_PRICE_HANDS_OFF') || 'price_hands_off',
 };
+
+function validatePriceId(tier: string): string {
+  const priceId = PRICE_MAP[tier];
+  if (!priceId || priceId.startsWith('price_') && !priceId.startsWith('price_1')) {
+    throw new Error(`Stripe price ID not configured for tier: ${tier}. Set STRIPE_PRICE_${tier.toUpperCase()} env var.`);
+  }
+  return priceId;
+}
 
 async function stripeRequest(endpoint: string, method: string, body?: Record<string, string>) {
   const url = `https://api.stripe.com/v1${endpoint}`;
@@ -114,7 +123,7 @@ Deno.serve(async (req: Request) => {
         // No payment method is required up front during the trial.
         const subscription = await stripeRequest('/subscriptions', 'POST', {
           customer: customerId,
-          'items[0][price]': PRICE_MAP[tier],
+          'items[0][price]': validatePriceId(tier),
           'trial_period_days': '14',
           'payment_behavior': 'allow_incomplete',
           'payment_settings[save_default_payment_method]': 'on_subscription',
@@ -160,7 +169,7 @@ Deno.serve(async (req: Request) => {
         const proration = action === 'upgrade' ? 'create_prorations' : 'none';
         await stripeRequest(`/subscriptions/${currentSub.id}`, 'POST', {
           'items[0][id]': currentItemId,
-          'items[0][price]': PRICE_MAP[tier],
+          'items[0][price]': validatePriceId(tier),
           'proration_behavior': proration,
         });
 

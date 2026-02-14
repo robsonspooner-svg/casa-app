@@ -102,47 +102,100 @@ const TOOL_NAME_LABELS: Record<string, string> = {
   send_rent_reminder: 'Send rent reminder',
   send_email: 'Send email',
   send_sms: 'Send SMS',
+  send_sms_twilio: 'Send SMS',
+  send_push_expo: 'Send push notification',
+  send_message: 'Send message',
+  send_in_app_message: 'Send message',
+  send_breach_notice: 'Send breach notice',
+  send_receipt: 'Send payment receipt',
+  send_docusign_envelope: 'Send for signature',
   create_maintenance_request: 'Create maintenance request',
   update_maintenance_request: 'Update maintenance request',
+  update_maintenance_status: 'Update maintenance status',
+  record_maintenance_cost: 'Record maintenance cost',
   assign_trade: 'Assign tradesperson',
   schedule_inspection: 'Schedule inspection',
   create_listing: 'Create listing',
   update_listing: 'Update listing',
+  generate_listing: 'Generate listing',
   generate_lease: 'Generate lease',
   record_payment: 'Record payment',
   create_arrears_record: 'Create arrears record',
   send_arrears_notice: 'Send arrears notice',
   send_lease_renewal: 'Send lease renewal',
   create_work_order: 'Create work order',
+  generate_work_order: 'Generate work order',
+  update_work_order_status: 'Update work order',
   approve_application: 'Approve application',
   reject_application: 'Reject application',
+  approve_quote: 'Approve quote',
+  reject_quote: 'Reject quote',
   send_tenant_notice: 'Send tenant notice',
   update_property: 'Update property details',
+  update_tenancy: 'Update tenancy',
   create_payment_plan: 'Create payment plan',
+  create_rent_increase: 'Create rent increase',
   lodge_bond: 'Lodge bond',
+  lodge_bond_state: 'Lodge bond',
   generate_report: 'Generate report',
+  generate_financial_report: 'Generate financial report',
+  generate_tax_report: 'Generate tax report',
+  generate_property_summary: 'Generate property summary',
+  generate_portfolio_report: 'Generate portfolio report',
+  generate_cash_flow_forecast: 'Generate cash flow forecast',
+  generate_inspection_report: 'Generate inspection report',
+  generate_wealth_report: 'Generate wealth report',
+  generate_property_action_plan: 'Generate action plan',
+  create_conversation: 'Start conversation',
+  tenant_connect_with_code: 'Connect tenant with code',
+  update_autopay: 'Update autopay settings',
+  update_document_status: 'Update document status',
+  suggest_navigation: 'Navigate',
+  estimate_cost: 'Estimate cost',
+  web_search: 'Search the web',
+  get_owner_rules: 'Check owner preferences',
 };
 
 // Strip UUIDs and raw technical identifiers from user-facing text
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
+function humanizeToolName(name: string): string {
+  // Convert snake_case tool name to Title Case words
+  return name
+    .replace(/^(get|search|list)_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function humanizeTitle(title: string, toolName?: string): string {
-  // If title is just a tool name or starts with a tool_name pattern, use the friendly label
+  // If we have a tool name, check the friendly label map first
   if (toolName && TOOL_NAME_LABELS[toolName]) {
-    // If the title is literally the tool name or tool_name: ..., use friendly version
-    if (title === toolName || title.startsWith(`${toolName}:`)) {
-      return TOOL_NAME_LABELS[toolName];
+    return TOOL_NAME_LABELS[toolName];
+  }
+
+  // Check if the title itself starts with a known tool name
+  const colonIndex = title.indexOf(':');
+  if (colonIndex > 0) {
+    const prefix = title.substring(0, colonIndex).trim();
+    if (TOOL_NAME_LABELS[prefix]) {
+      return TOOL_NAME_LABELS[prefix];
+    }
+    // If prefix looks like a snake_case tool name, humanize it
+    if (/^[a-z_]+$/.test(prefix)) {
+      return humanizeToolName(prefix);
     }
   }
 
-  // Check if the title itself is a known tool name
-  const trimmedTitle = title.split(':')[0].trim();
-  if (TOOL_NAME_LABELS[trimmedTitle]) {
-    return TOOL_NAME_LABELS[trimmedTitle];
+  // If toolName is provided but not in labels, auto-humanize it
+  if (toolName && /^[a-z_]+$/.test(toolName)) {
+    return humanizeToolName(toolName);
   }
 
   // Strip UUIDs from the title
   let cleaned = title.replace(UUID_REGEX, '').trim();
+
+  // Remove JSON-like content: {...} or [...]
+  cleaned = cleaned.replace(/\{[^}]*\}/g, '').replace(/\[[^\]]*\]/g, '').trim();
 
   // Clean up residual formatting: "property_id: " → "", "tenancy_id: " → ""
   cleaned = cleaned.replace(/\b\w+_id:\s*/gi, '').trim();
@@ -152,7 +205,7 @@ function humanizeTitle(title: string, toolName?: string): string {
 
   // If nothing meaningful is left, fall back to a generic label
   if (!cleaned || cleaned.length < 3) {
-    if (toolName && TOOL_NAME_LABELS[toolName]) return TOOL_NAME_LABELS[toolName];
+    if (toolName) return humanizeToolName(toolName);
     return 'Action requires approval';
   }
 
@@ -166,6 +219,23 @@ function humanizeDescription(desc: string): string {
   cleaned = cleaned.replace(/[,:]+\s*$/, '').trim();
   if (!cleaned || cleaned.length < 3) return 'Needs your approval';
   return cleaned;
+}
+
+function humanizeRecommendation(rec: string): string {
+  // Replace old technical L-level format with human-readable text
+  // Old: 'your autonomy setting for "action" is L2 and this action requires L4'
+  const lLevelMatch = rec.match(/your autonomy setting for "(\w+)" is L\d+ and this action requires L\d+/i);
+  if (lLevelMatch) {
+    const category = lLevelMatch[1].replace(/_/g, ' ');
+    return rec.replace(lLevelMatch[0], `your autonomy settings require manual confirmation for ${category} actions`);
+  }
+  // Also handle orchestrator format
+  const orchMatch = rec.match(/Your autonomy for "(\w+)" is L\d+, this requires L\d+/i);
+  if (orchMatch) {
+    const category = orchMatch[1].replace(/_/g, ' ');
+    return rec.replace(orchMatch[0], `Your autonomy settings require manual confirmation for ${category} actions`);
+  }
+  return rec;
 }
 
 export function useActivityFeed(): UseActivityFeedReturn {
@@ -470,7 +540,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
             category: CATEGORY_LABELS[task.category] || task.category,
             priority: task.priority,
             actionType: 'advisory' as ApprovalActionType,
-            recommendation: task.recommendation,
+            recommendation: task.recommendation ? humanizeRecommendation(task.recommendation) : undefined,
             timestamp: task.updated_at || task.created_at,
             deepLink: task.deep_link,
             propertyAddress: taskAddress,
@@ -503,7 +573,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
             category: CATEGORY_LABELS[action.action_type] || action.action_type,
             priority: action.autonomy_level <= 1 ? 'high' : 'normal',
             actionType: 'tool_execution' as ApprovalActionType,
-            recommendation: action.recommendation || undefined,
+            recommendation: action.recommendation ? humanizeRecommendation(action.recommendation) : undefined,
             confidence: action.confidence ? Number(action.confidence) : undefined,
             previewData: preview || undefined,
             timestamp: action.created_at,

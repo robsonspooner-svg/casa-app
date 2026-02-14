@@ -2,6 +2,7 @@
 // Mission 09: Maintenance Requests
 
 import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import { useAuth } from './useAuth';
 import type {
@@ -164,6 +165,55 @@ export function useMaintenance(filter?: MaintenanceFilter): MaintenanceState & {
       fetchRequests();
     }
   }, [fetchRequests, isAuthenticated]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        fetchRequests(true);
+      }
+    }, [fetchRequests, isAuthenticated])
+  );
+
+  // Realtime subscription for live updates
+  useEffect(() => {
+    if (!user) return;
+
+    const supabase = getSupabaseClient();
+
+    // We need property IDs to filter, but we can subscribe broadly and re-fetch
+    const channel = supabase
+      .channel('owner-maintenance-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'maintenance_requests',
+        },
+        () => {
+          // Re-fetch on any change to maintenance_requests
+          fetchRequests();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'maintenance_comments',
+        },
+        () => {
+          // Re-fetch when new comments arrive (may affect display)
+          fetchRequests();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchRequests]);
 
   const refreshRequests = useCallback(async () => {
     await fetchRequests(true);

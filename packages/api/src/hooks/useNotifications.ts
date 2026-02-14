@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getSupabaseClient } from '../client';
 import type { NotificationRow, NotificationUpdate } from '../types/database';
 
@@ -31,10 +32,10 @@ export function useNotifications(userId: string | undefined): UseNotificationsRe
     try { return getSupabaseClient(); } catch { return null; }
   }, []);
 
-  const fetchNotifications = useCallback(async (pageNum: number, append = false) => {
+  const fetchNotifications = useCallback(async (pageNum: number, append = false, isRefresh = false) => {
     if (!supabase || !userId) return;
     try {
-      if (!append) setLoading(true);
+      if (!append && !isRefresh) setLoading(true);
       setError(null);
 
       const from = pageNum * PAGE_SIZE;
@@ -74,7 +75,7 @@ export function useNotifications(userId: string | undefined): UseNotificationsRe
     if (!supabase || !userId) return;
 
     const channel = supabase
-      .channel('notifications-realtime')
+      .channel(`notifications-realtime:${userId}`)
       .on(
         'postgres_changes',
         {
@@ -94,6 +95,15 @@ export function useNotifications(userId: string | undefined): UseNotificationsRe
       supabase.removeChannel(channel);
     };
   }, [supabase, userId]);
+
+  // Refresh data when screen gains focus (e.g. navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        fetchNotifications(0, false, true);
+      }
+    }, [fetchNotifications, userId])
+  );
 
   const refresh = useCallback(async () => {
     setPage(0);

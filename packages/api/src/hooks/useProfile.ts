@@ -31,14 +31,16 @@ export function useProfile(): ProfileContextValue {
     error: null,
   });
 
-  // Fetch profile when user changes
-  const fetchProfile = useCallback(async () => {
+  // Fetch profile when user changes, with retry for race condition after signup
+  const fetchProfile = useCallback(async (retryCount = 0) => {
     if (!user) {
       setState({ profile: null, loading: false, error: null });
       return;
     }
 
-    setState(prev => ({ ...prev, loading: true, error: null }));
+    if (retryCount === 0) {
+      setState(prev => ({ ...prev, loading: true, error: null }));
+    }
 
     try {
       const supabase = getSupabaseClient();
@@ -48,7 +50,16 @@ export function useProfile(): ProfileContextValue {
         .eq('id', user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Profile may not exist yet due to trigger race condition after signup.
+        // Retry up to 3 times with increasing delay.
+        if (retryCount < 3) {
+          const delay = (retryCount + 1) * 800;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return fetchProfile(retryCount + 1);
+        }
+        throw error;
+      }
 
       setState({
         profile: data as Profile,

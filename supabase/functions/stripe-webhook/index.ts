@@ -49,7 +49,28 @@ serve(async (req: Request) => {
       );
     }
 
-    console.log(`Processing webhook event: ${event.type}`);
+    console.log(`Processing webhook event: ${event.type} (${event.id})`);
+
+    // Idempotency: skip already-processed events
+    const { data: existing } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', event.id)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`Skipping duplicate event: ${event.id}`);
+      return new Response(JSON.stringify({ received: true, duplicate: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Record event to prevent reprocessing
+    await supabase
+      .from('webhook_events')
+      .insert({ event_id: event.id, event_type: event.type, processed_at: new Date().toISOString() })
+      .catch(() => { /* table may not exist yet */ });
 
     // Handle different event types
     switch (event.type) {
@@ -153,6 +174,200 @@ async function handlePaymentIntentSucceeded(supabase: any, paymentIntent: any) {
           payment_id: payment.id,
         })
         .eq('id', rentScheduleId);
+    }
+  }
+
+  // Dispatch notifications: owner payment received + tenant receipt
+  if (tenancyId) {
+    try {
+      // Fetch context: tenancy → property → owner + tenant profiles
+      const { data: tenancy } = await supabase
+        .from('tenancies')
+        .select(`
+          id,
+          rent_amount,
+          rent_frequency,
+          properties!inner(
+            id,
+            owner_id,
+            address_line_1,
+            suburb,
+            state,
+            postcode
+          ),
+          tenancy_tenants(tenant_id)
+        `)
+        .eq('id', tenancyId)
+        .single();
+
+      if (tenancy) {
+        const property = (tenancy as any).properties;
+        const ownerId = property?.owner_id;
+        const tenantIds = ((tenancy as any).tenancy_tenants || []).map((tt: any) => tt.tenant_id);
+        const propertyAddress = [property?.address_line_1, property?.suburb, property?.state, property?.postcode].filter(Boolean).join(', ');
+
+        // Get the amount from the payment intent (in cents → formatted)
+        const amountCents = paymentIntent.amount || 0;
+        const amountFormatted = `$${(amountCents / 100).toFixed(2)}`;
+        const paymentDate = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        // Get owner and tenant names
+        const { data: ownerProfile } = ownerId ? await supabase
+          .from('profiles')
+          .select('full_name, first_name')
+          .eq('id', ownerId)
+          .single() : { data: null };
+
+        // Notify owner: payment received
+        if (ownerId) {
+          const tenantName = tenantIds.length > 0
+            ? await supabase.from('profiles').select('full_name').eq('id', tenantIds[0]).single().then((r: any) => r.data?.full_name || 'Your tenant')
+            : 'Your tenant';
+
+          await supabase.functions.invoke('dispatch-notification', {
+            body: {
+              user_id: ownerId,
+              type: 'payment_received',
+              title: 'Rent Payment Received',
+              body: `${tenantName} paid ${amountFormatted} for ${propertyAddress}`,
+              data: {
+                owner_name: ownerProfile?.first_name || ownerProfile?.full_name || 'there',
+                property_address: propertyAddress,
+                tenant_name: tenantName,
+                amount: amountFormatted,
+              },
+              related_type: 'payment',
+              related_id: tenancyId,
+              channels: ['push', 'email'],
+            },
+          });
+        }
+
+        // Notify tenant(s): rent receipt
+        // Calculate next due date from rent_schedules
+        let nextDueDate = '';
+        if (rentScheduleId) {
+          const { data: nextSchedule } = await supabase
+            .from('rent_schedules')
+            .select('due_date')
+            .eq('tenancy_id', tenancyId)
+            .eq('is_paid', false)
+            .order('due_date', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (nextSchedule) {
+            nextDueDate = new Date(nextSchedule.due_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+          }
+        }
+
+        for (const tid of tenantIds) {
+          const { data: tenantProfile } = await supabase
+            .from('profiles')
+            .select('first_name, full_name')
+            .eq('id', tid)
+            .single();
+
+          await supabase.functions.invoke('dispatch-notification', {
+            body: {
+              user_id: tid,
+              type: 'rent_receipt',
+              title: 'Rent Receipt',
+              body: `Your payment of ${amountFormatted} for ${propertyAddress} has been received.`,
+              data: {
+                tenant_name: tenantProfile?.first_name || tenantProfile?.full_name || 'there',
+                property_address: propertyAddress,
+                amount: amountFormatted,
+                payment_date: paymentDate,
+                period: (tenancy as any).rent_frequency || 'weekly',
+                next_due_date: nextDueDate || 'See your rent schedule',
+              },
+              related_type: 'payment',
+              related_id: tenancyId,
+              channels: ['push', 'email'],
+            },
+          });
+        }
+
+        // Check if arrears should be resolved for this tenancy
+        const todayStr = new Date().toISOString().split('T')[0];
+        const { data: overdueCheck } = await supabase
+          .from('rent_schedules')
+          .select('id')
+          .eq('tenancy_id', tenancyId)
+          .eq('is_paid', false)
+          .lt('due_date', todayStr)
+          .limit(1);
+
+        if (!overdueCheck || overdueCheck.length === 0) {
+          // No more overdue payments — resolve any active arrears
+          const { data: activeArrears } = await supabase
+            .from('arrears_records')
+            .select('id, tenant_id')
+            .eq('tenancy_id', tenancyId)
+            .eq('is_resolved', false);
+
+          for (const arrears of activeArrears || []) {
+            await supabase
+              .from('arrears_records')
+              .update({
+                is_resolved: true,
+                resolved_at: new Date().toISOString(),
+                resolved_reason: 'All overdue payments received',
+              })
+              .eq('id', arrears.id);
+
+            await supabase.from('arrears_actions').insert({
+              arrears_record_id: arrears.id,
+              action_type: 'payment_received',
+              description: 'Arrears resolved - payment received via Stripe',
+              is_automated: true,
+            });
+
+            // Notify tenant: arrears resolved
+            if (arrears.tenant_id) {
+              await supabase.functions.invoke('dispatch-notification', {
+                body: {
+                  user_id: arrears.tenant_id,
+                  type: 'arrears_resolved',
+                  title: 'Arrears Resolved',
+                  body: `Your arrears for ${propertyAddress} have been cleared. Thank you for your payment.`,
+                  data: {
+                    tenant_name: '', // dispatch-notification looks up recipient name
+                    property_address: propertyAddress,
+                    amount: amountFormatted,
+                  },
+                  channels: ['push', 'email'],
+                },
+              });
+            }
+
+            // Notify owner: arrears resolved
+            if (ownerId) {
+              const tenantName = arrears.tenant_id
+                ? await supabase.from('profiles').select('full_name').eq('id', arrears.tenant_id).single().then((r: any) => r.data?.full_name || 'Your tenant')
+                : 'Your tenant';
+              await supabase.functions.invoke('dispatch-notification', {
+                body: {
+                  user_id: ownerId,
+                  type: 'arrears_resolved',
+                  title: 'Arrears Resolved',
+                  body: `${tenantName}'s arrears for ${propertyAddress} have been resolved.`,
+                  data: {
+                    recipient_name: ownerProfile?.first_name || 'there',
+                    tenant_name: tenantName,
+                    property_address: propertyAddress,
+                    amount: amountFormatted,
+                  },
+                  channels: ['push', 'email'],
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch (notifErr) {
+      // Notification dispatch is best-effort — don't fail the webhook
+      console.error('Error dispatching payment notifications:', notifErr);
     }
   }
 

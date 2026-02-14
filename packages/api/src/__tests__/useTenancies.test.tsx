@@ -6,6 +6,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
 import {
   mockFrom,
+  mockRpc,
   mockUser,
   resetMocks,
   createMockSupabaseClient,
@@ -367,6 +368,39 @@ describe('useTenancyMutations', () => {
         ['tenant-1']
       )
     ).rejects.toThrow('Not authenticated');
+  });
+
+  it('should throw when rent schedule generation fails', async () => {
+    const insertChain = createQueryChain({ data: { id: 'new-tenancy-2' }, error: null });
+    const tenantsChain = createQueryChain({ data: null, error: null });
+
+    mockFrom
+      .mockReturnValueOnce(insertChain) // tenancies insert
+      .mockReturnValueOnce(tenantsChain); // tenancy_tenants insert
+
+    // Make RPC fail for rent schedule generation
+    mockRpc.mockResolvedValueOnce({ error: { message: 'Invalid date range' } });
+
+    const { result } = renderHook(() => useTenancyMutations());
+
+    await expect(
+      result.current.createTenancy(
+        {
+          property_id: 'prop-1',
+          status: 'active',
+          lease_type: '12_months',
+          lease_start_date: '2024-01-01',
+          lease_end_date: '2024-12-31',
+          rent_amount: 500,
+          rent_frequency: 'weekly',
+          rent_due_day: 1,
+          bond_amount: 2000,
+          bond_status: 'pending',
+          is_periodic: false,
+        },
+        ['tenant-1']
+      )
+    ).rejects.toThrow('Tenancy created but rent schedule failed');
   });
 
   it('should handle supabase error on create', async () => {

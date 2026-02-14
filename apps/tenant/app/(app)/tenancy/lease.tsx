@@ -1,6 +1,7 @@
 // Lease View Screen - Tenant App
 // Mission 06: Tenancies & Leases
 
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,10 +14,29 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { useMyTenancy } from '@casa/api';
+import { useMyTenancy, getSupabaseClient } from '@casa/api';
 
 export default function LeaseScreen() {
   const { tenancy, loading } = useMyTenancy();
+  const [leaseDocumentId, setLeaseDocumentId] = useState<string | null>(null);
+
+  // Fetch lease document ID from the documents table
+  useEffect(() => {
+    if (!tenancy) return;
+    const fetchLeaseDoc = async () => {
+      const supabase = getSupabaseClient();
+      const { data } = await (supabase
+        .from('documents') as ReturnType<typeof supabase.from>)
+        .select('id')
+        .eq('tenancy_id', (tenancy as any).id)
+        .eq('document_type', 'lease')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (data) setLeaseDocumentId((data as any).id);
+    };
+    fetchLeaseDoc();
+  }, [tenancy]);
 
   if (loading) {
     return (
@@ -135,7 +155,10 @@ export default function LeaseScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Lease Document</Text>
           {leaseDoc ? (
-            <TouchableOpacity style={styles.documentCard}>
+            <TouchableOpacity
+              style={styles.documentCard}
+              onPress={() => leaseDocumentId && router.push(`/(app)/documents/${leaseDocumentId}` as any)}
+            >
               <View>
                 <Text style={styles.docTitle}>{leaseDoc.title}</Text>
                 <Text style={styles.docFile}>{leaseDoc.file_name}</Text>
@@ -150,6 +173,20 @@ export default function LeaseScreen() {
             </View>
           )}
         </View>
+        {/* View Full Lease Document Button */}
+        {leaseDocumentId ? (
+          <TouchableOpacity
+            style={styles.viewLeaseButton}
+            onPress={() => router.push(`/(app)/documents/${leaseDocumentId}` as any)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.viewLeaseButtonText}>View Full Lease Document</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.noLeaseDocText}>
+            No lease document has been uploaded yet
+          </Text>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -187,4 +224,7 @@ const styles = StyleSheet.create({
   downloadIcon: { fontSize: 20, color: THEME.colors.brand, fontWeight: '700' },
   noDocCard: { backgroundColor: THEME.colors.surface, borderRadius: THEME.radius.md, padding: 20, borderWidth: 1, borderColor: THEME.colors.border },
   noDocText: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: 'center' },
+  viewLeaseButton: { backgroundColor: THEME.colors.brand, borderRadius: THEME.radius.md, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: THEME.spacing.base },
+  viewLeaseButtonText: { color: THEME.colors.textInverse, fontSize: 16, fontWeight: '700' },
+  noLeaseDocText: { fontSize: THEME.fontSize.bodySmall, color: THEME.colors.textTertiary, marginTop: THEME.spacing.base, textAlign: 'center' },
 });

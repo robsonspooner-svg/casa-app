@@ -38,8 +38,12 @@ export default function TenantNotificationSettingsScreen() {
   }, [updatePreferences]);
 
   const handleQuietHoursToggle = useCallback(async (enabled: boolean) => {
-    if (enabled) await enableQuietHours('22:00', '07:00', 'Australia/Sydney');
-    else await disableQuietHours();
+    if (enabled) {
+      const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Australia/Sydney';
+      await enableQuietHours('22:00', '07:00', deviceTz);
+    } else {
+      await disableQuietHours();
+    }
   }, [enableQuietHours, disableQuietHours]);
 
   if (loading) {
@@ -64,23 +68,7 @@ export default function TenantNotificationSettingsScreen() {
         <View style={styles.card}>
           <SettingRow label="Push Notifications" description="Receive alerts on your device" value={preferences?.push_enabled ?? true} onValueChange={(val) => handleToggleChannel('push_enabled', val)} />
           <SettingRow label="Email Notifications" description="Get updates via email" value={preferences?.email_enabled ?? true} onValueChange={(val) => handleToggleChannel('email_enabled', val)} />
-          <View style={styles.settingRow}>
-            <View style={styles.settingContent}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.settingLabel}>SMS Notifications</Text>
-                <View style={{ backgroundColor: THEME.colors.brand + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: THEME.radius.sm }}>
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: THEME.colors.brand }}>Coming Soon</Text>
-                </View>
-              </View>
-              <Text style={styles.settingDesc}>Text messages for urgent matters</Text>
-            </View>
-            <Switch
-              value={false}
-              disabled
-              trackColor={{ false: THEME.colors.border, true: THEME.colors.brand + '66' }}
-              thumbColor={THEME.colors.canvas}
-            />
-          </View>
+          <SettingRow label="SMS Notifications" description="Text messages for urgent matters" value={preferences?.sms_enabled ?? false} onValueChange={(val) => handleToggleChannel('sms_enabled', val)} />
         </View>
 
         <Text style={styles.sectionTitle}>Quiet Hours</Text>

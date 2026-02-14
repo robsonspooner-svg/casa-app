@@ -38,11 +38,11 @@ export default function SubscriptionScreen() {
     const isUpgrade = targetTier.price > tierInfo.price;
     const hasStripeSubscription = !!profile?.stripe_customer_id;
 
-    // New subscribers: open web checkout to avoid App Store fees
+    // New subscribers: create subscription directly via Edge Function
     if (!hasStripeSubscription && isUpgrade) {
       Alert.alert(
         `Subscribe to ${targetTier.name}`,
-        `Start your 14-day free trial of ${targetTier.name} (${targetTier.priceFormatted}).`,
+        `Start your 14-day free trial of ${targetTier.name} (${targetTier.priceFormatted}). No payment required during trial.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -50,14 +50,14 @@ export default function SubscriptionScreen() {
             onPress: async () => {
               setLoading(tier);
               try {
-                const supabase = getSupabaseClient();
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session?.access_token) throw new Error('Not authenticated');
-                const url = `https://casaapp.com.au/subscribe?tier=${tier}&token=${session.access_token}`;
-                await WebBrowser.openBrowserAsync(url);
+                await callSubscriptionApi('create', tier);
                 await refreshProfile();
+                Alert.alert(
+                  'Trial Started!',
+                  `Your 14-day free trial of ${targetTier.name} has begun. You can add a payment method anytime before your trial ends.`
+                );
               } catch (err: any) {
-                Alert.alert('Error', err.message || 'Failed to open subscription page.');
+                Alert.alert('Error', err.message || 'Failed to start subscription. Please try again.');
               } finally {
                 setLoading(null);
               }
