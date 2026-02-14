@@ -85,6 +85,7 @@ export default function AddPaymentMethodScreen() {
             Credit/Debit Card
           </Text>
           <Text style={styles.typeDesc}>Visa, Mastercard, Amex</Text>
+          <Text style={styles.typeFee}>1.75% + $0.30 per payment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -101,6 +102,7 @@ export default function AddPaymentMethodScreen() {
             Bank Account (BECS)
           </Text>
           <Text style={styles.typeDesc}>AU Direct Debit</Text>
+          <Text style={[styles.typeFee, styles.typeFeeLowest]}>Lowest fees (max $3.50)</Text>
         </TouchableOpacity>
       </View>
 
@@ -108,7 +110,7 @@ export default function AddPaymentMethodScreen() {
         <Card style={styles.becsInfo}>
           <Text style={styles.becsTitle}>About BECS Direct Debit</Text>
           <Text style={styles.becsText}>
-            BECS Direct Debit allows automatic payments from your Australian bank account. Lower fees than card payments (capped at $3.50). Processing takes 3-4 business days.
+            BECS Direct Debit allows automatic payments from your Australian bank account. Processing fees are significantly lower than card payments, capped at just $3.50 per transaction. Processing takes 3-4 business days.
           </Text>
           <View style={styles.becsDetail}>
             <Text style={styles.becsLabel}>You will need:</Text>
@@ -116,6 +118,20 @@ export default function AddPaymentMethodScreen() {
             <Text style={styles.becsItem}>Account number</Text>
             <Text style={styles.becsItem}>Account holder name</Text>
           </View>
+        </Card>
+      )}
+
+      {selectedType === 'card' && (
+        <Card style={styles.feeComparisonCard}>
+          <View style={styles.feeComparisonHeader}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 8v4M12 16h.01" stroke={THEME.colors.info} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+            <Text style={styles.feeComparisonTitle}>Save on fees with BECS</Text>
+          </View>
+          <Text style={styles.feeComparisonText}>
+            For a $2,000 rent payment, a card costs ~$35.30 in processing fees. BECS Direct Debit caps fees at just $3.50 — saving your landlord over $30 per payment.
+          </Text>
         </Card>
       )}
 
@@ -130,7 +146,7 @@ export default function AddPaymentMethodScreen() {
       )}
 
       <Text style={styles.securityNote}>
-        Your payment details are securely handled by Stripe. Casa never stores your full card number or bank details.
+        Your payment details are securely handled by Stripe. Casa never stores your full card number or bank details. Casa charges no hidden fees on payments — your only cost is one recurring subscription.
       </Text>
     </ScrollView>
   );
@@ -190,6 +206,36 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.caption,
     color: THEME.colors.textSecondary,
     marginTop: 2,
+  },
+  typeFee: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textTertiary,
+    marginTop: THEME.spacing.xs,
+    textAlign: 'center',
+  },
+  typeFeeLowest: {
+    color: THEME.colors.success,
+    fontWeight: THEME.fontWeight.medium,
+  },
+  feeComparisonCard: {
+    marginBottom: THEME.spacing.lg,
+    backgroundColor: THEME.colors.infoBg,
+  },
+  feeComparisonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: THEME.spacing.sm,
+    marginBottom: THEME.spacing.sm,
+  },
+  feeComparisonTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+  },
+  feeComparisonText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
   },
   becsInfo: {
     marginBottom: THEME.spacing.lg,

@@ -24,7 +24,17 @@ export default function PayoutOnboardScreen() {
       });
 
       if (error) {
-        const errMsg = data?.error || error.message || 'Failed to start onboarding';
+        // Try to get the actual error message from the response
+        let errMsg = 'Failed to start onboarding';
+        if (data?.error) {
+          errMsg = data.error;
+        } else if (error.message) {
+          errMsg = error.message;
+        }
+        // If it's just a generic "non-2xx" error, provide a more helpful message
+        if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
+          errMsg = 'Could not connect to the payment service. Please check your internet connection and try again.';
+        }
         throw new Error(errMsg);
       }
 
@@ -114,21 +124,44 @@ export default function PayoutOnboardScreen() {
       </Card>
 
       <Card style={styles.feeCard}>
-        <Text style={styles.sectionTitle}>Fees</Text>
+        <Text style={styles.sectionTitle}>Processing Fees</Text>
+        <Text style={styles.feeIntro}>
+          Stripe charges a small processing fee on each rent payment, deducted from your payout. Casa adds no fees on top — your only cost is your subscription.
+        </Text>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Card payments</Text>
           <Text style={styles.detailValue}>1.75% + $0.30</Text>
         </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>BECS Direct Debit</Text>
-          <Text style={styles.detailValue}>1.0% (max $3.50)</Text>
+        <View style={[styles.detailRow, styles.becsHighlightRow]}>
+          <View>
+            <Text style={styles.detailLabel}>BECS Direct Debit</Text>
+            <Text style={styles.becsSavingsLabel}>Recommended — lowest fees</Text>
+          </View>
+          <Text style={[styles.detailValue, { color: THEME.colors.success }]}>Max $3.50</Text>
         </View>
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Platform fee</Text>
+          <Text style={styles.detailLabel}>Casa platform fee</Text>
           <Text style={[styles.detailValue, { color: THEME.colors.success }]}>None</Text>
         </View>
-        <Text style={styles.feeNote}>
-          Processing fees are included in your subscription. No hidden charges on rent payouts.
+      </Card>
+
+      <Card style={styles.savingsCard}>
+        <View style={styles.savingsHeader}>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke={THEME.colors.success} strokeWidth={1.5} />
+            <Path d="M12 8v4M12 16h.01" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.savingsTitle}>Save with BECS Direct Debit</Text>
+        </View>
+        <Text style={styles.savingsText}>
+          On a $2,000 rent payment, card processing costs ~$35.30. With BECS, it is capped at just $3.50 — saving you over $30 per payment. Ask your tenant to set up BECS as their payment method for the best deal.
+        </Text>
+      </Card>
+
+      <Card style={styles.transparencyCard}>
+        <Text style={styles.transparencyTitle}>Casa's commitment: No hidden fees</Text>
+        <Text style={styles.transparencyText}>
+          Casa only charges one recurring subscription. We never add markups, platform fees, or hidden charges on rent payments. The only processing fees are Stripe's standard rates, which we pass through at cost. We actively work to minimise these fees so owners and tenants get the best deal.
         </Text>
       </Card>
 
@@ -250,13 +283,62 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   feeCard: {
-    marginBottom: THEME.spacing.lg,
+    marginBottom: THEME.spacing.base,
   },
-  feeNote: {
+  feeIntro: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: THEME.spacing.md,
+  },
+  becsHighlightRow: {
+    backgroundColor: THEME.colors.successBg,
+    marginHorizontal: -THEME.spacing.base,
+    paddingHorizontal: THEME.spacing.base,
+    borderRadius: THEME.radius.sm,
+  },
+  becsSavingsLabel: {
     fontSize: THEME.fontSize.caption,
-    color: THEME.colors.textTertiary,
-    marginTop: THEME.spacing.md,
-    lineHeight: 16,
+    color: THEME.colors.success,
+    fontWeight: THEME.fontWeight.medium,
+    marginTop: 2,
+  },
+  savingsCard: {
+    marginBottom: THEME.spacing.base,
+    backgroundColor: THEME.colors.successBg,
+  },
+  savingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: THEME.spacing.sm,
+    marginBottom: THEME.spacing.sm,
+  },
+  savingsTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.success,
+  },
+  savingsText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
+  },
+  transparencyCard: {
+    marginBottom: THEME.spacing.lg,
+    backgroundColor: THEME.colors.brand + '08',
+    borderWidth: 1,
+    borderColor: THEME.colors.brand + '20',
+  },
+  transparencyTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.sm,
+  },
+  transparencyText: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
   },
   connectButton: {
     marginBottom: THEME.spacing.base,

@@ -144,10 +144,12 @@ serve(async (req: Request) => {
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating connect account:', error);
+    const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
+    console.error(`Error details — type: ${error?.type}, code: ${error?.code}, message: ${errorMessage}`);
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

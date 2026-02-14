@@ -172,6 +172,18 @@ export default function PayScreen() {
         </Text>
       </Card>
 
+      <Card style={styles.feeInfoCard}>
+        <View style={styles.feeInfoRow}>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 8v4M12 16h.01" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.feeInfoTitle}>No hidden fees from Casa</Text>
+        </View>
+        <Text style={styles.feeInfoText}>
+          Stripe charges a small processing fee on each payment (1.75% + $0.30 for card, or max $3.50 for BECS bank transfer). Paying by bank transfer saves your landlord money. Casa does not add any fees on top.
+        </Text>
+      </Card>
+
       <Button
         title={loading ? '' : `Pay ${formatDollars(payableAmount)}`}
         onPress={handlePay}
@@ -281,12 +293,32 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     backgroundColor: THEME.colors.infoBg,
-    marginBottom: THEME.spacing.lg,
+    marginBottom: THEME.spacing.md,
   },
   infoText: {
     fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.textSecondary,
     lineHeight: 20,
+  },
+  feeInfoCard: {
+    backgroundColor: THEME.colors.successBg,
+    marginBottom: THEME.spacing.lg,
+  },
+  feeInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: THEME.spacing.sm,
+    marginBottom: THEME.spacing.xs,
+  },
+  feeInfoTitle: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.success,
+  },
+  feeInfoText: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    lineHeight: 18,
   },
   payButton: {
     marginBottom: THEME.spacing.base,
