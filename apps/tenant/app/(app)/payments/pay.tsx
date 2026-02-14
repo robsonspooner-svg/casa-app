@@ -73,8 +73,9 @@ export default function PayScreen() {
         },
       });
 
-      if (error) {
-        let errMsg = data?.error || error.message || 'Failed to start payment';
+      // Check for errors from both the supabase invoke wrapper and the function response body
+      if (error || data?.error) {
+        let errMsg = data?.error || error?.message || 'Failed to start payment';
         // Translate generic errors into helpful messages
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
           errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';

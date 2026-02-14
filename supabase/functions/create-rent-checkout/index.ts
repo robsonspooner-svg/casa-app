@@ -222,9 +222,10 @@ serve(async (req: Request) => {
       userMessage = 'Too many requests. Please wait a moment and try again.';
     }
 
+    // Return 200 with error field so client always receives the body
     return new Response(
-      JSON.stringify({ error: userMessage, code: errorCode }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: userMessage, code: errorCode }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -169,10 +169,15 @@ serve(async (req: Request) => {
   } catch (error: any) {
     console.error('Error creating connect account:', error);
     const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
+    const errorCode = error?.code || error?.type || 'unknown';
     console.error(`Error details — type: ${error?.type}, code: ${error?.code}, message: ${errorMessage}`);
+
+    // Return 200 with error field so the client always receives the response body.
+    // (supabase.functions.invoke swallows the body on non-2xx responses and only
+    //  surfaces a generic "non-2xx status code" message — losing the actual error.)
     return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: errorMessage, code: errorCode }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

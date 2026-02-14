@@ -168,9 +168,10 @@ serve(async (req: Request) => {
     console.error('Error creating setup session:', error);
     const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
     console.error(`Setup session error details — type: ${error?.type}, code: ${error?.code}, message: ${errorMessage}`);
+    // Return 200 with error field so client always receives the body
     return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: errorMessage, code: error?.code || 'unknown' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

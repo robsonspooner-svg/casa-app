@@ -47,8 +47,9 @@ export default function AddPaymentMethodScreen() {
         },
       });
 
-      if (error) {
-        let errMsg = data?.error || error.message || 'Failed to start payment setup';
+      // Check for errors from both the supabase invoke wrapper and the function response body
+      if (error || data?.error) {
+        let errMsg = data?.error || error?.message || 'Failed to start payment setup';
         // Translate generic errors into helpful messages
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
           errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
@@ -102,6 +103,18 @@ export default function AddPaymentMethodScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Choose method type</Text>
+
+      <Card style={styles.becsRecommendation}>
+        <View style={styles.becsRecommendationRow}>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke={THEME.colors.success} strokeWidth={1.5} />
+            <Path d="M12 8v4M12 16h.01" stroke={THEME.colors.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.becsRecommendationText}>
+            Tip: Bank Account (BECS) has the lowest fees — max $3.50 per payment vs $35+ for cards. This saves your landlord money on every payment.
+          </Text>
+        </View>
+      </Card>
 
       <View style={styles.typeOptions}>
         <TouchableOpacity
@@ -204,7 +217,22 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.h3,
     fontWeight: THEME.fontWeight.semibold,
     color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.md,
+  },
+  becsRecommendation: {
+    backgroundColor: THEME.colors.successBg,
     marginBottom: THEME.spacing.base,
+  },
+  becsRecommendationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: THEME.spacing.sm,
+  },
+  becsRecommendationText: {
+    flex: 1,
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    lineHeight: 20,
   },
   typeOptions: {
     flexDirection: 'row',

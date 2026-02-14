@@ -23,11 +23,13 @@ export default function PayoutOnboardScreen() {
         },
       });
 
-      if (error) {
+      // Check for errors from both the supabase invoke wrapper and the function response body
+      if (error || data?.error) {
         let errMsg = 'Failed to start onboarding';
         if (data?.error) {
+          // Function returned a detailed error in the body
           errMsg = data.error;
-        } else if (error.message) {
+        } else if (error?.message) {
           errMsg = error.message;
         }
         // Translate generic/cryptic errors into helpful messages
@@ -39,6 +41,8 @@ export default function PayoutOnboardScreen() {
           errMsg = 'Only property owners can set up payout accounts. Please ensure your account is set to owner role.';
         } else if (errMsg.includes('STRIPE_SECRET_KEY')) {
           errMsg = 'Payment service is not configured yet. Please contact Casa support.';
+        } else if (errMsg.includes('Invalid authentication') || errMsg.includes('Missing authorization')) {
+          errMsg = 'Your session has expired. Please log out and log back in, then try again.';
         }
         throw new Error(errMsg);
       }
