@@ -40,7 +40,7 @@ CREATE POLICY "Users can view comments on their documents" ON document_comments
       SELECT d.id FROM documents d
       JOIN tenancies t ON d.tenancy_id = t.id
       JOIN tenancy_tenants tt ON tt.tenancy_id = t.id
-      WHERE tt.user_id = auth.uid()
+      WHERE tt.tenant_id = auth.uid()
     )
   );
 
