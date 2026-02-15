@@ -238,9 +238,11 @@ serve(async (req: Request) => {
       userMessage = 'Too many requests. Please wait a moment and try again.';
     }
 
+    // Return 200 with error field so client always receives the body
+    // (supabase.functions.invoke swallows the body on non-2xx responses)
     return new Response(
-      JSON.stringify({ error: userMessage, code: error?.code || 'unknown' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: userMessage, code: error?.code || 'unknown' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -100,11 +100,23 @@ serve(async (req: Request) => {
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating setup intent:', error);
+    const errorMessage = error?.raw?.message || error?.message || 'Internal server error';
+    console.error(`Setup intent error — type: ${error?.type}, code: ${error?.code}, message: ${errorMessage}`);
+
+    let userMessage = errorMessage;
+    if (error?.type === 'StripeInvalidRequestError') {
+      userMessage = 'Payment setup configuration error. Please try again or contact support.';
+    } else if (error?.type === 'StripeConnectionError' || error?.type === 'StripeAPIError') {
+      userMessage = 'Unable to connect to payment service. Please try again in a moment.';
+    }
+
+    // Return 200 with error field so client always receives the body
+    // (supabase.functions.invoke swallows the body on non-2xx responses)
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: userMessage, code: error?.code || 'unknown' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
