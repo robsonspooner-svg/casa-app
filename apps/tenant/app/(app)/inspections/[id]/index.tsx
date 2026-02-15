@@ -1,6 +1,6 @@
 // Inspection Detail + Acknowledge/Dispute - Tenant View
 // Mission 11: Property Inspections
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { THEME } from '@casa/config';
 import { Button, ConditionBadge, useToast } from '@casa/ui';
 import { useInspection, useInspectionMutations } from '@casa/api';
@@ -39,6 +41,37 @@ export default function TenantInspectionDetail() {
   const [disputeText, setDisputeText] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleSharePDF = useCallback(async () => {
+    if (!inspection?.report_url) {
+      Alert.alert('No Report', 'The report has not been generated yet.');
+      return;
+    }
+    setExporting(true);
+    try {
+      const response = await fetch(inspection.report_url);
+      if (!response.ok) throw new Error('Could not load report');
+      const html = await response.text();
+
+      const { uri } = await Print.printToFileAsync({ html });
+      const address = inspection.property
+        ? `${inspection.property.address_line_1 || 'Property'} ${inspection.property.suburb || ''}`
+        : 'Inspection';
+      const typeLabel = inspection.inspection_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `${typeLabel} Report — ${address}`,
+        UTI: 'com.adobe.pdf',
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('cancel')) return;
+      Alert.alert('Export Error', err instanceof Error ? err.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  }, [inspection]);
 
   const handleAcknowledge = async () => {
     if (!id) return;
@@ -114,7 +147,19 @@ export default function TenantInspectionDetail() {
           </Svg>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Inspection Report</Text>
-        <View style={styles.headerRight} />
+        {inspection?.report_url ? (
+          <TouchableOpacity onPress={handleSharePDF} style={styles.backButton} disabled={exporting}>
+            {exporting ? (
+              <ActivityIndicator size="small" color={THEME.colors.brand} />
+            ) : (
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerRight} />
+        )}
       </View>
 
       <ScrollView

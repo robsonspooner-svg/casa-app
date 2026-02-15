@@ -27,6 +27,8 @@ import {
   useProperties,
   useProfile,
   useFeatureGate,
+  useAuth,
+  sendOwnerWelcomeMessage,
   PropertyType,
   PaymentFrequency,
 } from '@casa/api';
@@ -91,6 +93,7 @@ const initialFormData: PropertyFormData = {
 
 export default function AddPropertyWizard() {
   const router = useRouter();
+  const { user } = useAuth();
   const { createProperty } = usePropertyMutations();
   const { properties, loading: propertiesLoading } = useProperties();
   const { profile } = useProfile();
@@ -166,7 +169,9 @@ export default function AddPropertyWizard() {
 
     setLoading(true);
     try {
-      await createProperty({
+      const isFirstProperty = properties.length === 0;
+
+      const newProperty = await createProperty({
         address_line_1: formData.addressLine1.trim(),
         address_line_2: formData.addressLine2.trim() || null,
         suburb: formData.suburb.trim(),
@@ -184,6 +189,12 @@ export default function AddPropertyWizard() {
         bond_amount: formData.bondAmount.trim() ? parseFloat(formData.bondAmount) : null,
         notes: formData.notes.trim() || null,
       });
+
+      // Send AI welcome message on first property (fire-and-forget, dedup-safe)
+      if (isFirstProperty && user) {
+        const propertyAddress = `${formData.addressLine1.trim()}, ${formData.suburb.trim()} ${formData.state}`;
+        sendOwnerWelcomeMessage(user.id, propertyAddress, newProperty.id).catch(() => {});
+      }
 
       Alert.alert('Success', 'Property added successfully', [
         { text: 'OK', onPress: () => router.back() },

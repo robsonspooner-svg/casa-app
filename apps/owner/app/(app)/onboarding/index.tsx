@@ -14,7 +14,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { getSupabaseClient, useAuth } from '@casa/api';
+import { getSupabaseClient, useAuth, sendOwnerWelcomeMessage } from '@casa/api';
 
 async function signOutAndRedirect() {
   try {
@@ -171,25 +171,9 @@ export default function OnboardingScreen() {
     try {
       await markOnboardingComplete();
       // Send AI welcome message (fire-and-forget)
-      try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          fetch(
-            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${session.access_token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: 'I just signed up for Casa. Give me a brief welcome and tell me what you can help me with as my AI property manager.',
-              }),
-            }
-          ).catch(() => {});
-        }
-      } catch { /* non-blocking */ }
+      if (user) {
+        sendOwnerWelcomeMessage(user.id).catch(() => {});
+      }
       router.replace('/(app)/(tabs)' as never);
     } catch {
       Alert.alert('Error', 'Failed to complete onboarding. Please try again.');

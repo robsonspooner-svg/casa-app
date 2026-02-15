@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, TextInput, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, TextInput, Alert, Image, Linking } from 'react-native';
 import { router } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
@@ -609,28 +609,57 @@ export default function ComplianceScreen() {
                     )}
 
                     {(item.status === 'overdue' || item.status === 'upcoming' || item.status === 'pending') && (
-                      <View style={styles.actionRow}>
+                      <View style={styles.actionColumn}>
+                        <View style={styles.actionRow}>
+                          <TouchableOpacity
+                            style={styles.recordButton}
+                            onPress={() => setCompletionModal({ id: item.id, name: item.requirement?.name || 'Compliance Item' })}
+                          >
+                            <CheckIcon />
+                            <Text style={styles.recordButtonText}>Record Completion</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.exemptButton}
+                            onPress={() => {
+                              Alert.alert(
+                                'Mark as Exempt',
+                                `Mark "${item.requirement?.name || 'this item'}" as not applicable to this property?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Mark Exempt', onPress: () => markExempt(item.id, 'Owner marked as not applicable') },
+                                ],
+                              );
+                            }}
+                          >
+                            <Text style={styles.exemptButtonText}>Exempt</Text>
+                          </TouchableOpacity>
+                        </View>
                         <TouchableOpacity
-                          style={styles.recordButton}
-                          onPress={() => setCompletionModal({ id: item.id, name: item.requirement?.name || 'Compliance Item' })}
-                        >
-                          <CheckIcon />
-                          <Text style={styles.recordButtonText}>Record Completion</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.exemptButton}
+                          style={styles.bookTradeButton}
                           onPress={() => {
-                            Alert.alert(
-                              'Mark as Exempt',
-                              `Mark "${item.requirement?.name || 'this item'}" as not applicable to this property?`,
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                { text: 'Mark Exempt', onPress: () => markExempt(item.id, 'Owner marked as not applicable') },
-                              ],
+                            const itemName = item.requirement?.name || 'compliance service';
+                            const propertyAddr = item.property?.address_line_1 || 'my property';
+                            const suburb = item.property?.suburb || '';
+                            const fullAddr = suburb ? `${propertyAddr}, ${suburb}` : propertyAddr;
+                            const dueInfo = item.next_due_date
+                              ? ` (due ${new Date(item.next_due_date).toLocaleDateString('en-AU')})`
+                              : '';
+                            const subject = encodeURIComponent(`Booking request: ${itemName} at ${fullAddr}`);
+                            const body = encodeURIComponent(
+                              `Hi,\n\nI'd like to book a ${itemName} service at the following property:\n\n` +
+                              `Address: ${fullAddr}\n` +
+                              `Service required: ${itemName}${dueInfo}\n\n` +
+                              `Could you please provide a quote and your earliest availability?\n\n` +
+                              `Thank you`
                             );
+                            Linking.openURL(`mailto:?subject=${subject}&body=${body}`);
                           }}
                         >
-                          <Text style={styles.exemptButtonText}>Exempt</Text>
+                          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                            <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                            <Path d="M22 6l-10 7L2 6" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                          </Svg>
+                          <Text style={styles.bookTradeText}>Book Tradesperson</Text>
                         </TouchableOpacity>
                       </View>
                     )}
@@ -836,11 +865,14 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: THEME.colors.textInverse,
   },
+  actionColumn: {
+    marginTop: 10,
+    marginLeft: 16,
+    gap: 8,
+  },
   actionRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 10,
-    marginLeft: 16,
   },
   recordButton: {
     flexDirection: 'row',
@@ -867,6 +899,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: THEME.colors.textTertiary,
+  },
+  bookTradeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: THEME.colors.brand + '12',
+    borderRadius: THEME.radius.sm,
+    alignSelf: 'flex-start',
+  },
+  bookTradeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.brand,
   },
   conditionText: {
     fontSize: 11,

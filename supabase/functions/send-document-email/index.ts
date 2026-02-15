@@ -254,6 +254,53 @@ serve(async (req: Request) => {
       // Email sent successfully, so still return success but note the DB update issue
     }
 
+    // Create a document_shares record so the tenant can see the document in-app
+    const { error: shareError } = await supabase
+      .from('document_shares')
+      .insert({
+        document_id: documentId,
+        shared_with_id: tenantId,
+        share_type: 'user',
+        shared_by: user.id,
+        can_download: true,
+        can_print: true,
+      });
+
+    if (shareError) {
+      // Don't fail the whole request — a duplicate share (unique constraint) is harmless
+      console.error('Failed to create document_shares record:', shareError);
+    }
+
+    // Send push notification to the tenant about the shared document
+    try {
+      const notifTitle = requiresSignature
+        ? 'Document requires your signature'
+        : 'New document shared with you';
+      const notifBody = requiresSignature
+        ? `${ownerName} has sent you "${doc.title}" for signing. Open the app to review and sign.`
+        : `${ownerName} has shared "${doc.title}" with you. Open the app to view it.`;
+
+      await supabase.functions.invoke('dispatch-notification', {
+        body: {
+          user_id: tenantId,
+          type: 'document_shared',
+          title: notifTitle,
+          body: notifBody,
+          data: {
+            document_id: documentId,
+            document_title: doc.title,
+            document_type: doc.document_type,
+            requires_signature: requiresSignature,
+            property_address: propertyAddress,
+            owner_name: ownerName,
+          },
+        },
+      });
+    } catch (notifError) {
+      // Notification dispatch is best-effort — don't fail the request
+      console.error('Failed to dispatch document share notification:', notifError);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

@@ -70,6 +70,13 @@ export const CLAUDE_TOOLS: AgentToolDefinition[] = [
 
   // ── TENANT TOOLS ────────────────────────────────────────────────────────
   { name: 'tenant_connect_with_code', description: 'Connect the tenant to a property using a 6-character connection code from their landlord. Validates the code, creates the tenancy link, and returns property details. The tenant can simply type their code in the chat.', input_schema: { type: 'object', properties: { code: { type: 'string', description: 'The 6-character connection code (e.g. "ABC123")' } }, required: ['code'] } },
+  { name: 'get_my_tenancy', description: "Returns the tenant's active tenancy details including property address, rent amount and frequency, lease dates, bond amount, and landlord name.", input_schema: { type: 'object', properties: {} } },
+  { name: 'get_my_payments', description: "Returns the tenant's payment history and upcoming rent schedule. Shows recent payments with status and upcoming due dates.", input_schema: { type: 'object', properties: { period: { type: 'string', enum: ['month', 'quarter', 'year', 'all'], description: 'Time period to retrieve (default: quarter)' }, include_upcoming: { type: 'boolean', description: 'Include upcoming rent schedule (default: true)' } } } },
+  { name: 'get_my_arrears', description: "Returns any outstanding arrears the tenant has, including amount owed, days overdue, and current escalation level.", input_schema: { type: 'object', properties: {} } },
+  { name: 'get_my_documents', description: "Returns documents shared with the tenant (leases, notices, inspection reports, etc.).", input_schema: { type: 'object', properties: { document_type: { type: 'string', enum: ['lease', 'notice', 'inspection', 'receipt', 'compliance', 'all'], description: 'Filter by document type' } } } },
+  { name: 'request_maintenance', description: "Submit a maintenance request for the tenant's property. The tenant describes the issue and the agent creates the request.", input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Short description of the issue (e.g. "Leaking kitchen tap")' }, description: { type: 'string', description: 'Detailed description of the maintenance issue' }, urgency: { type: 'string', enum: ['emergency', 'urgent', 'routine'], description: 'How urgent the issue is (default: routine)' }, category: { type: 'string', enum: ['plumbing', 'electrical', 'appliance', 'structural', 'pest', 'locks_security', 'hvac', 'garden_outdoor', 'cleaning', 'other'], description: 'Category of maintenance work' } }, required: ['title', 'description', 'category'] } },
+  { name: 'get_my_maintenance', description: "Returns the tenant's maintenance requests and their current statuses.", input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['submitted', 'acknowledged', 'in_progress', 'completed', 'all'], description: 'Filter by status (default: all)' } } } },
+  { name: 'send_message_to_owner', description: 'Send a message to the property owner/manager via the in-app messaging system.', input_schema: { type: 'object', properties: { content: { type: 'string', description: 'Message content to send' }, property_id: { type: 'string', description: 'Property UUID (optional, auto-detected from tenancy if not provided)' } }, required: ['content'] } },
 
   // ── ACTION TOOLS ──────────────────────────────────────────────────────────
   { name: 'create_property', description: 'Create a new property with address, details, and financials', input_schema: { type: 'object', properties: { address_line_1: { type: 'string', description: 'Street address' }, address_line_2: { type: 'string', description: 'Unit/apartment' }, suburb: { type: 'string', description: 'Suburb name' }, state: { type: 'string', enum: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'], description: 'Australian state' }, postcode: { type: 'string', description: '4-digit postcode' }, property_type: { type: 'string', enum: ['house', 'apartment', 'townhouse', 'unit', 'studio', 'other'], description: 'Property type' }, bedrooms: { type: 'number', description: 'Number of bedrooms' }, bathrooms: { type: 'number', description: 'Number of bathrooms' }, parking_spaces: { type: 'number', description: 'Number of parking spaces' }, floor_size_sqm: { type: 'number', description: 'Floor area in sqm' }, land_size_sqm: { type: 'number', description: 'Land area in sqm' }, year_built: { type: 'number', description: 'Year built' }, rent_amount: { type: 'number', description: 'Rent amount (AUD)' }, rent_frequency: { type: 'string', enum: ['weekly', 'fortnightly', 'monthly'], description: 'Rent frequency' }, bond_amount: { type: 'number', description: 'Bond amount (AUD)' }, notes: { type: 'string', description: 'Additional notes' } }, required: ['address_line_1', 'suburb', 'state', 'postcode'] } },
@@ -266,6 +273,13 @@ export const TOOL_META: Record<string, ToolMeta> = {
   get_pending_actions: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   suggest_navigation: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
   tenant_connect_with_code: { category: 'action', autonomyLevel: 4, riskLevel: 'low', reversible: false },
+  get_my_tenancy: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_my_payments: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_my_arrears: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  get_my_documents: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  request_maintenance: { category: 'action', autonomyLevel: 4, riskLevel: 'low', reversible: false },
+  get_my_maintenance: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
+  send_message_to_owner: { category: 'action', autonomyLevel: 4, riskLevel: 'low', reversible: false },
   check_maintenance_threshold: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   check_regulatory_requirements: { category: 'query', autonomyLevel: 3, riskLevel: 'none', reversible: false },
   get_tenancy_law: { category: 'query', autonomyLevel: 4, riskLevel: 'none', reversible: false },
@@ -535,6 +549,9 @@ const TOOL_GROUPS: Record<string, string[]> = {
   // Tenant-only tools (for tenant app users)
   tenant: [
     'tenant_connect_with_code', 'suggest_navigation',
+    'get_my_tenancy', 'get_my_payments', 'get_my_arrears',
+    'get_my_documents', 'request_maintenance', 'get_my_maintenance',
+    'send_message_to_owner',
   ],
 };
 

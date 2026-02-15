@@ -36,7 +36,7 @@ export const RENT_INCREASE_RULES: Record<string, RentIncreaseRule> = {
     fixedTermRestriction: true,
     periodicOnly: false,
     excessiveIncrease: 'qcat',
-    noticeForm: 'form_10',
+    noticeForm: 'form_13',
     tribunal: 'Queensland Civil and Administrative Tribunal (QCAT)',
   },
   SA: {

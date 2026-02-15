@@ -26,6 +26,13 @@ import {
   handle_get_market_intelligence, handle_get_portfolio_snapshot,
   handle_analyze_payment_patterns,
   handle_get_document_access_log,
+  handle_get_my_tenancy,
+  handle_get_my_payments,
+  handle_get_my_arrears,
+  handle_get_my_documents,
+  handle_request_maintenance,
+  handle_get_my_maintenance,
+  handle_send_message_to_owner,
 } from './tool-handlers.ts';
 
 import {
@@ -135,6 +142,13 @@ const HANDLER_MAP: Record<string, (input: Record<string, unknown>, userId: strin
   get_pending_actions: handle_get_pending_actions,
   suggest_navigation: handle_suggest_navigation,
   tenant_connect_with_code: handle_tenant_connect_with_code,
+  get_my_tenancy: handle_get_my_tenancy,
+  get_my_payments: handle_get_my_payments,
+  get_my_arrears: handle_get_my_arrears,
+  get_my_documents: handle_get_my_documents,
+  request_maintenance: handle_request_maintenance,
+  get_my_maintenance: handle_get_my_maintenance,
+  send_message_to_owner: handle_send_message_to_owner,
 
   // Action tools
   create_property: handle_create_property,

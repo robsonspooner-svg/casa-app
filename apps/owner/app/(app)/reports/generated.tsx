@@ -11,6 +11,7 @@ import type { ReportType, ReportFormat, GeneratedReportRow } from '@casa/api';
 import Svg, { Path } from 'react-native-svg';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Print from 'expo-print';
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-AU', {
@@ -94,18 +95,33 @@ export default function GeneratedReportsScreen() {
 
     try {
       setSharingId(report.id);
-      const ext = report.format === 'pdf' ? 'pdf' : report.format === 'csv' ? 'csv' : 'xlsx';
-      const mimeTypes: Record<string, string> = {
-        pdf: 'application/pdf',
-        csv: 'text/csv',
-        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      };
-      const localUri = `${FileSystem.cacheDirectory}report_${report.id}.${ext}`;
-      const { uri } = await FileSystem.downloadAsync(report.file_url, localUri);
-      await Sharing.shareAsync(uri, {
-        mimeType: mimeTypes[ext] || 'application/octet-stream',
-        dialogTitle: report.title,
-      });
+
+      if (report.format === 'pdf') {
+        // PDF reports are stored as HTML — render to real PDF using expo-print
+        const htmlUri = `${FileSystem.cacheDirectory}report_${report.id}.html`;
+        const { uri: downloadedUri } = await FileSystem.downloadAsync(report.file_url, htmlUri);
+        const htmlContent = await FileSystem.readAsStringAsync(downloadedUri);
+        const { uri: pdfUri } = await Print.printToFileAsync({ html: htmlContent });
+        const finalUri = `${FileSystem.cacheDirectory}report_${report.id}.pdf`;
+        await FileSystem.moveAsync({ from: pdfUri, to: finalUri });
+        await Sharing.shareAsync(finalUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: report.title,
+        });
+      } else {
+        // CSV/XLSX — download and share directly
+        const ext = report.format === 'csv' ? 'csv' : 'xlsx';
+        const mimeTypes: Record<string, string> = {
+          csv: 'text/csv',
+          xlsx: 'application/vnd.ms-excel',
+        };
+        const localUri = `${FileSystem.cacheDirectory}report_${report.id}.${ext}`;
+        const { uri } = await FileSystem.downloadAsync(report.file_url, localUri);
+        await Sharing.shareAsync(uri, {
+          mimeType: mimeTypes[ext] || 'application/octet-stream',
+          dialogTitle: report.title,
+        });
+      }
     } catch (err: any) {
       if (err?.message?.includes('cancel')) return;
       Alert.alert('Share Error', err?.message || 'Failed to share report.');

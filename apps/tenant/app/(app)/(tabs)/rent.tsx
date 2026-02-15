@@ -98,6 +98,34 @@ export default function RentScreen() {
           </Card>
         )}
 
+        {/* Failed payment banner */}
+        {payments.find(p => p.status === 'failed') && (() => {
+          const failedPayment = payments.find(p => p.status === 'failed')!;
+          return (
+            <TouchableOpacity
+              style={styles.failedPaymentBanner}
+              onPress={() => router.push('/(app)/payments/pay' as any)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.failedPaymentIcon}>
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                  <Path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke={THEME.colors.surface} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M12 9v4M12 17h.01" stroke={THEME.colors.surface} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.failedPaymentTitle}>Payment Failed</Text>
+                <Text style={styles.failedPaymentText} numberOfLines={2}>
+                  {failedPayment.status_reason || `Your payment of ${formatDollars(Number(failedPayment.amount))} was not successful.`}
+                </Text>
+              </View>
+              <View style={styles.failedPaymentRetry}>
+                <Text style={styles.failedPaymentRetryText}>Retry</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
+
         {hasArrears && myArrears && (
           <TouchableOpacity
             style={styles.arrearsAlert}
@@ -408,6 +436,45 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.semibold,
     color: THEME.colors.textPrimary,
+  },
+  failedPaymentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.warning,
+    padding: THEME.spacing.base,
+    borderRadius: THEME.radius.md,
+    marginBottom: THEME.spacing.base,
+    gap: THEME.spacing.md,
+  },
+  failedPaymentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  failedPaymentTitle: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.surface,
+  },
+  failedPaymentText: {
+    fontSize: THEME.fontSize.caption,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  failedPaymentRetry: {
+    backgroundColor: THEME.colors.surface,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    borderRadius: THEME.radius.sm,
+  },
+  failedPaymentRetryText: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.warning,
   },
   arrearsAlert: {
     flexDirection: 'row',

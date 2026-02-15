@@ -24,6 +24,7 @@ import {
   getSupabaseClient,
   useAuth,
   SUBSCRIPTION_TIERS,
+  sendOwnerWelcomeMessage,
 } from '@casa/api';
 import type {
   PropertyType,
@@ -120,6 +121,7 @@ export default function OnboardingSetupScreen() {
   const [rentDay, setRentDay] = useState('1');
 
   // Step 2: Tenant Details
+  const [isVacant, setIsVacant] = useState(false);
   const [tenantName, setTenantName] = useState('');
   const [tenantEmail, setTenantEmail] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
@@ -150,6 +152,10 @@ export default function OnboardingSetupScreen() {
   }, [address, suburb, stateValue, postcode, rentAmount]);
 
   const validateStep2 = useCallback((): boolean => {
+    if (isVacant) {
+      setErrors({});
+      return true;
+    }
     const newErrors: Record<string, string> = {};
     if (!tenantName.trim()) newErrors.tenantName = 'Tenant name is required';
     if (!tenantEmail.trim()) {
@@ -167,7 +173,7 @@ export default function OnboardingSetupScreen() {
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [tenantName, tenantEmail, leaseStart, leaseEnd, bondAmount]);
+  }, [isVacant, tenantName, tenantEmail, leaseStart, leaseEnd, bondAmount]);
 
   const savePropertyAndTenancy = useCallback(async () => {
     if (!user) return;
@@ -190,8 +196,8 @@ export default function OnboardingSetupScreen() {
           bathrooms: parseInt(bathrooms, 10) || 1,
           rent_amount: parseFloat(rentAmount),
           rent_frequency: 'weekly' as const,
-          bond_amount: parseFloat(bondAmount) || null,
-          status: 'occupied' as const,
+          bond_amount: !isVacant && bondAmount ? parseFloat(bondAmount) : null,
+          status: (isVacant ? 'vacant' : 'occupied') as 'vacant' | 'occupied',
         })
         .select('id')
         .single();
@@ -201,6 +207,8 @@ export default function OnboardingSetupScreen() {
 
       setCreatedPropertyId(property.id);
 
+      // Only create tenancy + connection code for occupied properties
+      if (!isVacant) {
       // Calculate lease term based on duration
       const startDate = leaseStart as Date;
       const endDate = leaseEnd as Date;
@@ -330,6 +338,7 @@ export default function OnboardingSetupScreen() {
       } catch (codeGenErr) {
         console.warn('[setup] Connection code / invitation error:', codeGenErr);
       }
+      } // end if (!isVacant)
 
       // Set autonomy preferences
       const { error: autonomyError } = await (supabase
@@ -350,7 +359,7 @@ export default function OnboardingSetupScreen() {
   }, [
     user, address, suburb, stateValue, postcode, propertyType,
     bedrooms, bathrooms, rentAmount, rentDay, tenantName, tenantEmail,
-    tenantPhone, leaseStart, leaseEnd, bondAmount, autonomyPreset,
+    tenantPhone, leaseStart, leaseEnd, bondAmount, autonomyPreset, isVacant,
   ]);
 
   const createSubscription = useCallback(async () => {
@@ -431,25 +440,12 @@ export default function OnboardingSetupScreen() {
       // Non-blocking — the flag was already set in step 4
     }
     // Send AI welcome message (fire-and-forget)
-    try {
-      const supabase = getSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        fetch(
-          `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              message: 'I just signed up for Casa. Give me a brief welcome and tell me what you can help me with as my AI property manager.',
-            }),
-          }
-        ).catch(() => {});
-      }
-    } catch { /* non-blocking */ }
+    if (user) {
+      const propertyAddress = address.trim()
+        ? `${address.trim()}, ${suburb.trim()} ${stateValue.trim()}`
+        : undefined;
+      sendOwnerWelcomeMessage(user.id, propertyAddress, createdPropertyId ?? undefined).catch(() => {});
+    }
     setSaving(false);
     router.replace('/(app)/onboarding/tour' as never);
   }, [user]);
@@ -642,64 +638,86 @@ export default function OnboardingSetupScreen() {
         Tell us about your current tenant
       </Text>
 
-      <Input
-        label="Tenant Name"
-        placeholder="Jane Smith"
-        value={tenantName}
-        onChangeText={(text) => { setTenantName(text); setErrors(e => ({ ...e, tenantName: '' })); }}
-        error={errors.tenantName}
-        containerStyle={styles.fieldContainer}
-        autoCapitalize="words"
-      />
+      <TouchableOpacity
+        style={[styles.vacantToggle, isVacant && styles.vacantToggleActive]}
+        onPress={() => { setIsVacant(!isVacant); setErrors({}); }}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.vacantCheckbox, isVacant && styles.vacantCheckboxActive]}>
+          {isVacant && (
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.textInverse} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          )}
+        </View>
+        <View style={styles.vacantTextGroup}>
+          <Text style={styles.vacantLabel}>No tenant yet</Text>
+          <Text style={styles.vacantHint}>Property is vacant or between tenants</Text>
+        </View>
+      </TouchableOpacity>
 
-      <Input
-        label="Email"
-        placeholder="jane@example.com"
-        value={tenantEmail}
-        onChangeText={(text) => { setTenantEmail(text); setErrors(e => ({ ...e, tenantEmail: '' })); }}
-        error={errors.tenantEmail}
-        containerStyle={styles.fieldContainer}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoComplete="email"
-      />
+      {!isVacant && (
+        <>
+          <Input
+            label="Tenant Name"
+            placeholder="Jane Smith"
+            value={tenantName}
+            onChangeText={(text) => { setTenantName(text); setErrors(e => ({ ...e, tenantName: '' })); }}
+            error={errors.tenantName}
+            containerStyle={styles.fieldContainer}
+            autoCapitalize="words"
+          />
 
-      <Input
-        label="Phone (optional)"
-        placeholder="0412 345 678"
-        value={tenantPhone}
-        onChangeText={setTenantPhone}
-        containerStyle={styles.fieldContainer}
-        keyboardType="phone-pad"
-      />
+          <Input
+            label="Email"
+            placeholder="jane@example.com"
+            value={tenantEmail}
+            onChangeText={(text) => { setTenantEmail(text); setErrors(e => ({ ...e, tenantEmail: '' })); }}
+            error={errors.tenantEmail}
+            containerStyle={styles.fieldContainer}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+          />
 
-      <DatePicker
-        label="Lease Start Date"
-        value={leaseStart}
-        onChange={(date) => { setLeaseStart(date); setErrors(e => ({ ...e, leaseStart: '' })); }}
-        error={errors.leaseStart}
-        containerStyle={styles.fieldContainer}
-      />
+          <Input
+            label="Phone (optional)"
+            placeholder="0412 345 678"
+            value={tenantPhone}
+            onChangeText={setTenantPhone}
+            containerStyle={styles.fieldContainer}
+            keyboardType="phone-pad"
+          />
 
-      <DatePicker
-        label="Lease End Date"
-        value={leaseEnd}
-        onChange={(date) => { setLeaseEnd(date); setErrors(e => ({ ...e, leaseEnd: '' })); }}
-        error={errors.leaseEnd}
-        minimumDate={leaseStart || undefined}
-        containerStyle={styles.fieldContainer}
-      />
+          <DatePicker
+            label="Lease Start Date"
+            value={leaseStart}
+            onChange={(date) => { setLeaseStart(date); setErrors(e => ({ ...e, leaseStart: '' })); }}
+            error={errors.leaseStart}
+            containerStyle={styles.fieldContainer}
+          />
 
-      <Input
-        label="Bond Amount"
-        placeholder="2200"
-        value={bondAmount}
-        onChangeText={(text) => { setBondAmount(text); setErrors(e => ({ ...e, bondAmount: '' })); }}
-        error={errors.bondAmount}
-        keyboardType="decimal-pad"
-        containerStyle={styles.fieldContainer}
-        leftIcon={<Text style={styles.currencyPrefix}>$</Text>}
-      />
+          <DatePicker
+            label="Lease End Date"
+            value={leaseEnd}
+            onChange={(date) => { setLeaseEnd(date); setErrors(e => ({ ...e, leaseEnd: '' })); }}
+            error={errors.leaseEnd}
+            minimumDate={leaseStart || undefined}
+            containerStyle={styles.fieldContainer}
+          />
+
+          <Input
+            label="Bond Amount"
+            placeholder="2200"
+            value={bondAmount}
+            onChangeText={(text) => { setBondAmount(text); setErrors(e => ({ ...e, bondAmount: '' })); }}
+            error={errors.bondAmount}
+            keyboardType="decimal-pad"
+            containerStyle={styles.fieldContainer}
+            leftIcon={<Text style={styles.currencyPrefix}>$</Text>}
+          />
+        </>
+      )}
     </ScrollView>
   );
 
@@ -878,9 +896,10 @@ export default function OnboardingSetupScreen() {
 
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Tenant</Text>
-          <Text style={styles.summaryValue}>{tenantName}</Text>
+          <Text style={styles.summaryValue}>{isVacant ? 'Vacant' : tenantName}</Text>
         </View>
 
+        {!isVacant && (
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Lease</Text>
           <Text style={styles.summaryValue}>
@@ -888,6 +907,7 @@ export default function OnboardingSetupScreen() {
             {leaseEnd ? leaseEnd.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
           </Text>
         </View>
+        )}
 
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>AI Mode</Text>
@@ -1146,6 +1166,48 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.body,
     fontWeight: THEME.fontWeight.medium,
     color: THEME.colors.textSecondary,
+  },
+  // Vacant toggle
+  vacantToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: THEME.spacing.base,
+    borderRadius: THEME.radius.lg,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.border,
+    backgroundColor: THEME.colors.surface,
+    marginBottom: THEME.spacing.lg,
+    gap: THEME.spacing.md,
+  },
+  vacantToggleActive: {
+    borderColor: THEME.colors.brand,
+    backgroundColor: THEME.colors.brand + '08',
+  },
+  vacantCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 2,
+    borderColor: THEME.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vacantCheckboxActive: {
+    borderColor: THEME.colors.brand,
+    backgroundColor: THEME.colors.brand,
+  },
+  vacantTextGroup: {
+    flex: 1,
+  },
+  vacantLabel: {
+    fontSize: THEME.fontSize.body,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+  },
+  vacantHint: {
+    fontSize: THEME.fontSize.caption,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
   },
   // Autonomy cards
   autonomyCard: {

@@ -18,6 +18,7 @@ interface BreachNoticeRequest {
   arrearsRecordId: string;
   deliveryMethod: 'email' | 'post' | 'both';
   ownerConfirmation: boolean; // Must be true to proceed
+  autonomyOverride?: boolean; // Set by orchestrator at L3+ autonomy — sends notice and notifies owner after
 }
 
 // State-specific breach notice requirements
@@ -260,7 +261,10 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!body.ownerConfirmation) {
+    // Autonomy override: at L3+ the orchestrator can send breach notices and notify owner afterwards
+    const isAutonomyOverride = body.autonomyOverride === true;
+
+    if (!body.ownerConfirmation && !isAutonomyOverride) {
       return new Response(
         JSON.stringify({ error: 'Owner confirmation is required to send breach notice' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -269,21 +273,34 @@ serve(async (req: Request) => {
 
     // Verify authorization
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Authorization required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const cronSecret = Deno.env.get('CRON_SECRET');
+    const providedSecret = req.headers.get('X-Cron-Secret');
+
+    // Allow service-role or cron secret for orchestrator autonomy overrides
+    let isServiceRole = false;
+    if (cronSecret && providedSecret === cronSecret) {
+      isServiceRole = true;
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user } } = await supabase.auth.getUser(token);
+    let user: any = null;
+    if (!isServiceRole) {
+      if (!authHeader) {
+        return new Response(
+          JSON.stringify({ error: 'Authorization required' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user: authUser } } = await supabase.auth.getUser(token);
+      user = authUser;
+
+      if (!user) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid token' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Fetch arrears record with all related data
@@ -333,8 +350,8 @@ serve(async (req: Request) => {
     const owner = property?.profiles;
     const tenant = (arrears as any).profiles;
 
-    // Verify the requesting user is the owner
-    if (property?.owner_id !== user.id) {
+    // Verify the requesting user is the owner (skip for service-role/orchestrator calls)
+    if (!isServiceRole && property?.owner_id !== user?.id) {
       return new Response(
         JSON.stringify({ error: 'You do not have permission to send breach notices for this property' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -403,8 +420,8 @@ serve(async (req: Request) => {
       sent_to: tenant.email,
       sent_at: new Date().toISOString(),
       delivered: emailSent,
-      performed_by: user.id,
-      is_automated: false,
+      performed_by: user?.id || property?.owner_id,
+      is_automated: isAutonomyOverride,
       metadata: {
         state,
         remedy_days: stateReq.remedyDays,

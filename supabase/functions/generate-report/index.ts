@@ -17,21 +17,120 @@ interface GenerateReportRequest {
 // ---------------------------------------------------------------------------
 
 async function fetchFinancialSummaryData(sb: any, ownerId: string, dateFrom: string, dateTo: string, propertyIds: string[] | null) {
+  // Fetch the materialized view data (includes work_order expenses and manual_expenses)
   let query = sb.from('financial_summary').select('*').eq('owner_id', ownerId);
   if (dateFrom) query = query.gte('month', dateFrom);
   if (dateTo) query = query.lte('month', dateTo);
   if (propertyIds?.length) query = query.in('property_id', propertyIds);
   const { data } = await query.order('month', { ascending: true });
 
+  // Fetch maintenance_requests.actual_cost that are NOT already captured via work_orders.
+  // Work orders linked to maintenance_requests already flow through the financial_summary view.
+  // We need to capture maintenance requests that have actual_cost set directly but
+  // have no corresponding work_order, so those costs are not double-counted.
+  let mrQuery = sb.from('maintenance_requests')
+    .select('property_id, actual_cost, actual_completion_date, updated_at, id')
+    .eq('status', 'completed')
+    .not('actual_cost', 'is', null)
+    .gt('actual_cost', 0);
+  if (propertyIds?.length) mrQuery = mrQuery.in('property_id', propertyIds);
+  const { data: maintenanceData } = await mrQuery;
+
+  // Find maintenance requests that DO have a linked work_order so we can exclude them
+  const mrIds = (maintenanceData || []).map((mr: any) => mr.id);
+  let linkedWoIds = new Set<string>();
+  if (mrIds.length > 0) {
+    const { data: linkedWos } = await sb.from('work_orders')
+      .select('maintenance_request_id')
+      .in('maintenance_request_id', mrIds)
+      .eq('status', 'completed');
+    linkedWoIds = new Set((linkedWos || []).map((wo: any) => wo.maintenance_request_id));
+  }
+
+  // Filter to only maintenance requests without a linked completed work order
+  const unlinkedMaintenance = (maintenanceData || []).filter(
+    (mr: any) => !linkedWoIds.has(mr.id)
+  );
+
+  // Merge unlinked maintenance costs into the financial summary rows
+  // Group by property_id + month
+  const maintenanceCostMap = new Map<string, number>();
+  for (const mr of unlinkedMaintenance) {
+    const costDate = mr.actual_completion_date || mr.updated_at?.slice(0, 10);
+    if (!costDate) continue;
+    const monthKey = costDate.slice(0, 7) + '-01'; // YYYY-MM-01
+    const key = `${mr.property_id}|${monthKey}`;
+    maintenanceCostMap.set(key, (maintenanceCostMap.get(key) || 0) + Number(mr.actual_cost));
+  }
+
+  // Augment the financial summary rows with the additional maintenance costs
+  const financials = (data || []).map((row: any) => {
+    const monthStr = row.month ? new Date(row.month).toISOString().slice(0, 7) + '-01' : null;
+    const key = `${row.property_id}|${monthStr}`;
+    const additionalMaintenance = maintenanceCostMap.get(key) || 0;
+    if (additionalMaintenance > 0) {
+      return {
+        ...row,
+        maintenance_expenses: Number(row.maintenance_expenses || 0) + additionalMaintenance,
+        total_expenses: Number(row.total_expenses || 0) + additionalMaintenance,
+        net_position: Number(row.net_position || 0) - additionalMaintenance,
+      };
+    }
+    return row;
+  });
+
+  // Remove entries from the map that were already merged
+  for (const row of data || []) {
+    const monthStr = row.month ? new Date(row.month).toISOString().slice(0, 7) + '-01' : null;
+    const key = `${row.property_id}|${monthStr}`;
+    maintenanceCostMap.delete(key);
+  }
+
+  // Any remaining entries in the map are for property+month combos not in the materialized view
+  // (i.e. months where there were maintenance costs but no payments or other data)
+  // We need to add new rows for these
+  for (const [key, amount] of maintenanceCostMap) {
+    const [propertyId, monthStr] = key.split('|');
+    financials.push({
+      owner_id: ownerId,
+      property_id: propertyId,
+      address_line_1: null, // Will be filled from properties lookup below
+      month: monthStr,
+      rent_collected: 0,
+      bond_collected: 0,
+      other_income: 0,
+      platform_fees: 0,
+      payment_processing_fees: 0,
+      net_income: 0,
+      completed_payments: 0,
+      failed_payments: 0,
+      maintenance_expenses: amount,
+      manual_expenses_total: 0,
+      total_expenses: amount,
+      net_position: -amount,
+    });
+  }
+
   const { data: properties } = await sb.from('properties')
     .select('id, address_line_1, suburb, state')
     .eq('owner_id', ownerId).eq('deleted_at', null);
 
-  return { financials: data || [], properties: properties || [] };
+  // Fill in missing address_line_1 for any newly added rows
+  const propertyMap = new Map((properties || []).map((p: any) => [p.id, p.address_line_1]));
+  for (const row of financials) {
+    if (!row.address_line_1 && row.property_id) {
+      row.address_line_1 = propertyMap.get(row.property_id) || 'Unknown';
+    }
+  }
+
+  // Sort by month
+  financials.sort((a: any, b: any) => (a.month || '').localeCompare(b.month || ''));
+
+  return { financials, properties: properties || [] };
 }
 
 async function fetchTaxSummaryData(sb: any, ownerId: string, dateFrom: string, dateTo: string) {
-  const [incomeResult, expenseResult] = await Promise.all([
+  const [incomeResult, expenseResult, maintenanceResult] = await Promise.all([
     sb.from('payments').select('amount, payment_type, paid_at')
       .eq('status', 'completed')
       .gte('paid_at', dateFrom).lte('paid_at', dateTo),
@@ -39,11 +138,36 @@ async function fetchTaxSummaryData(sb: any, ownerId: string, dateFrom: string, d
       .eq('owner_id', ownerId)
       .gte('expense_date', dateFrom).lte('expense_date', dateTo)
       .order('expense_date', { ascending: true }),
+    // Fetch completed maintenance requests with actual_cost
+    sb.from('maintenance_requests')
+      .select('actual_cost, title, actual_completion_date, updated_at, category, property_id, properties!inner(owner_id)')
+      .eq('properties.owner_id', ownerId)
+      .eq('status', 'completed')
+      .not('actual_cost', 'is', null)
+      .gt('actual_cost', 0)
+      .gte('updated_at', dateFrom).lte('updated_at', dateTo),
   ]);
+
+  // Map maintenance requests into the same shape as manual_expenses
+  const maintenanceExpenses = (maintenanceResult.data || []).map((mr: any) => ({
+    amount: mr.actual_cost,
+    description: `Maintenance: ${mr.title}`,
+    is_tax_deductible: true,
+    tax_category: 'repairs',
+    expense_date: mr.actual_completion_date || mr.updated_at?.slice(0, 10),
+    source: 'maintenance',
+  }));
+
+  const manualExpenses = (expenseResult.data || []).map((e: any) => ({
+    ...e,
+    source: 'manual',
+  }));
 
   return {
     income: incomeResult.data || [],
-    expenses: expenseResult.data || [],
+    expenses: [...manualExpenses, ...maintenanceExpenses].sort(
+      (a: any, b: any) => (a.expense_date || '').localeCompare(b.expense_date || '')
+    ),
   };
 }
 
@@ -86,7 +210,7 @@ function escapeCSV(value: any): string {
 }
 
 function generateFinancialCSV(data: any): string {
-  const rows = [['Month', 'Property', 'Rent Collected', 'Bond Collected', 'Other Income', 'Platform Fees', 'Processing Fees', 'Net Income']];
+  const rows = [['Month', 'Property', 'Rent Collected', 'Bond Collected', 'Other Income', 'Platform Fees', 'Processing Fees', 'Maintenance Expenses', 'Manual Expenses', 'Total Expenses', 'Net Income', 'Net Position']];
   for (const row of data.financials) {
     rows.push([
       row.month ? new Date(row.month).toISOString().slice(0, 7) : '',
@@ -96,7 +220,11 @@ function generateFinancialCSV(data: any): string {
       row.other_income || '0',
       row.platform_fees || '0',
       row.payment_processing_fees || '0',
+      row.maintenance_expenses || '0',
+      row.manual_expenses_total || '0',
+      row.total_expenses || '0',
       row.net_income || '0',
+      row.net_position || '0',
     ]);
   }
   return rows.map(r => r.map(escapeCSV).join(',')).join('\n');
@@ -164,31 +292,42 @@ function formatAUD(amount: number): string {
 
 function generateFinancialHTML(data: any, report: any): string {
   const totalIncome = data.financials.reduce((s: number, r: any) => s + Number(r.rent_collected || 0) + Number(r.bond_collected || 0) + Number(r.other_income || 0), 0);
-  const totalExpenses = data.financials.reduce((s: number, r: any) => s + Number(r.platform_fees || 0) + Number(r.payment_processing_fees || 0), 0);
-  const netIncome = data.financials.reduce((s: number, r: any) => s + Number(r.net_income || 0), 0);
+  const totalFees = data.financials.reduce((s: number, r: any) => s + Number(r.platform_fees || 0) + Number(r.payment_processing_fees || 0), 0);
+  const totalMaintenanceExpenses = data.financials.reduce((s: number, r: any) => s + Number(r.maintenance_expenses || 0), 0);
+  const totalManualExpenses = data.financials.reduce((s: number, r: any) => s + Number(r.manual_expenses_total || 0), 0);
+  const totalExpenses = totalFees + totalMaintenanceExpenses + totalManualExpenses;
+  const netPosition = totalIncome - totalExpenses;
 
   let propertyRows = '';
-  const byProperty = new Map<string, { income: number; expenses: number; net: number }>();
+  const byProperty = new Map<string, { income: number; fees: number; maintenance: number; manual: number; net: number }>();
   for (const row of data.financials) {
     const key = row.address_line_1 || 'Unknown';
-    const existing = byProperty.get(key) || { income: 0, expenses: 0, net: 0 };
-    existing.income += Number(row.rent_collected || 0) + Number(row.bond_collected || 0);
-    existing.expenses += Number(row.platform_fees || 0) + Number(row.payment_processing_fees || 0);
-    existing.net += Number(row.net_income || 0);
+    const existing = byProperty.get(key) || { income: 0, fees: 0, maintenance: 0, manual: 0, net: 0 };
+    existing.income += Number(row.rent_collected || 0) + Number(row.bond_collected || 0) + Number(row.other_income || 0);
+    existing.fees += Number(row.platform_fees || 0) + Number(row.payment_processing_fees || 0);
+    existing.maintenance += Number(row.maintenance_expenses || 0);
+    existing.manual += Number(row.manual_expenses_total || 0);
+    existing.net = existing.income - existing.fees - existing.maintenance - existing.manual;
     byProperty.set(key, existing);
   }
   for (const [address, totals] of byProperty) {
-    propertyRows += `<tr><td>${address}</td><td style="text-align:right;color:#22C55E">${formatAUD(totals.income)}</td><td style="text-align:right;color:#EF4444">${formatAUD(totals.expenses)}</td><td style="text-align:right;font-weight:600">${formatAUD(totals.net)}</td></tr>`;
+    const totalPropertyExpenses = totals.fees + totals.maintenance + totals.manual;
+    propertyRows += `<tr><td>${address}</td><td style="text-align:right;color:#22C55E">${formatAUD(totals.income)}</td><td style="text-align:right;color:#EF4444">${formatAUD(totalPropertyExpenses)}</td><td style="text-align:right;color:#EF4444">${formatAUD(totals.maintenance)}</td><td style="text-align:right;font-weight:600">${formatAUD(totals.net)}</td></tr>`;
   }
 
   return generateHTMLWrapper('Financial Summary', report, `
     <div class="summary-row">
       <div class="summary-card green"><div class="label">Total Income</div><div class="value">${formatAUD(totalIncome)}</div></div>
       <div class="summary-card red"><div class="label">Total Expenses</div><div class="value">${formatAUD(totalExpenses)}</div></div>
-      <div class="summary-card ${netIncome >= 0 ? 'green' : 'red'}"><div class="label">Net Income</div><div class="value">${formatAUD(netIncome)}</div></div>
+      <div class="summary-card ${netPosition >= 0 ? 'green' : 'red'}"><div class="label">Net Position</div><div class="value">${formatAUD(netPosition)}</div></div>
+    </div>
+    <div class="summary-row">
+      <div class="summary-card red"><div class="label">Fees</div><div class="value">${formatAUD(totalFees)}</div></div>
+      <div class="summary-card red"><div class="label">Maintenance</div><div class="value">${formatAUD(totalMaintenanceExpenses)}</div></div>
+      <div class="summary-card red"><div class="label">Other Expenses</div><div class="value">${formatAUD(totalManualExpenses)}</div></div>
     </div>
     <h3>Per-Property Breakdown</h3>
-    <table><thead><tr><th>Property</th><th>Income</th><th>Expenses</th><th>Net</th></tr></thead><tbody>${propertyRows}</tbody></table>
+    <table><thead><tr><th>Property</th><th>Income</th><th>Expenses</th><th>Maintenance</th><th>Net</th></tr></thead><tbody>${propertyRows}</tbody></table>
   `);
 }
 
@@ -305,46 +444,92 @@ serve(async (req: Request) => {
     }
 
     // Generate content based on format
-    let fileContent: string;
+    let fileContent: string | Uint8Array;
     let contentType: string;
     let fileExtension: string;
+
+    // CSV and XLSX shared helper
+    const getCSVContent = (): string => {
+      switch (reportType) {
+        case 'financial_summary': return generateFinancialCSV(reportData);
+        case 'tax_summary': return generateTaxCSV(reportData);
+        case 'property_performance': return generatePropertyPerformanceCSV(reportData);
+        case 'cash_flow': return generateCashFlowCSV(reportData);
+        case 'maintenance_summary': return generateMaintenanceCSV(reportData);
+        default: return generateFinancialCSV(reportData);
+      }
+    };
+
+    const getHTMLContent = (): string => {
+      switch (reportType) {
+        case 'financial_summary': return generateFinancialHTML(reportData, report);
+        case 'tax_summary': return generateTaxHTML(reportData, report);
+        case 'property_performance': return generateFinancialHTML(reportData, report);
+        case 'cash_flow': return generateFinancialHTML(reportData, report);
+        case 'maintenance_summary': return generateFinancialHTML(reportData, report);
+        default: return generateFinancialHTML(reportData, report);
+      }
+    };
 
     if (format === 'csv') {
       contentType = 'text/csv';
       fileExtension = 'csv';
-      switch (reportType) {
-        case 'financial_summary': fileContent = generateFinancialCSV(reportData); break;
-        case 'tax_summary': fileContent = generateTaxCSV(reportData); break;
-        case 'property_performance': fileContent = generatePropertyPerformanceCSV(reportData); break;
-        case 'cash_flow': fileContent = generateCashFlowCSV(reportData); break;
-        case 'maintenance_summary': fileContent = generateMaintenanceCSV(reportData); break;
-        default: fileContent = generateFinancialCSV(reportData);
+      fileContent = getCSVContent();
+    } else if (format === 'xlsx') {
+      // Generate real XLSX using SheetJS-compatible format
+      // Since Deno Edge Functions can't run heavy XLSX libs reliably,
+      // generate a valid XML Spreadsheet (Excel 2003 XML) which Excel/Numbers/Sheets all open
+      const csvData = getCSVContent();
+      const rows = csvData.split('\n').map(line => {
+        // Parse CSV line respecting quotes
+        const cells: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (const char of line) {
+          if (char === '"') { inQuotes = !inQuotes; }
+          else if (char === ',' && !inQuotes) { cells.push(current); current = ''; }
+          else { current += char; }
+        }
+        cells.push(current);
+        return cells;
+      });
+
+      // Build Excel XML Spreadsheet format
+      let xmlRows = '';
+      for (let i = 0; i < rows.length; i++) {
+        let xmlCells = '';
+        for (const cell of rows[i]) {
+          const trimmed = cell.trim();
+          const isNumber = trimmed !== '' && !isNaN(Number(trimmed)) && trimmed !== '';
+          if (isNumber) {
+            xmlCells += `<Cell><Data ss:Type="Number">${trimmed}</Data></Cell>`;
+          } else {
+            xmlCells += `<Cell><Data ss:Type="String">${trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`;
+          }
+        }
+        xmlRows += `<Row${i === 0 ? ' ss:StyleID="header"' : ''}>${xmlCells}</Row>\n`;
       }
+
+      fileContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default"><Font ss:Size="11"/></Style>
+  <Style ss:ID="header"><Font ss:Bold="1" ss:Size="11"/><Interior ss:Color="#F5F5F4" ss:Pattern="Solid"/></Style>
+ </Styles>
+ <Worksheet ss:Name="${reportType.replace(/_/g, ' ')}">
+  <Table>${xmlRows}</Table>
+ </Worksheet>
+</Workbook>`;
+      contentType = 'application/vnd.ms-excel';
+      fileExtension = 'xlsx';
     } else {
-      // For PDF and XLSX, generate HTML (PDF can be rendered client-side or via a PDF service)
-      // XLSX format also starts as CSV for compatibility
-      if (format === 'xlsx') {
-        contentType = 'text/csv';
-        fileExtension = 'csv'; // XLSX requires a library; fall back to CSV with xlsx extension note
-        switch (reportType) {
-          case 'financial_summary': fileContent = generateFinancialCSV(reportData); break;
-          case 'tax_summary': fileContent = generateTaxCSV(reportData); break;
-          case 'property_performance': fileContent = generatePropertyPerformanceCSV(reportData); break;
-          case 'cash_flow': fileContent = generateCashFlowCSV(reportData); break;
-          case 'maintenance_summary': fileContent = generateMaintenanceCSV(reportData); break;
-          default: fileContent = generateFinancialCSV(reportData);
-        }
-        fileExtension = 'xlsx';
-      } else {
-        // PDF format - generate HTML
-        contentType = 'text/html';
-        fileExtension = 'html';
-        switch (reportType) {
-          case 'financial_summary': fileContent = generateFinancialHTML(reportData, report); break;
-          case 'tax_summary': fileContent = generateTaxHTML(reportData, report); break;
-          default: fileContent = generateFinancialHTML(reportData, report);
-        }
-      }
+      // PDF format — generate styled HTML that can be rendered to PDF client-side
+      // Store as HTML so the mobile app can render it via expo-print
+      contentType = 'text/html';
+      fileExtension = 'html';
+      fileContent = getHTMLContent();
     }
 
     // Upload to Supabase Storage

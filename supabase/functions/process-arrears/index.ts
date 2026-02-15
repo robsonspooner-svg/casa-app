@@ -145,7 +145,7 @@ serve(async (req: Request) => {
           const { error: updateError } = await supabase
             .from('arrears_records')
             .update({
-              total_overdue: arrears.totalOverdue / 100, // Convert cents to dollars
+              total_overdue: arrears.totalOverdue, // rent_schedules.amount is already in dollars (DECIMAL(10,2))
               days_overdue: arrears.daysOverdue,
               updated_at: new Date().toISOString(),
             })
@@ -164,7 +164,7 @@ serve(async (req: Request) => {
               tenancyId,
               tenantId: arrears.tenantId,
               action: 'updated',
-              totalOverdue: arrears.totalOverdue / 100,
+              totalOverdue: arrears.totalOverdue,
               daysOverdue: arrears.daysOverdue,
             });
           }
@@ -176,7 +176,7 @@ serve(async (req: Request) => {
               tenancy_id: tenancyId,
               tenant_id: arrears.tenantId,
               first_overdue_date: arrears.firstOverdueDate,
-              total_overdue: arrears.totalOverdue / 100, // Convert cents to dollars
+              total_overdue: arrears.totalOverdue, // rent_schedules.amount is already in dollars (DECIMAL(10,2))
               days_overdue: arrears.daysOverdue,
               // severity is set automatically by trigger based on days_overdue
             });
@@ -194,7 +194,7 @@ serve(async (req: Request) => {
               tenancyId,
               tenantId: arrears.tenantId,
               action: 'created',
-              totalOverdue: arrears.totalOverdue / 100,
+              totalOverdue: arrears.totalOverdue,
               daysOverdue: arrears.daysOverdue,
             });
           }

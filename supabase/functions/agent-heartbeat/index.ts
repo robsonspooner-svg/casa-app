@@ -257,6 +257,7 @@ async function scanLeaseExpiry(
     { days: 14, label: '14 days', priority: 'urgent' as const },
     { days: 30, label: '30 days', priority: 'high' as const },
     { days: 60, label: '60 days', priority: 'normal' as const },
+    { days: 90, label: '90 days', priority: 'normal' as const },
   ];
 
   for (const window of windows) {
@@ -2171,6 +2172,131 @@ async function scanRentIncreaseCompliance(
 }
 
 // ---------------------------------------------------------------------------
+// Scanner 12C-Auto: Rent Increase Auto-Application
+// When a rent increase has been sent/acknowledged and the effective date
+// has arrived, auto-apply it: update tenancy rent_amount, mark increase
+// as 'applied', and update future rent_schedules.
+// ---------------------------------------------------------------------------
+
+async function scanRentIncreaseAutoApply(
+  supabase: ReturnType<typeof getServiceClient>,
+  userId: string,
+  propertyIds: string[],
+): Promise<ScannerResult> {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  let tasksCreated = 0;
+  const errors: string[] = [];
+
+  if (propertyIds.length === 0) return { tasksCreated, errors };
+
+  // Find rent increases that are notice_sent or acknowledged with effective_date <= today
+  const { data: dueIncreases, error: queryErr } = await supabase
+    .from('rent_increases')
+    .select(`
+      id, tenancy_id, current_amount, new_amount, effective_date, status,
+      tenancies!inner(
+        id, property_id, rent_amount,
+        properties!inner(id, owner_id, address_line_1, suburb, state)
+      )
+    `)
+    .in('status', ['notice_sent', 'acknowledged'])
+    .lte('effective_date', todayStr)
+    .eq('tenancies.properties.owner_id', userId);
+
+  if (queryErr) {
+    errors.push(`Rent increase auto-apply query: ${queryErr.message}`);
+    return { tasksCreated, errors };
+  }
+
+  for (const ri of dueIncreases || []) {
+    const tenancy = (ri as any).tenancies;
+    const property = tenancy?.properties;
+    const address = [property?.address_line_1, property?.suburb, property?.state].filter(Boolean).join(', ');
+
+    // Skip if disputed
+    if (ri.status === 'disputed') continue;
+
+    try {
+      // 1. Update tenancy rent_amount
+      const { error: tenancyErr } = await supabase
+        .from('tenancies')
+        .update({ rent_amount: ri.new_amount })
+        .eq('id', ri.tenancy_id);
+
+      if (tenancyErr) throw tenancyErr;
+
+      // 2. Mark rent increase as applied
+      const { error: riErr } = await supabase
+        .from('rent_increases')
+        .update({ status: 'applied' })
+        .eq('id', ri.id);
+
+      if (riErr) throw riErr;
+
+      // 3. Update future unpaid rent_schedules with the new amount
+      const { error: schedErr } = await supabase
+        .from('rent_schedules')
+        .update({ amount: ri.new_amount })
+        .eq('tenancy_id', ri.tenancy_id)
+        .eq('is_paid', false)
+        .gte('due_date', todayStr);
+
+      if (schedErr) {
+        console.error(`Failed to update rent schedules for tenancy ${ri.tenancy_id}:`, schedErr);
+      }
+
+      // 4. Log the proactive action
+      await supabase.from('agent_proactive_actions').insert({
+        user_id: userId,
+        trigger_type: 'rent_increase_applied',
+        trigger_source: `rent_increase:${ri.id}`,
+        action_taken: `Auto-applied rent increase at ${address}: $${Number(ri.current_amount).toFixed(2)} → $${Number(ri.new_amount).toFixed(2)} (effective ${ri.effective_date})`,
+        tool_name: 'apply_rent_increase',
+        tool_params: { rent_increase_id: ri.id, tenancy_id: ri.tenancy_id },
+        result: { status: 'applied', new_amount: ri.new_amount },
+        was_auto_executed: true,
+      }).then(() => {});
+
+      // 5. Create a task notifying the owner
+      const { error } = await createTaskAndLog(supabase, {
+        userId,
+        title: `Rent increase applied - ${address}`,
+        description: `The scheduled rent increase from $${Number(ri.current_amount).toFixed(2)} to $${Number(ri.new_amount).toFixed(2)} has been automatically applied at ${address} as of ${new Date(ri.effective_date).toLocaleDateString('en-AU')}.`,
+        category: 'rent_collection',
+        status: 'completed',
+        priority: 'normal',
+        recommendation: 'No action needed. The rent has been updated and future schedules adjusted automatically.',
+        relatedEntityType: 'rent_increase',
+        relatedEntityId: ri.id,
+        deepLink: `/(app)/(tabs)/rent`,
+        triggerType: 'rent_increase_applied',
+        triggerSource: `rent_increase:${ri.id}`,
+        actionTaken: `Auto-applied rent increase: $${Number(ri.current_amount).toFixed(2)} → $${Number(ri.new_amount).toFixed(2)}`,
+        wasAutoExecuted: true,
+        timelineEntries: [
+          { timestamp: now.toISOString(), action: `Rent increase effective date reached (${ri.effective_date})`, status: 'completed' as const },
+          { timestamp: now.toISOString(), action: `Updated tenancy rent from $${Number(ri.current_amount).toFixed(2)} to $${Number(ri.new_amount).toFixed(2)}`, status: 'completed' as const },
+          { timestamp: now.toISOString(), action: 'Updated future rent schedules with new amount', status: 'completed' as const },
+        ],
+      });
+
+      if (error) {
+        errors.push(`Rent increase auto-apply task ${ri.id}: ${error}`);
+      } else {
+        tasksCreated++;
+      }
+
+      console.log(`Auto-applied rent increase ${ri.id} for ${address}: $${ri.current_amount} → $${ri.new_amount}`);
+    } catch (err: any) {
+      errors.push(`Rent increase auto-apply ${ri.id}: ${err.message}`);
+    }
+  }
+
+  return { tasksCreated, errors };
+}
+
+// ---------------------------------------------------------------------------
 // Scanner 12D: Regulatory Enforcement — Entry Notice Compliance
 // Checks upcoming inspections have sufficient notice per state law
 // ---------------------------------------------------------------------------
@@ -3398,7 +3524,266 @@ async function scanTradeQuoteResponse(
 }
 
 // ---------------------------------------------------------------------------
-// Scanner 21: Arrears Escalation Path (proper sequence and timing)
+// Scanner 21A: Arrears Escalation — Days-Overdue Threshold Notices (7/14/21/28)
+// Sends formal arrears reminders and breach notices at fixed day thresholds.
+// Checks arrears_actions to avoid sending duplicate notices per threshold.
+// ---------------------------------------------------------------------------
+
+async function scanArrearsEscalation(
+  supabase: ReturnType<typeof getServiceClient>,
+  userId: string,
+  propertyIds: string[],
+  autonomySettings: AutonomySettings | null = null,
+): Promise<{ tasksCreated: number; errors: string[] }> {
+  let tasksCreated = 0;
+  const errors: string[] = [];
+
+  if (propertyIds.length === 0) return { tasksCreated, errors };
+
+  const rentAutonomy = getUserAutonomyForCategory(autonomySettings, 'rent_collection');
+
+  // Threshold ladder: each threshold defines what action to take and what
+  // action_type to log in arrears_actions for dedup purposes.
+  const THRESHOLDS = [
+    {
+      days: 7,
+      label: 'Day 7 — Formal arrears reminder',
+      actionType: 'formal_reminder_day7',
+      taskTitle: (name: string, addr: string) => `Formal arrears reminder sent — ${name} at ${addr}`,
+      taskTitlePending: (name: string, addr: string) => `Formal arrears notice needed — ${name} at ${addr}`,
+      emailSubject: (addr: string) => `Formal Payment Reminder — ${addr}`,
+      emailTemplate: 'arrears_formal_reminder',
+      priority: 'high' as const,
+      isBreachNotice: false,
+    },
+    {
+      days: 14,
+      label: 'Day 14 — Breach notice',
+      actionType: 'breach_notice_day14',
+      taskTitle: (name: string, addr: string) => `Breach notice sent — ${name} at ${addr}`,
+      taskTitlePending: (name: string, addr: string) => `Breach notice required — ${name} at ${addr}`,
+      emailSubject: (addr: string) => `Formal Breach Notice — Overdue Rent — ${addr}`,
+      emailTemplate: 'arrears_breach_notice',
+      priority: 'urgent' as const,
+      isBreachNotice: true,
+    },
+    {
+      days: 21,
+      label: 'Day 21 — Final warning',
+      actionType: 'final_warning_day21',
+      taskTitle: (name: string, addr: string) => `Final warning issued — ${name} at ${addr}`,
+      taskTitlePending: (name: string, addr: string) => `Final warning needed — ${name} at ${addr}`,
+      emailSubject: (addr: string) => `Final Warning — Unresolved Rent Arrears — ${addr}`,
+      emailTemplate: 'arrears_final_warning',
+      priority: 'urgent' as const,
+      isBreachNotice: true,
+    },
+    {
+      days: 28,
+      label: 'Day 28 — Tribunal notice',
+      actionType: 'tribunal_notice_day28',
+      taskTitle: (name: string, addr: string) => `Tribunal notice sent — ${name} at ${addr}`,
+      taskTitlePending: (name: string, addr: string) => `Tribunal application recommended — ${name} at ${addr}`,
+      emailSubject: (addr: string) => `Notice of Tribunal Application — ${addr}`,
+      emailTemplate: 'arrears_tribunal_notice',
+      priority: 'urgent' as const,
+      isBreachNotice: true,
+    },
+  ];
+
+  // Fetch all unresolved arrears for this owner's properties that are >= 7 days overdue
+  const { data: arrearsRecords, error: arrErr } = await supabase
+    .from('arrears_records')
+    .select(`
+      id, tenancy_id, tenant_id, total_overdue, days_overdue, first_overdue_date,
+      severity, has_payment_plan,
+      tenancies!inner(
+        id, property_id,
+        properties!inner(id, address_line_1, suburb, state, postcode, owner_id)
+      ),
+      profiles:tenant_id(full_name, email)
+    `)
+    .eq('is_resolved', false)
+    .in('tenancies.property_id', propertyIds)
+    .gte('days_overdue', 7);
+
+  if (arrErr) {
+    errors.push(`Arrears escalation threshold query: ${arrErr.message}`);
+    return { tasksCreated, errors };
+  }
+
+  for (const arrears of arrearsRecords || []) {
+    // Skip arrears with active payment plans — they're handled separately
+    if (arrears.has_payment_plan) continue;
+
+    const property = (arrears as any).tenancies?.properties;
+    const tenant = (arrears as any).profiles;
+    const address = property
+      ? [property.address_line_1, property.suburb, property.state, property.postcode].filter(Boolean).join(', ')
+      : 'Unknown';
+    const tenantName = tenant?.full_name || 'Tenant';
+    const tenantEmail = tenant?.email;
+
+    // Determine which threshold applies (highest threshold the days_overdue has crossed)
+    let applicableThreshold = THRESHOLDS[0];
+    for (const threshold of THRESHOLDS) {
+      if (arrears.days_overdue >= threshold.days) {
+        applicableThreshold = threshold;
+      } else {
+        break;
+      }
+    }
+
+    // Dedup: check if the notice for this threshold was already sent via arrears_actions
+    const { data: existingAction } = await supabase
+      .from('arrears_actions')
+      .select('id')
+      .eq('arrears_record_id', arrears.id)
+      .eq('action_type', applicableThreshold.actionType)
+      .maybeSingle();
+
+    if (existingAction) continue; // Already sent this threshold's notice
+
+    // Also check if an open agent_task already exists for this arrears record
+    const alreadyHasTask = await taskExistsForEntity(supabase, userId, arrears.id, 'arrears_escalation_threshold');
+    if (alreadyHasTask) continue;
+
+    // Determine if we should auto-execute
+    // Day 7 formal reminder: auto-send at L2+ autonomy
+    // Day 14+ breach/final/tribunal notices: auto-send at L3+ autonomy (legal category)
+    const canAutoSend = applicableThreshold.isBreachNotice
+      ? rentAutonomy >= 3 && !!tenantEmail
+      : rentAutonomy >= 2 && !!tenantEmail;
+
+    if (canAutoSend) {
+      // Auto-send the escalation email via email_queue
+      const { error: emailErr } = await supabase.from('email_queue').insert({
+        to_email: tenantEmail,
+        to_name: tenantName,
+        subject: applicableThreshold.emailSubject(address),
+        template_name: applicableThreshold.emailTemplate,
+        template_data: {
+          tenant_name: tenantName,
+          property_address: address,
+          total_overdue: arrears.total_overdue,
+          amount: `$${Number(arrears.total_overdue).toFixed(2)}`,
+          days_overdue: arrears.days_overdue,
+          first_overdue_date: arrears.first_overdue_date,
+        },
+        status: 'pending',
+      });
+
+      if (!emailErr) {
+        // Log in arrears_actions for dedup
+        await supabase.from('arrears_actions').insert({
+          arrears_record_id: arrears.id,
+          action_type: applicableThreshold.actionType,
+          description: `Auto-sent ${applicableThreshold.label} to ${tenantName} (${tenantEmail}) — $${Number(arrears.total_overdue).toFixed(2)} overdue ${arrears.days_overdue} days`,
+          template_used: applicableThreshold.emailTemplate,
+          sent_to: tenantEmail,
+          sent_at: new Date().toISOString(),
+          delivered: true,
+          performed_by: userId,
+          is_automated: true,
+          metadata: {
+            threshold_days: applicableThreshold.days,
+            autonomy_level: rentAutonomy,
+          },
+        });
+
+        // Log proactive action
+        await supabase.from('agent_proactive_actions').insert({
+          user_id: userId,
+          trigger_type: 'arrears_threshold_escalation',
+          trigger_source: `arrears_record:${arrears.id}`,
+          action_taken: `Auto-sent ${applicableThreshold.label} to ${tenantName} (${tenantEmail}) — $${Number(arrears.total_overdue).toFixed(2)} overdue ${arrears.days_overdue} days at ${address}`,
+          tool_name: applicableThreshold.isBreachNotice ? 'send_breach_notice' : 'send_arrears_reminder',
+          tool_params: {
+            arrears_id: arrears.id,
+            threshold_days: applicableThreshold.days,
+            tenant_email: tenantEmail,
+          },
+          result: { status: 'email_queued', template: applicableThreshold.emailTemplate },
+          was_auto_executed: true,
+        }).catch(() => {});
+      } else {
+        errors.push(`Arrears threshold email for ${arrears.id} (day ${applicableThreshold.days}): ${emailErr.message}`);
+      }
+    }
+
+    // Create task so owner sees what happened (or what needs to happen)
+    const { error } = await createTaskAndLog(supabase, {
+      userId,
+      title: canAutoSend
+        ? applicableThreshold.taskTitle(tenantName, address)
+        : applicableThreshold.taskTitlePending(tenantName, address),
+      description: canAutoSend
+        ? `${tenantName} at ${address} owes $${Number(arrears.total_overdue).toFixed(2)} (${arrears.days_overdue} days overdue). A ${applicableThreshold.label.toLowerCase()} has been automatically sent to the tenant.`
+        : `${tenantName} at ${address} owes $${Number(arrears.total_overdue).toFixed(2)} (${arrears.days_overdue} days overdue). A ${applicableThreshold.label.toLowerCase()} should be sent. Your approval is required to proceed.`,
+      category: 'rent_collection',
+      status: canAutoSend ? 'in_progress' : 'pending_input',
+      priority: applicableThreshold.priority,
+      recommendation: canAutoSend
+        ? `A ${applicableThreshold.label.toLowerCase()} has been sent to ${tenantName} at ${tenantEmail}. ${
+            applicableThreshold.days < 28
+              ? `If no payment is received, the next escalation will occur at day ${applicableThreshold.days === 7 ? 14 : applicableThreshold.days === 14 ? 21 : 28}.`
+              : 'Consider applying to the tribunal for termination and recovery if payment is not received.'
+          }`
+        : `The tenant is ${arrears.days_overdue} days overdue. The recommended action is: ${applicableThreshold.label}. ${
+            applicableThreshold.isBreachNotice
+              ? 'This is a formal legal notice. Your confirmation is required before it can be sent.'
+              : 'Approve to send, or choose an alternative action.'
+          }`,
+      relatedEntityType: 'arrears_record',
+      relatedEntityId: arrears.id,
+      deepLink: `/(app)/properties/${property?.id || ''}`,
+      triggerType: 'arrears_threshold_escalation',
+      triggerSource: `arrears_record:${arrears.id}`,
+      actionTaken: canAutoSend
+        ? `Auto-sent ${applicableThreshold.label} (autonomy L${rentAutonomy})`
+        : `Created ${applicableThreshold.label} task (awaiting owner approval, autonomy L${rentAutonomy})`,
+      wasAutoExecuted: canAutoSend,
+      timelineEntries: [
+        {
+          timestamp: new Date().toISOString(),
+          action: `Arrears reached ${applicableThreshold.days}-day threshold — $${Number(arrears.total_overdue).toFixed(2)} overdue`,
+          status: 'completed' as const,
+          reasoning: `Arrears record ${arrears.id} has been overdue for ${arrears.days_overdue} days, crossing the ${applicableThreshold.days}-day threshold for escalation.`,
+          data: {
+            total_overdue: arrears.total_overdue,
+            days_overdue: arrears.days_overdue,
+            threshold: applicableThreshold.days,
+          },
+        },
+        {
+          timestamp: new Date().toISOString(),
+          action: canAutoSend
+            ? `${applicableThreshold.label} sent to ${tenantName}`
+            : `${applicableThreshold.label} — awaiting owner approval`,
+          status: canAutoSend ? 'completed' as const : 'current' as const,
+        },
+        ...(canAutoSend
+          ? [{
+              timestamp: new Date().toISOString(),
+              action: 'Monitoring for tenant response or payment',
+              status: 'current' as const,
+            }]
+          : []),
+      ],
+    });
+
+    if (error) {
+      errors.push(`Arrears threshold task for ${arrears.id} (day ${applicableThreshold.days}): ${error}`);
+    } else {
+      tasksCreated++;
+    }
+  }
+
+  return { tasksCreated, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Scanner 21B: Arrears Escalation Path (proper sequence and timing)
 // ---------------------------------------------------------------------------
 
 async function scanArrearsEscalationPath(
@@ -7024,6 +7409,9 @@ async function processUser(
   // Scanner 12C: Rent increase frequency compliance (state law enforcement)
   if (!budgetExhausted()) aggregateResult(await scanRentIncreaseCompliance(supabase, userId, propertyIds));
 
+  // Scanner 12C-Auto: Rent increase auto-application on effective date
+  if (!budgetExhausted()) aggregateResult(await scanRentIncreaseAutoApply(supabase, userId, propertyIds));
+
   // Scanner 12D: Entry notice compliance (insufficient notice for scheduled inspections)
   if (!budgetExhausted()) aggregateResult(await scanEntryNoticeCompliance(supabase, userId, propertyIds));
 
@@ -7058,7 +7446,10 @@ async function processUser(
   // Scanner 20: Trade quote response
   if (!budgetExhausted()) aggregateResult(await scanTradeQuoteResponse(supabase, userId, propertyIds));
 
-  // Scanner 21: Arrears escalation path (autonomous)
+  // Scanner 21A: Arrears escalation — days-overdue threshold notices (7/14/21/28)
+  if (!budgetExhausted()) aggregateResult(await scanArrearsEscalation(supabase, userId, propertyIds, autonomySettings as AutonomySettings | null));
+
+  // Scanner 21B: Arrears escalation path — severity-based timing (autonomous)
   if (!budgetExhausted()) aggregateResult(await scanArrearsEscalationPath(supabase, userId, propertyIds, autonomySettings as AutonomySettings | null));
 
   // Scanner 22: Work order completion

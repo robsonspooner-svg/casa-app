@@ -384,6 +384,27 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
     return { subject: `Rent increase notice: ${addr}`, title: 'Rent Increase Notice', headerColour: WARNING_AMBER, content };
   },
 
+  lease_renewal_discussion: (data) => {
+    const name = (data.owner_name as string) || (data.tenant_name as string) || 'there';
+    const addr = (data.property_address as string) || 'your property';
+    const leaseEnd = (data.lease_end as string) || '';
+    const daysRemaining = (data.days_remaining as number) || 0;
+    const currentRent = (data.current_rent as string) || '';
+    const content = [
+      greeting(name),
+      paragraph(`The lease for <strong>${addr}</strong> is approaching its end date${leaseEnd ? ` on <strong>${leaseEnd}</strong>` : ''}.${daysRemaining > 0 ? ` There are <strong>${daysRemaining} days</strong> remaining.` : ''}`),
+      infoCard([
+        { label: 'Property', value: addr },
+        ...(currentRent ? [{ label: 'Current Rent', value: currentRent }] : []),
+        ...(leaseEnd ? [{ label: 'Lease Ends', value: leaseEnd, colour: WARNING_AMBER }] : []),
+        ...(daysRemaining > 0 ? [{ label: 'Days Remaining', value: `${daysRemaining}` }] : []),
+      ]),
+      paragraph('Now is a good time to discuss renewal options. You can review the tenancy details and respond through the Casa app.'),
+      ctaButton('Review Lease', 'casa://leases'),
+    ].join('');
+    return { subject: `Lease renewal discussion: ${addr}`, title: 'Lease Renewal Discussion', headerColour: WARNING_AMBER, content };
+  },
+
   lease_signed: (data) => {
     const name = (data.recipient_name as string) || 'there';
     const addr = (data.property_address as string) || 'your property';
@@ -701,6 +722,16 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
     const actionsCount = (data.actions_count as number) || 0;
     const actionsList = (data.actions_list as Array<{ description: string; property: string }>) || [];
     const date = (data.date as string) || '';
+    const pendingActions = (data.pending_actions as Array<{ title: string; description: string }>) || [];
+    const portfolioSnapshot = data.portfolio_snapshot as {
+      total_properties?: number;
+      occupied?: number;
+      vacant?: number;
+      rent_collected?: number;
+      rent_expected?: number;
+      open_maintenance?: number;
+      overdue_compliance?: number;
+    } | undefined;
 
     let actionsHtml = '';
     if (actionsList.length > 0) {
@@ -720,16 +751,52 @@ const TEMPLATE_MAP: Record<string, (data: Record<string, unknown>) => TemplateIn
       }).join('');
       actionsHtml = sections;
     } else {
-      actionsHtml = paragraph('No autonomous actions were taken today.');
+      actionsHtml = paragraph('No autonomous actions were taken today. Everything looks good across your portfolio.');
+    }
+
+    // Pending actions section
+    let pendingHtml = '';
+    if (pendingActions.length > 0) {
+      const pendingItems = pendingActions.map(a =>
+        `<li style="color:${TEXT_PRIMARY};font-size:14px;line-height:1.8;"><strong>${a.title}</strong> — ${a.description}</li>`
+      ).join('');
+      pendingHtml = `<div style="background:${BG_WHITE};padding:16px 20px;border-radius:8px;margin:12px 0;border-left:4px solid ${WARNING_AMBER};">
+        <p style="color:${WARNING_AMBER};font-weight:600;font-size:15px;margin:0 0 8px 0;">Needs Your Attention</p>
+        <ul style="margin:0;padding-left:20px;">${pendingItems}</ul></div>`;
+    }
+
+    // Portfolio snapshot section
+    let snapshotHtml = '';
+    if (portfolioSnapshot) {
+      const s = portfolioSnapshot;
+      const rows: Array<{ label: string; value: string; colour?: string }> = [];
+      if (s.total_properties !== undefined) {
+        rows.push({ label: 'Properties', value: `${s.occupied || 0} occupied / ${s.vacant || 0} vacant` });
+      }
+      if (s.rent_collected !== undefined) {
+        const pct = s.rent_expected && s.rent_expected > 0 ? Math.round((s.rent_collected / s.rent_expected) * 100) : 100;
+        rows.push({ label: 'Rent this month', value: `$${s.rent_collected.toLocaleString()} of $${(s.rent_expected || 0).toLocaleString()} (${pct}%)`, colour: pct >= 100 ? SUCCESS_GREEN : WARNING_AMBER });
+      }
+      if (s.open_maintenance !== undefined) {
+        rows.push({ label: 'Open maintenance', value: String(s.open_maintenance), colour: s.open_maintenance > 0 ? WARNING_AMBER : SUCCESS_GREEN });
+      }
+      if (s.overdue_compliance !== undefined) {
+        rows.push({ label: 'Overdue compliance', value: String(s.overdue_compliance), colour: s.overdue_compliance > 0 ? DANGER_RED : SUCCESS_GREEN });
+      }
+      if (rows.length > 0) {
+        snapshotHtml = `<p style="color:${CASA_NAVY};font-weight:600;font-size:15px;margin:20px 0 8px 0;">Portfolio Snapshot</p>` + infoCard(rows);
+      }
     }
 
     const content = [
       greeting(name),
       paragraph(`Casa took <strong>${actionsCount} action${actionsCount !== 1 ? 's' : ''}</strong> on your behalf${date ? ` on <strong>${date}</strong>` : ''}.`),
       actionsHtml,
+      pendingHtml,
+      snapshotHtml,
       ctaButton('View Activity Log', 'casa://activity'),
     ].join('');
-    return { subject: 'Casa daily action summary', title: 'Daily Action Summary', headerColour: CASA_NAVY, content };
+    return { subject: `Casa Daily Report — ${actionsCount} action${actionsCount !== 1 ? 's' : ''} taken`, title: 'Daily Report', headerColour: CASA_NAVY, content };
   },
 };
 

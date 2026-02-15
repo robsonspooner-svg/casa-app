@@ -1,13 +1,15 @@
 // Mission 13: Expense Tracker Screen
 // Manual expense entry, categories, and listing
 
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert, Image, ActivityIndicator } from 'react-native';
 import { useState, useCallback } from 'react';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '@casa/config';
-import { useExpenses, useProperties } from '@casa/api';
+import { useExpenses, useProperties, getSupabaseClient, useDocumentExtraction } from '@casa/api';
+import type { ReceiptExtraction } from '@casa/api';
 import Svg, { Path } from 'react-native-svg';
+import * as ImagePicker from 'expo-image-picker';
 
 function formatCurrency(amount: number): string {
   return '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -47,13 +49,115 @@ export default function ExpensesScreen() {
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [formTaxCategory, setFormTaxCategory] = useState('other');
   const [formIsTaxDeductible, setFormIsTaxDeductible] = useState(true);
+  const [receiptImage, setReceiptImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { extracting, extractData, uploadAndExtract } = useDocumentExtraction();
+  const [extractedData, setExtractedData] = useState<ReceiptExtraction | null>(null);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await refreshExpenses();
     setRefreshing(false);
   }, [refreshExpenses]);
+
+  // Auto-extract receipt data after picking an image
+  const handleReceiptPicked = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    setReceiptImage(asset);
+    setExtractedData(null);
+
+    // Upload to temp storage and extract
+    const tempPath = `receipts/temp_${Date.now()}.jpg`;
+    const result = await uploadAndExtract(asset.uri, 'receipt', tempPath, formPropertyId || undefined);
+
+    if (result?.extracted) {
+      const data = result.extracted as ReceiptExtraction;
+      setExtractedData(data);
+
+      // Auto-fill form fields from extraction
+      if (data.description && !formDescription.trim()) {
+        setFormDescription(data.description);
+      }
+      if (data.amount != null && !formAmount) {
+        setFormAmount(data.amount.toFixed(2));
+      }
+      if (data.date && formDate === new Date().toISOString().split('T')[0]) {
+        setFormDate(data.date);
+      }
+      if (data.category_suggestion) {
+        const validCategory = TAX_CATEGORIES.find(c => c.value === data.category_suggestion);
+        if (validCategory) {
+          setFormTaxCategory(data.category_suggestion);
+        }
+      }
+      if (data.is_tax_deductible != null) {
+        setFormIsTaxDeductible(data.is_tax_deductible);
+      }
+    }
+  }, [uploadAndExtract, formPropertyId, formDescription, formAmount, formDate]);
+
+  const handlePickReceipt = useCallback(async () => {
+    Alert.alert('Scan Receipt', 'Casa will auto-extract the details for you', [
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Camera access is needed to take photos.');
+            return;
+          }
+          const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+          if (!result.canceled && result.assets[0]) {
+            handleReceiptPicked(result.assets[0]);
+          }
+        },
+      },
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.7,
+          });
+          if (!result.canceled && result.assets[0]) {
+            handleReceiptPicked(result.assets[0]);
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [handleReceiptPicked]);
+
+  const uploadReceiptImage = useCallback(async (expenseId: string): Promise<string | null> => {
+    if (!receiptImage) return null;
+    setUploadingReceipt(true);
+    try {
+      const supabase = getSupabaseClient();
+      const fileName = `${expenseId}_${Date.now()}.jpg`;
+      const storagePath = `receipts/${fileName}`;
+
+      const response = await fetch(receiptImage.uri);
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+
+      const { error } = await supabase.storage
+        .from('reports')
+        .upload(storagePath, arrayBuffer, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage.from('reports').getPublicUrl(storagePath);
+      return urlData?.publicUrl || null;
+    } catch (err) {
+      console.error('Receipt upload failed:', err);
+      return null;
+    } finally {
+      setUploadingReceipt(false);
+    }
+  }, [receiptImage]);
 
   const handleAddExpense = useCallback(async () => {
     if (!formPropertyId || !formDescription.trim() || !formAmount) {
@@ -68,7 +172,7 @@ export default function ExpensesScreen() {
 
     try {
       setSaving(true);
-      await addExpense({
+      const expense = await addExpense({
         property_id: formPropertyId,
         description: formDescription.trim(),
         amount,
@@ -76,17 +180,30 @@ export default function ExpensesScreen() {
         tax_category: formTaxCategory,
         is_tax_deductible: formIsTaxDeductible,
       });
+
+      // Upload receipt if one was selected
+      if (receiptImage && expense?.id) {
+        const receiptUrl = await uploadReceiptImage(expense.id);
+        if (receiptUrl) {
+          const supabase = getSupabaseClient();
+          await (supabase.from('manual_expenses') as ReturnType<typeof supabase.from>)
+            .update({ receipt_url: receiptUrl })
+            .eq('id', expense.id);
+        }
+      }
+
       // Reset form
       setFormDescription('');
       setFormAmount('');
       setFormTaxCategory('other');
+      setReceiptImage(null);
       setShowAddForm(false);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to add expense');
     } finally {
       setSaving(false);
     }
-  }, [formPropertyId, formDescription, formAmount, formDate, formTaxCategory, formIsTaxDeductible, addExpense]);
+  }, [formPropertyId, formDescription, formAmount, formDate, formTaxCategory, formIsTaxDeductible, receiptImage, addExpense, uploadReceiptImage]);
 
   const handleDelete = useCallback(async (id: string) => {
     Alert.alert('Delete Expense', 'Are you sure you want to delete this expense?', [
@@ -205,6 +322,59 @@ export default function ExpensesScreen() {
               ))}
             </ScrollView>
 
+            {/* Receipt Photo with Smart Scan */}
+            <Text style={styles.fieldLabel}>Receipt Photo</Text>
+            {receiptImage ? (
+              <View>
+                <View style={styles.receiptPreview}>
+                  <Image source={{ uri: receiptImage.uri }} style={styles.receiptImage} />
+                  <TouchableOpacity
+                    style={styles.receiptRemove}
+                    onPress={() => { setReceiptImage(null); setExtractedData(null); }}
+                  >
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
+                    </Svg>
+                  </TouchableOpacity>
+                  {(uploadingReceipt || extracting) && (
+                    <View style={styles.receiptUploading}>
+                      <ActivityIndicator size="small" color={THEME.colors.textInverse} />
+                      <Text style={styles.receiptUploadingText}>
+                        {extracting ? 'Scanning...' : 'Uploading...'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                {extractedData && (
+                  <View style={styles.extractedBanner}>
+                    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                      <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                    <Text style={styles.extractedBannerText}>
+                      Fields auto-filled from receipt
+                      {extractedData.vendor ? ` — ${extractedData.vendor}` : ''}
+                    </Text>
+                  </View>
+                )}
+                {extracting && (
+                  <View style={styles.extractingBanner}>
+                    <ActivityIndicator size="small" color={THEME.colors.brandIndigo} />
+                    <Text style={styles.extractingBannerText}>
+                      Casa is reading your receipt...
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.receiptButton} onPress={handlePickReceipt}>
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                  <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M12 17a4 4 0 100-8 4 4 0 000 8z" stroke={THEME.colors.brand} strokeWidth={1.5} />
+                </Svg>
+                <Text style={styles.receiptButtonText}>Scan Receipt — auto-fills details</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.toggleRow}
               onPress={() => setFormIsTaxDeductible(!formIsTaxDeductible)}
@@ -258,6 +428,7 @@ export default function ExpensesScreen() {
                 {formatDate(expense.expense_date)}
                 {expense.tax_category ? ` · ${expense.tax_category.replace(/_/g, ' ')}` : ''}
                 {expense.is_tax_deductible ? ' · Tax deductible' : ''}
+                {(expense as any).receipt_url ? ' · Receipt attached' : ''}
               </Text>
             </View>
             <Text style={styles.expenseAmount}>{formatCurrency(Number(expense.amount))}</Text>
@@ -424,5 +595,87 @@ const styles = StyleSheet.create({
     color: THEME.colors.textTertiary,
     textAlign: 'center',
     marginTop: 8,
+  },
+  receiptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: THEME.colors.border,
+    borderStyle: 'dashed',
+    borderRadius: THEME.radius.md,
+    paddingVertical: 16,
+    backgroundColor: THEME.colors.canvas,
+  },
+  receiptButtonText: {
+    fontSize: 14,
+    color: THEME.colors.textTertiary,
+    fontWeight: '500',
+  },
+  receiptPreview: {
+    width: 100,
+    height: 100,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  receiptImage: {
+    width: '100%',
+    height: '100%',
+  },
+  receiptRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptUploading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  receiptUploadingText: {
+    fontSize: 11,
+    color: THEME.colors.textInverse,
+    fontWeight: '600',
+  },
+  extractedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: THEME.colors.successBg,
+    borderRadius: THEME.radius.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 8,
+  },
+  extractedBannerText: {
+    fontSize: 12,
+    color: THEME.colors.success,
+    fontWeight: '600',
+    flex: 1,
+  },
+  extractingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: THEME.colors.infoBg,
+    borderRadius: THEME.radius.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 8,
+  },
+  extractingBannerText: {
+    fontSize: 12,
+    color: THEME.colors.brandIndigo,
+    fontWeight: '500',
   },
 });

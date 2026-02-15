@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { THEME } from '@casa/config';
 import {
   useAuth,
@@ -22,9 +23,11 @@ import {
   useAgentTasks,
   useAgentInsights,
   useOwnerPayouts,
+  useAutonomySettings,
+  useDocumentTasks,
   getSupabaseClient,
 } from '@casa/api';
-import type { ActivityFeedItem, PendingApprovalItem, AgentInsight } from '@casa/api';
+import type { ActivityFeedItem, PendingApprovalItem, AgentInsight, DocumentTask } from '@casa/api';
 import { formatDateCompact, successFeedback, warningFeedback, lightTap } from '@casa/ui';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { NotificationBell } from '../../../components/NotificationBell';
@@ -125,17 +128,27 @@ function FeedIcon({ type, color }: { type: string; color: string }) {
   }
 }
 
+// Autonomy preset display config
+const AUTONOMY_LABELS: Record<string, { label: string; description: string }> = {
+  cautious: { label: 'Cautious', description: 'Casa recommends, you decide' },
+  balanced: { label: 'Balanced', description: 'Casa handles routine tasks' },
+  hands_off: { label: 'Hands-Off', description: 'Casa manages autonomously' },
+};
+
 // ── Premium Hero Header ──────────────────────────────────────────────
 function HeroHeader({
   displayName,
   pendingCount,
   propertyCount,
+  autonomyPreset,
 }: {
   displayName: string;
   pendingCount: number;
   propertyCount: number;
+  autonomyPreset: string;
 }) {
   const greeting = getGreeting();
+  const autonomyInfo = AUTONOMY_LABELS[autonomyPreset] || AUTONOMY_LABELS.balanced;
   const statusText = useMemo(() => {
     if (pendingCount > 0) return `${pendingCount} item${pendingCount === 1 ? '' : 's'} need${pendingCount === 1 ? 's' : ''} your attention`;
     if (propertyCount > 0) return 'Everything is on track';
@@ -187,6 +200,15 @@ function HeroHeader({
       <View style={styles.heroBody}>
         <Text style={styles.heroGreeting}>{greeting}, {displayName}</Text>
         <Text style={styles.heroStatus}>{statusText}</Text>
+        <TouchableOpacity
+          style={styles.autonomyChip}
+          onPress={() => router.push('/(app)/autonomy' as any)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.autonomyDot} />
+          <Text style={styles.autonomyChipText}>{autonomyInfo.label}</Text>
+          <Text style={styles.autonomyChipDesc}>{autonomyInfo.description}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -529,6 +551,61 @@ function CasaWorkingItem({ insight }: { insight: AgentInsight }) {
   );
 }
 
+// ── Smart Document Task Card ──────────────────────────────────────────
+function DocumentTaskCard({
+  task,
+  onDismiss,
+}: {
+  task: DocumentTask;
+  onDismiss: (id: string) => void;
+}) {
+  const iconColor = task.priority === 'high' ? THEME.colors.warning : THEME.colors.brand;
+
+  return (
+    <TouchableOpacity
+      style={styles.docTaskCard}
+      onPress={() => router.push(task.route as any)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.docTaskIconWrap, { backgroundColor: iconColor + '12' }]}>
+        {task.icon === 'shield' ? (
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke={iconColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        ) : task.icon === 'key' ? (
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" stroke={iconColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        ) : (
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke={iconColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        )}
+      </View>
+      <View style={styles.docTaskContent}>
+        <Text style={styles.docTaskTitle} numberOfLines={1}>{task.title}</Text>
+        <Text style={styles.docTaskProperty} numberOfLines={1}>{task.property_address}</Text>
+        <Text style={styles.docTaskDesc} numberOfLines={2}>{task.description}</Text>
+      </View>
+      <View style={styles.docTaskActions}>
+        <View style={styles.docTaskScanPill}>
+          <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+            <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={THEME.colors.brand} strokeWidth={2} />
+          </Svg>
+          <Text style={styles.docTaskScanText}>Scan</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.docTaskDismiss}
+          onPress={(e) => { e.stopPropagation(); onDismiss(task.id); }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.docTaskDismissText}>Later</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ── Feed Item ────────────────────────────────────────────────────────
 function FeedItem({ item }: { item: ActivityFeedItem }) {
   const config = getItemConfig(item.type);
@@ -607,6 +684,30 @@ function WelcomeEmpty() {
         activeOpacity={0.7}
       >
         <Text style={styles.welcomeButtonText}>Add Property</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ── Getting To Know Card (first load after onboarding) ───────────────
+function GettingToKnowCard({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <View style={styles.gettingToKnowCard}>
+      <View style={styles.gettingToKnowIcon}>
+        <CasaLogoMark size={32} />
+      </View>
+      <Text style={styles.gettingToKnowTitle}>
+        Casa is getting to know your properties
+      </Text>
+      <Text style={styles.gettingToKnowText}>
+        I'm reviewing your property details, lease dates, and compliance requirements. I'll start managing things proactively within the next few hours.
+      </Text>
+      <TouchableOpacity
+        style={styles.gettingToKnowDismiss}
+        onPress={onDismiss}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.gettingToKnowDismissText}>Got it</Text>
       </TouchableOpacity>
     </View>
   );
@@ -691,13 +792,34 @@ export default function ActivityScreen() {
   const { profile, firstName } = useProfile();
   const { properties } = useProperties();
   const { pendingCount } = useAgentContext();
+  const { preset: autonomyPreset } = useAutonomySettings();
   const { summary, error: dashboardError, refreshDashboard } = useDashboard();
   const { insights, refreshInsights } = useAgentInsights();
   const { feedItems, pendingApprovals, loading, error: feedError, refreshFeed } = useActivityFeed();
   const { approveTask, rejectTask } = useAgentTasks();
+  const { tasks: docTasks, dismissTask: dismissDocTask } = useDocumentTasks();
   const { isOnboarded: isPayoutOnboarded } = useOwnerPayouts();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const [showGettingToKnow, setShowGettingToKnow] = useState(false);
+
+  // Show "getting to know" card on first load after onboarding
+  useEffect(() => {
+    const key = `casa_first_load_seen_${user?.id}`;
+    if (!user?.id) return;
+    AsyncStorage.getItem(key).then((val) => {
+      if (!val) {
+        setShowGettingToKnow(true);
+      }
+    }).catch(() => {});
+  }, [user?.id]);
+
+  const dismissGettingToKnow = useCallback(() => {
+    setShowGettingToKnow(false);
+    if (user?.id) {
+      AsyncStorage.setItem(`casa_first_load_seen_${user.id}`, '1').catch(() => {});
+    }
+  }, [user?.id]);
 
   const metadataName = user?.user_metadata?.full_name?.split(/\s+/)?.[0];
   const displayName = firstName || metadataName || 'there';
@@ -806,6 +928,7 @@ export default function ActivityScreen() {
           displayName={displayName}
           pendingCount={totalAttention}
           propertyCount={propertyCount}
+          autonomyPreset={autonomyPreset}
         />
       </View>
 
@@ -848,6 +971,11 @@ export default function ActivityScreen() {
                 propertyCount={propertyCount}
                 occupancyRate={occupancyRate}
               />
+            )}
+
+            {/* Getting to know your properties — first load */}
+            {showGettingToKnow && propertyCount > 0 && (
+              <GettingToKnowCard onDismiss={dismissGettingToKnow} />
             )}
 
             {/* Needs Attention */}
@@ -900,6 +1028,37 @@ export default function ActivityScreen() {
                     <CasaWorkingItem key={insight.id} insight={insight} />
                   ))}
                 </View>
+              </View>
+            )}
+
+            {/* Smart Document Tasks */}
+            {docTasks.length > 0 && (
+              <View style={styles.section}>
+                <SectionHeader title="Set Up Your Properties" />
+                <Text style={styles.docTasksSectionDesc}>
+                  Upload key documents and Casa will handle the rest — tracking, reminders, and tax records.
+                </Text>
+                {docTasks.slice(0, 3).map(task => (
+                  <DocumentTaskCard
+                    key={task.id}
+                    task={task}
+                    onDismiss={dismissDocTask}
+                  />
+                ))}
+                {docTasks.length > 3 && (
+                  <TouchableOpacity
+                    style={styles.docTasksMoreBtn}
+                    onPress={() => router.push('/(app)/documents' as any)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.docTasksMoreText}>
+                      {docTasks.length - 3} more document{docTasks.length - 3 !== 1 ? 's' : ''} to upload
+                    </Text>
+                    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                      <Path d="M9 18l6-6-6-6" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -1018,6 +1177,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: THEME.colors.textInverse + 'B3',
     fontWeight: '500',
+  },
+  autonomyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 20,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    gap: 6,
+  },
+  autonomyDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4ADE80',
+  },
+  autonomyChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: THEME.colors.textInverse,
+  },
+  autonomyChipDesc: {
+    fontSize: 11,
+    color: THEME.colors.textInverse + '99',
   },
 
   // ── Trial Banner ──
@@ -1455,6 +1640,89 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  // ── Smart Document Tasks ──
+  docTasksSectionDesc: {
+    fontSize: 13,
+    color: THEME.colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+    marginTop: -4,
+  },
+  docTaskCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    marginBottom: 8,
+    ...THEME.shadow.sm,
+  },
+  docTaskIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  docTaskContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  docTaskTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.colors.textPrimary,
+  },
+  docTaskProperty: {
+    fontSize: 12,
+    color: THEME.colors.textTertiary,
+    marginTop: 1,
+  },
+  docTaskDesc: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+  docTaskActions: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  docTaskScanPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: THEME.colors.brand + '12',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: THEME.radius.full,
+  },
+  docTaskScanText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: THEME.colors.brand,
+  },
+  docTaskDismiss: {
+    paddingVertical: 2,
+  },
+  docTaskDismissText: {
+    fontSize: 11,
+    color: THEME.colors.textTertiary,
+  },
+  docTasksMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+  },
+  docTasksMoreText: {
+    fontSize: 13,
+    color: THEME.colors.brand,
+    fontWeight: '600',
+  },
+
   // ── Loading & Empty ──
   loadingContainer: {
     padding: 32,
@@ -1577,6 +1845,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: THEME.colors.textTertiary,
     fontWeight: '500',
+  },
+
+  // ── Getting To Know Card ──
+  gettingToKnowCard: {
+    backgroundColor: THEME.colors.infoBg,
+    borderRadius: THEME.radius.lg,
+    padding: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: THEME.colors.brandIndigo + '20',
+  },
+  gettingToKnowIcon: {
+    marginBottom: 12,
+  },
+  gettingToKnowTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  gettingToKnowText: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  gettingToKnowDismiss: {
+    backgroundColor: THEME.colors.brand,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: THEME.radius.md,
+  },
+  gettingToKnowDismissText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.colors.textInverse,
   },
 
   // ── Error State ──

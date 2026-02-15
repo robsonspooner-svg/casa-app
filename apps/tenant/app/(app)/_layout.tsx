@@ -38,6 +38,7 @@ export default function AppLayout() {
       <Stack.Screen name="tenancy" />
       <Stack.Screen name="maintenance" />
       <Stack.Screen name="inspections" />
+      <Stack.Screen name="lease" />
       <Stack.Screen name="messages" />
       <Stack.Screen name="payments" />
       <Stack.Screen name="arrears" />

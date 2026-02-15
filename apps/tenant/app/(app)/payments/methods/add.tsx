@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import Svg, { Path } from 'react-native-svg';
@@ -14,8 +14,14 @@ export default function AddPaymentMethodScreen() {
   const [loading, setLoading] = useState(false);
   const params = useLocalSearchParams<{ setup?: string }>();
 
-  // Handle return from Stripe Checkout
-  if (params.setup === 'success') {
+  // BECS form fields
+  const [bsbNumber, setBsbNumber] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountHolderName, setAccountHolderName] = useState('');
+  const [becsSuccess, setBecsSuccess] = useState(false);
+
+  // Handle return from Stripe Checkout (card) or BECS success
+  if (params.setup === 'success' || becsSuccess) {
     return (
       <View style={[styles.container, styles.centeredContent]}>
         <View style={styles.successIcon}>
@@ -35,21 +41,8 @@ export default function AddPaymentMethodScreen() {
   }
 
   const handleAddMethod = async () => {
-    // BECS cannot be pre-saved via Stripe Checkout setup mode.
-    // Show a friendly message and suggest adding a card instead.
     if (selectedType === 'becs') {
-      Alert.alert(
-        'Bank Account (BECS)',
-        'BECS Direct Debit cannot be pre-saved as a payment method, but you can pay via bank transfer when making a rent payment — with the lowest fees (max $3.50 per payment).\n\nWould you like to add a card instead?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Add Card',
-            onPress: () => setSelectedType('card'),
-          },
-        ]
-      );
-      return;
+      return handleAddBecs();
     }
 
     setLoading(true);
@@ -64,7 +57,6 @@ export default function AddPaymentMethodScreen() {
         },
       });
 
-      // Check for errors from both the supabase invoke wrapper and the function response body
       if (error || data?.error) {
         let errMsg = data?.error || error?.message || 'Failed to start payment setup';
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
@@ -79,7 +71,6 @@ export default function AddPaymentMethodScreen() {
         throw new Error('Setup session could not be created. Please try again.');
       }
 
-      // Open Stripe Checkout in an in-app browser
       await WebBrowser.openBrowserAsync(data.sessionUrl);
     } catch (err: any) {
       const message = err.message || 'Failed to set up payment method. Please try again.';
@@ -93,6 +84,53 @@ export default function AddPaymentMethodScreen() {
             : []),
         ]
       );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddBecs = async () => {
+    if (!accountHolderName.trim()) {
+      Alert.alert('Required', 'Please enter the account holder name.');
+      return;
+    }
+    const bsbClean = bsbNumber.replace(/[-\s]/g, '');
+    if (!/^\d{6}$/.test(bsbClean)) {
+      Alert.alert('Invalid BSB', 'BSB must be exactly 6 digits.');
+      return;
+    }
+    const acctClean = accountNumber.replace(/[-\s]/g, '');
+    if (!/^\d{5,9}$/.test(acctClean)) {
+      Alert.alert('Invalid Account', 'Account number must be 5-9 digits.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+
+      const { data, error } = await supabase.functions.invoke('stripe-setup-session', {
+        body: {
+          paymentMethodTypes: ['au_becs_debit'],
+          bsbNumber: bsbClean,
+          accountNumber: acctClean,
+          accountHolderName: accountHolderName.trim(),
+          successUrl: '',
+          cancelUrl: '',
+        },
+      });
+
+      if (error || data?.error) {
+        throw new Error(data?.error || error?.message || 'Failed to add bank account');
+      }
+
+      if (data?.success) {
+        setBecsSuccess(true);
+      } else {
+        throw new Error(data?.error || 'Failed to save bank account. Please try again.');
+      }
+    } catch (err: any) {
+      Alert.alert('Setup Error', err.message || 'Failed to add bank account.');
     } finally {
       setLoading(false);
     }
@@ -153,16 +191,57 @@ export default function AddPaymentMethodScreen() {
 
       {selectedType === 'becs' && (
         <Card style={styles.becsInfo}>
-          <Text style={styles.becsTitle}>About BECS Direct Debit</Text>
+          <Text style={styles.becsTitle}>Bank Account Details</Text>
           <Text style={styles.becsText}>
-            BECS Direct Debit allows automatic payments from your Australian bank account. Processing fees are significantly lower than card payments, capped at just $3.50 per transaction. Processing takes 3-4 business days.
+            Enter your Australian bank account details below. Processing fees are capped at $3.50 per transaction. Payments take 3-4 business days.
           </Text>
-          <View style={styles.becsDetail}>
-            <Text style={styles.becsLabel}>You will need:</Text>
-            <Text style={styles.becsItem}>BSB number (6 digits)</Text>
-            <Text style={styles.becsItem}>Account number</Text>
-            <Text style={styles.becsItem}>Account holder name</Text>
+          <View style={styles.becsFormGroup}>
+            <Text style={styles.becsFieldLabel}>Account Holder Name</Text>
+            <TextInput
+              style={styles.becsInput}
+              value={accountHolderName}
+              onChangeText={setAccountHolderName}
+              placeholder="Full name on account"
+              placeholderTextColor={THEME.colors.textTertiary}
+              autoCapitalize="words"
+              autoCorrect={false}
+              editable={!loading}
+            />
           </View>
+          <View style={styles.becsFormRow}>
+            <View style={[styles.becsFormGroup, { flex: 1 }]}>
+              <Text style={styles.becsFieldLabel}>BSB</Text>
+              <TextInput
+                style={styles.becsInput}
+                value={bsbNumber}
+                onChangeText={(text) => {
+                  const digits = text.replace(/\D/g, '').slice(0, 6);
+                  setBsbNumber(digits.length > 3 ? digits.slice(0, 3) + '-' + digits.slice(3) : digits);
+                }}
+                placeholder="000-000"
+                placeholderTextColor={THEME.colors.textTertiary}
+                keyboardType="number-pad"
+                maxLength={7}
+                editable={!loading}
+              />
+            </View>
+            <View style={[styles.becsFormGroup, { flex: 1.5 }]}>
+              <Text style={styles.becsFieldLabel}>Account Number</Text>
+              <TextInput
+                style={styles.becsInput}
+                value={accountNumber}
+                onChangeText={(text) => setAccountNumber(text.replace(/\D/g, '').slice(0, 9))}
+                placeholder="123456789"
+                placeholderTextColor={THEME.colors.textTertiary}
+                keyboardType="number-pad"
+                maxLength={9}
+                editable={!loading}
+              />
+            </View>
+          </View>
+          <Text style={styles.becsMandateText}>
+            By providing your bank account details, you authorise Casa Intelligence Pty Ltd to debit your account through the BECS Direct Debit system for rent payments. You can cancel this authorisation at any time.
+          </Text>
         </Card>
       )}
 
@@ -313,19 +392,34 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: THEME.spacing.md,
   },
-  becsDetail: {
-    gap: THEME.spacing.xs,
+  becsFormGroup: {
+    marginBottom: THEME.spacing.md,
   },
-  becsLabel: {
-    fontSize: THEME.fontSize.bodySmall,
+  becsFormRow: {
+    flexDirection: 'row',
+    gap: THEME.spacing.md,
+  },
+  becsFieldLabel: {
+    fontSize: THEME.fontSize.caption,
     fontWeight: THEME.fontWeight.medium,
-    color: THEME.colors.textPrimary,
-    marginBottom: 2,
-  },
-  becsItem: {
-    fontSize: THEME.fontSize.bodySmall,
     color: THEME.colors.textSecondary,
-    paddingLeft: THEME.spacing.md,
+    marginBottom: THEME.spacing.xs,
+  },
+  becsInput: {
+    backgroundColor: THEME.colors.canvas,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    paddingHorizontal: THEME.spacing.sm,
+    paddingVertical: THEME.spacing.sm,
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textPrimary,
+  },
+  becsMandateText: {
+    fontSize: 11,
+    color: THEME.colors.textTertiary,
+    lineHeight: 15,
+    marginTop: THEME.spacing.sm,
   },
   addButton: {
     marginBottom: THEME.spacing.base,

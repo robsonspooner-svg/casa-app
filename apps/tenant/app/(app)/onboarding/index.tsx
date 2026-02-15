@@ -9,6 +9,7 @@ import {
   NativeScrollEvent,
   TouchableOpacity,
   Alert,
+  Share,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,7 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import { THEME } from '@casa/config';
 import { Button, Input } from '@casa/ui';
-import { getSupabaseClient, useAuth, useConnection } from '@casa/api';
+import { getSupabaseClient, useAuth, useConnection, sendTenantWelcomeMessage } from '@casa/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -177,43 +178,31 @@ export default function TenantOnboardingScreen() {
     setCompleting(true);
     try {
       await markOnboardingComplete();
-      // Send AI welcome message (fire-and-forget)
-      try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          fetch(
-            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${session.access_token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: 'I just signed up as a tenant on Casa. Give me a brief welcome and tell me what you can help me with.',
-              }),
-            }
-          ).catch(() => {});
-        }
-      } catch { /* non-blocking */ }
+      // Send AI welcome message (fire-and-forget with retry)
+      if (user) {
+        sendTenantWelcomeMessage(user.id).catch(() => {});
+      }
       router.replace('/(app)/(tabs)' as never);
     } catch {
       Alert.alert('Error', 'Failed to complete onboarding. Please try again.');
     } finally {
       setCompleting(false);
     }
-  }, [markOnboardingComplete]);
+  }, [markOnboardingComplete, user]);
 
   const handleGetStarted = useCallback(() => {
     setShowConnect(true);
   }, []);
 
-  const handleNoCode = useCallback(() => {
-    Alert.alert(
-      'Connection Code',
-      'Ask your landlord or property manager for your Casa connection code. You can also connect later from the Home screen or by chatting with Casa AI.',
-    );
+  const handleRequestCode = useCallback(async () => {
+    try {
+      await Share.share({
+        message: `Hi! I'd like to connect to your property using the Casa app. Could you please generate a connection code for me?\n\n1. Open the Casa (Owner) app\n2. Go to your property\n3. Generate a connection code\n4. Share the 6-character code with me\n\nThanks!`,
+        title: 'Request Connection Code',
+      });
+    } catch {
+      // User cancelled share
+    }
   }, []);
 
   const handleConnect = useCallback(async () => {
@@ -250,26 +239,10 @@ export default function TenantOnboardingScreen() {
 
       // Success — complete onboarding
       await markOnboardingComplete();
-      // Send AI welcome message (fire-and-forget)
-      try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          fetch(
-            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${session.access_token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: 'I just connected to my rental property on Casa. Give me a brief welcome, tell me about my tenancy details, and what you can help me with.',
-              }),
-            }
-          ).catch(() => {});
-        }
-      } catch { /* non-blocking */ }
+      // Send AI welcome message (fire-and-forget with retry)
+      if (user) {
+        sendTenantWelcomeMessage(user.id).catch(() => {});
+      }
       router.replace('/(app)/(tabs)' as never);
     } catch {
       setCodeError('Something went wrong. Please try again.');
@@ -282,33 +255,17 @@ export default function TenantOnboardingScreen() {
     setCompleting(true);
     try {
       await markOnboardingComplete();
-      // Send AI welcome message (fire-and-forget)
-      try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          fetch(
-            `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/agent-chat`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${session.access_token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: 'I just signed up as a tenant on Casa. Give me a brief welcome and tell me what you can help me with.',
-              }),
-            }
-          ).catch(() => {});
-        }
-      } catch { /* non-blocking */ }
+      // Send AI welcome message (fire-and-forget with retry)
+      if (user) {
+        sendTenantWelcomeMessage(user.id).catch(() => {});
+      }
       router.replace('/(app)/(tabs)' as never);
     } catch {
       Alert.alert('Error', 'Failed to complete onboarding. Please try again.');
     } finally {
       setCompleting(false);
     }
-  }, [markOnboardingComplete]);
+  }, [markOnboardingComplete, user]);
 
   // Connection code screen (shown after walkthrough)
   if (showConnect) {
@@ -349,9 +306,9 @@ export default function TenantOnboardingScreen() {
               inputStyle={styles.codeInput}
             />
             <Button
-              title="I don't have a code"
+              title="Request code from landlord"
               variant="text"
-              onPress={handleNoCode}
+              onPress={handleRequestCode}
               textStyle={styles.noCodeText}
             />
           </View>

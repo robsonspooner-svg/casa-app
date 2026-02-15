@@ -1,25 +1,11 @@
 // Tool Execution Handlers for Casa Agent
 // Each handler receives (toolInput, userId, supabase) and returns { success, data?, error? }
 
+import { dispatchNotif } from './tool-handlers-actions.ts';
+
 type SupabaseClient = any;
 type ToolResult = { success: boolean; data?: unknown; error?: string };
 type ToolInput = Record<string, unknown>;
-
-// Notification dispatch helper (best-effort, fire-and-forget)
-async function dispatchNotif(
-  sb: SupabaseClient,
-  userId: string,
-  type: string,
-  title: string,
-  body: string,
-  data?: Record<string, unknown>,
-): Promise<void> {
-  try {
-    await sb.functions.invoke('dispatch-notification', {
-      body: { user_id: userId, type, title, body, data: data || {} },
-    });
-  } catch { /* notification dispatch is best-effort */ }
-}
 
 // Helper: verify property belongs to owner
 async function verifyPropertyOwnership(propertyId: string, userId: string, supabase: SupabaseClient) {
@@ -1299,6 +1285,420 @@ export async function handle_get_document_access_log(input: ToolInput, userId: s
       total_views: (logs || []).filter((l: any) => l.action === 'view').length,
       total_downloads: (logs || []).filter((l: any) => l.action === 'download').length,
       unique_viewers: [...new Set((logs || []).map((l: any) => l.user_id))].length,
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TENANT TOOL HANDLERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Helper: get the tenant's active tenancy IDs and property IDs
+async function getTenantTenancyIds(userId: string, sb: SupabaseClient): Promise<{ tenancyIds: string[]; propertyIds: string[] }> {
+  const { data: links } = await sb
+    .from('tenancy_tenants')
+    .select('tenancy_id, tenancies!inner(id, property_id, status)')
+    .eq('tenant_id', userId)
+    .eq('tenancies.status', 'active');
+
+  const tenancyIds = (links || []).map((l: any) => l.tenancy_id);
+  const propertyIds = [...new Set((links || []).map((l: any) => l.tenancies?.property_id).filter(Boolean))];
+  return { tenancyIds, propertyIds };
+}
+
+export async function handle_get_my_tenancy(_input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Get tenant's linked tenancies
+  const { data: links } = await sb
+    .from('tenancy_tenants')
+    .select('tenancy_id, is_primary')
+    .eq('tenant_id', userId);
+
+  if (!links || links.length === 0) {
+    return { success: true, data: { tenancies: [], message: 'No active tenancies found. Use a connection code from your landlord to connect.' } };
+  }
+
+  const tenancyIds = links.map((l: any) => l.tenancy_id);
+
+  const { data: tenancies, error } = await sb
+    .from('tenancies')
+    .select(`id, property_id, lease_start_date, lease_end_date, lease_type, is_periodic,
+      rent_amount, rent_frequency, rent_due_day, bond_amount, bond_status, status,
+      properties(id, address_line_1, address_line_2, suburb, state, postcode, property_type, bedrooms, bathrooms, owner_id,
+        profiles:owner_id(full_name, email, phone))`)
+    .in('id', tenancyIds)
+    .eq('status', 'active');
+
+  if (error) return { success: false, error: error.message };
+
+  // Format response with clear tenant-friendly structure
+  const formatted = (tenancies || []).map((t: any) => {
+    const prop = t.properties;
+    const owner = prop?.profiles;
+    return {
+      tenancy_id: t.id,
+      property: {
+        address: [prop?.address_line_1, prop?.address_line_2].filter(Boolean).join(', '),
+        suburb: prop?.suburb,
+        state: prop?.state,
+        postcode: prop?.postcode,
+        type: prop?.property_type,
+        bedrooms: prop?.bedrooms,
+        bathrooms: prop?.bathrooms,
+      },
+      lease: {
+        type: t.lease_type || (t.is_periodic ? 'periodic' : 'fixed'),
+        start_date: t.lease_start_date,
+        end_date: t.lease_end_date,
+      },
+      rent: {
+        amount: t.rent_amount,
+        frequency: t.rent_frequency,
+        due_day: t.rent_due_day,
+      },
+      bond: {
+        amount: t.bond_amount,
+        status: t.bond_status,
+      },
+      landlord: {
+        name: owner?.full_name || 'Not available',
+        email: owner?.email || null,
+        phone: owner?.phone || null,
+      },
+    };
+  });
+
+  return { success: true, data: { tenancies: formatted } };
+}
+
+export async function handle_get_my_payments(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { tenancyIds } = await getTenantTenancyIds(userId, sb);
+  if (tenancyIds.length === 0) {
+    return { success: true, data: { payments: [], upcoming: [], message: 'No active tenancies found.' } };
+  }
+
+  // Get payment history
+  let query = sb
+    .from('payments')
+    .select(`id, tenancy_id, amount, description, status, due_date, paid_at, receipt_url, created_at,
+      tenancies!inner(property_id, properties(address_line_1, suburb, state))`)
+    .eq('tenant_id', userId)
+    .in('tenancy_id', tenancyIds)
+    .order('created_at', { ascending: false });
+
+  const period = (input.period as string) || 'quarter';
+  if (period !== 'all') {
+    const now = new Date();
+    const periods: Record<string, number> = { month: 30, quarter: 90, year: 365 };
+    const days = periods[period] || 90;
+    const since = new Date(now.getTime() - days * 86400000).toISOString();
+    query = query.gte('created_at', since);
+  }
+
+  const { data: payments, error: payErr } = await query.limit(50);
+  if (payErr) return { success: false, error: payErr.message };
+
+  // Get upcoming rent schedule
+  let upcoming: any[] = [];
+  const includeUpcoming = input.include_upcoming !== false;
+  if (includeUpcoming) {
+    const today = new Date().toISOString().split('T')[0];
+    const { data: schedule } = await sb
+      .from('rent_schedules')
+      .select('id, tenancy_id, due_date, amount, is_paid')
+      .in('tenancy_id', tenancyIds)
+      .gte('due_date', today)
+      .eq('is_paid', false)
+      .order('due_date', { ascending: true })
+      .limit(6);
+    upcoming = schedule || [];
+  }
+
+  return {
+    success: true,
+    data: {
+      payments: payments || [],
+      upcoming,
+    },
+  };
+}
+
+export async function handle_get_my_arrears(_input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { tenancyIds } = await getTenantTenancyIds(userId, sb);
+  if (tenancyIds.length === 0) {
+    return { success: true, data: { arrears: [], message: 'No active tenancies found.' } };
+  }
+
+  const { data: arrears, error } = await sb
+    .from('arrears_records')
+    .select(`id, tenancy_id, total_overdue, days_overdue, escalation_level, is_resolved,
+      payment_plan_id, created_at, updated_at,
+      tenancies!inner(property_id, rent_amount, rent_frequency,
+        properties(address_line_1, suburb, state))`)
+    .in('tenancy_id', tenancyIds)
+    .eq('is_resolved', false)
+    .order('days_overdue', { ascending: false });
+
+  if (error) return { success: false, error: error.message };
+
+  if (!arrears || arrears.length === 0) {
+    return { success: true, data: { arrears: [], message: 'No outstanding arrears. Your rent is up to date.' } };
+  }
+
+  // If there's a payment plan, include its details
+  const planIds = arrears.filter((a: any) => a.payment_plan_id).map((a: any) => a.payment_plan_id);
+  let plans: any[] = [];
+  if (planIds.length > 0) {
+    const { data: planData } = await sb
+      .from('payment_plans')
+      .select('id, total_amount, installment_amount, installments_paid, installments_total, status, next_due_date')
+      .in('id', planIds);
+    plans = planData || [];
+  }
+
+  const planMap = new Map(plans.map((p: any) => [p.id, p]));
+
+  const formatted = arrears.map((a: any) => ({
+    arrears_id: a.id,
+    amount_overdue: a.total_overdue,
+    days_overdue: a.days_overdue,
+    escalation_level: a.escalation_level,
+    property: {
+      address: a.tenancies?.properties?.address_line_1,
+      suburb: a.tenancies?.properties?.suburb,
+      state: a.tenancies?.properties?.state,
+    },
+    payment_plan: a.payment_plan_id ? planMap.get(a.payment_plan_id) || null : null,
+  }));
+
+  return { success: true, data: { arrears: formatted } };
+}
+
+export async function handle_get_my_documents(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  // Get documents shared with this tenant
+  let query = sb
+    .from('document_shares')
+    .select(`id, can_download, created_at,
+      documents!inner(id, title, document_type, status, created_at, updated_at,
+        properties:property_id(address_line_1, suburb, state))`)
+    .eq('shared_with_id', userId)
+    .order('created_at', { ascending: false });
+
+  const { data: shares, error } = await query.limit(50);
+  if (error) return { success: false, error: error.message };
+
+  let documents = (shares || []).map((s: any) => ({
+    document_id: s.documents?.id,
+    title: s.documents?.title,
+    type: s.documents?.document_type,
+    status: s.documents?.status,
+    can_download: s.can_download,
+    shared_at: s.created_at,
+    property: s.documents?.properties ? {
+      address: s.documents.properties.address_line_1,
+      suburb: s.documents.properties.suburb,
+      state: s.documents.properties.state,
+    } : null,
+  }));
+
+  // Filter by document type if specified
+  const docType = input.document_type as string;
+  if (docType && docType !== 'all') {
+    documents = documents.filter((d: any) => d.type === docType);
+  }
+
+  return { success: true, data: { documents } };
+}
+
+export async function handle_request_maintenance(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { tenancyIds, propertyIds } = await getTenantTenancyIds(userId, sb);
+  if (propertyIds.length === 0) {
+    return { success: false, error: 'No active tenancy found. Please connect to a property first using your connection code.' };
+  }
+
+  // Use the first property (most tenants have one tenancy)
+  const propertyId = propertyIds[0];
+  const tenancyId = tenancyIds[0];
+
+  const urgency = (input.urgency as string) || 'routine';
+
+  const { data, error } = await sb
+    .from('maintenance_requests')
+    .insert({
+      property_id: propertyId,
+      tenancy_id: tenancyId,
+      tenant_id: userId,
+      category: input.category as string,
+      urgency,
+      title: input.title as string,
+      description: (input.description as string) || '',
+      status: 'submitted',
+      reported_by: 'tenant',
+    })
+    .select('id, title, category, urgency, status, created_at')
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  // Notify the property owner about the new maintenance request
+  const { data: prop } = await sb.from('properties').select('owner_id, address_line_1').eq('id', propertyId).single();
+  if (prop) {
+    const { data: tenantProfile } = await sb.from('profiles').select('full_name').eq('id', userId).single();
+    const tenantName = (tenantProfile as any)?.full_name || 'Your tenant';
+    dispatchNotif(sb, (prop as any).owner_id, 'maintenance_request',
+      `New Maintenance Request: ${input.title}`,
+      `${tenantName} at ${(prop as any).address_line_1} reported a ${urgency} issue: ${input.title}`,
+      { property_id: propertyId, maintenance_request_id: (data as any).id },
+    );
+  }
+
+  return {
+    success: true,
+    data: {
+      ...data,
+      message: `Maintenance request submitted successfully. Your landlord has been notified.`,
+      _navigation: true,
+      view_route: '/(app)/maintenance',
+      label: 'View Maintenance Requests',
+      params: {},
+    },
+  };
+}
+
+export async function handle_get_my_maintenance(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const { propertyIds } = await getTenantTenancyIds(userId, sb);
+  if (propertyIds.length === 0) {
+    return { success: true, data: { requests: [], message: 'No active tenancies found.' } };
+  }
+
+  let query = sb
+    .from('maintenance_requests')
+    .select(`id, property_id, category, urgency, title, description,
+      status, estimated_cost, scheduled_date, created_at, updated_at,
+      properties(address_line_1, suburb, state)`)
+    .in('property_id', propertyIds)
+    .order('created_at', { ascending: false });
+
+  const status = input.status as string;
+  if (status && status !== 'all') {
+    query = query.eq('status', status);
+  }
+
+  const { data, error } = await query.limit(30);
+  if (error) return { success: false, error: error.message };
+
+  return { success: true, data: { requests: data || [] } };
+}
+
+export async function handle_send_message_to_owner(input: ToolInput, userId: string, sb: SupabaseClient): Promise<ToolResult> {
+  const content = input.content as string;
+  if (!content || content.trim().length === 0) {
+    return { success: false, error: 'Message content cannot be empty.' };
+  }
+
+  // Find the property owner — use provided property_id or detect from tenancy
+  let ownerId: string | null = null;
+  let propertyId = input.property_id as string | undefined;
+
+  if (propertyId) {
+    // Verify tenant is actually linked to this property
+    const { data: link } = await sb
+      .from('tenancy_tenants')
+      .select('tenancy_id, tenancies!inner(property_id, properties!inner(owner_id))')
+      .eq('tenant_id', userId)
+      .eq('tenancies.property_id', propertyId)
+      .eq('tenancies.status', 'active')
+      .maybeSingle();
+
+    if (!link) return { success: false, error: 'You are not connected to this property.' };
+    ownerId = (link as any).tenancies?.properties?.owner_id;
+  } else {
+    // Auto-detect from first active tenancy
+    const { data: link } = await sb
+      .from('tenancy_tenants')
+      .select('tenancy_id, tenancies!inner(property_id, status, properties!inner(owner_id))')
+      .eq('tenant_id', userId)
+      .eq('tenancies.status', 'active')
+      .limit(1)
+      .maybeSingle();
+
+    if (!link) return { success: false, error: 'No active tenancy found. Connect to a property first.' };
+    ownerId = (link as any).tenancies?.properties?.owner_id;
+    propertyId = (link as any).tenancies?.property_id;
+  }
+
+  if (!ownerId) return { success: false, error: 'Could not determine the property owner.' };
+
+  // Find or create a conversation between tenant and owner
+  const { data: existingParticipation } = await sb
+    .from('conversation_participants')
+    .select('conversation_id')
+    .eq('user_id', userId);
+
+  let convId: string | null = null;
+
+  if (existingParticipation && existingParticipation.length > 0) {
+    const convIds = existingParticipation.map((p: any) => p.conversation_id);
+    // Check if owner is also in any of these conversations
+    const { data: ownerParticipation } = await sb
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', ownerId)
+      .in('conversation_id', convIds)
+      .limit(1)
+      .maybeSingle();
+
+    if (ownerParticipation) {
+      convId = ownerParticipation.conversation_id;
+    }
+  }
+
+  if (!convId) {
+    // Create a new conversation
+    const { data: conv, error: convErr } = await sb
+      .from('conversations')
+      .insert({
+        property_id: propertyId,
+        conversation_type: 'direct',
+        title: 'Tenant Message',
+      })
+      .select('id')
+      .single();
+
+    if (convErr || !conv) return { success: false, error: 'Failed to create conversation.' };
+    convId = (conv as any).id;
+
+    // Add participants
+    await sb.from('conversation_participants').insert([
+      { conversation_id: convId, user_id: userId },
+      { conversation_id: convId, user_id: ownerId },
+    ]);
+  }
+
+  // Send the message
+  const { error: msgErr } = await sb.from('messages').insert({
+    conversation_id: convId,
+    sender_id: userId,
+    content: content.trim(),
+    content_type: 'text',
+    status: 'sent',
+  });
+
+  if (msgErr) return { success: false, error: msgErr.message };
+
+  // Notify the owner
+  const { data: tenantProfile } = await sb.from('profiles').select('full_name').eq('id', userId).single();
+  const tenantName = (tenantProfile as any)?.full_name || 'Your tenant';
+  dispatchNotif(sb, ownerId, 'new_message',
+    `Message from ${tenantName}`,
+    content.length > 100 ? content.substring(0, 97) + '...' : content,
+    { conversation_id: convId, property_id: propertyId, sender_id: userId },
+  );
+
+  return {
+    success: true,
+    data: {
+      conversation_id: convId,
+      message: 'Message sent to your landlord.',
     },
   };
 }

@@ -90,7 +90,7 @@ interface WorkflowRow {
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 12;
 const HAIKU_MODEL = 'claude-3-5-haiku-20241022';
 const SONNET_MODEL = 'claude-sonnet-4-20250514';
 const CONCURRENCY_LIMIT = 3;
@@ -106,8 +106,44 @@ const COMPLEX_EVENT_TYPES = new Set([
   'compliance_overdue',
   'tenancy_terminated',
   'payment_failed_multiple',
+  'payment_failed',
   'bond_dispute',
+  'maintenance_stalled',
 ]);
+
+// Emergency override tools — these execute at L3+ regardless of autonomy settings
+// because delay in these actions could cause legal, safety, or financial harm
+const EMERGENCY_OVERRIDE_TOOLS = new Set([
+  'send_rent_reminder',         // Arrears require prompt communication
+  'send_push_expo',             // Emergency notifications must go through
+  'send_email_sendgrid',        // Emergency communications
+  'send_message',               // Emergency acknowledgements
+  'send_receipt',               // Payment confirmations
+  'check_regulatory_requirements', // Compliance checks are always safe
+  'get_tenancy_law',            // Legal lookups are always safe
+]);
+
+// Financial thresholds per preset — actions above these amounts require approval
+function getFinancialThreshold(preset: string): number {
+  const thresholds: Record<string, number> = {
+    cautious: 0,        // All financial actions need approval
+    balanced: 500,      // <$500 can be auto-approved
+    hands_off: 2000,    // <$2000 can be auto-approved
+  };
+  return thresholds[preset] ?? 500;
+}
+
+// Extract cost/amount from tool input parameters
+function extractCostFromInput(input: Record<string, unknown>): number {
+  // Check common cost-related fields
+  const costFields = ['amount', 'cost', 'estimated_cost', 'actual_cost', 'price', 'total', 'quote_amount'];
+  for (const field of costFields) {
+    if (input[field] && typeof input[field] === 'number' && (input[field] as number) > 0) {
+      return input[field] as number;
+    }
+  }
+  return 0;
+}
 
 // ---------------------------------------------------------------------------
 // Event Prompt Builder
@@ -308,6 +344,71 @@ Please:
 2. Compare with other pending applications if any
 3. Notify the owner with your assessment and recommendation`;
 
+    case 'maintenance_status_changed':
+      return `A maintenance request status has changed:
+- Request: "${p.title || '[unknown]'}"
+- Previous status: ${p.old_status || '[unknown]'}
+- New status: ${p.new_status || '[unknown]'}
+- Urgency: ${p.urgency || 'routine'}
+- Request ID: ${p.request_id || '[unknown]'}
+
+Please:
+1. If moved to "in_progress", verify a trade has been assigned and work is scheduled
+2. If moved to "completed", send completion notification to the tenant and ask for feedback
+3. If moved back to "reported" or stalled, investigate why and take corrective action
+4. Update the owner on the maintenance progress
+5. If the request has been open >7 days without resolution, escalate`;
+
+    case 'document_signed':
+      return `A document has been signed:
+- Document ID: ${p.document_id || '[unknown]'}
+- Signer role: ${p.signer_role || '[unknown]'}
+- Signer ID: ${p.signer_id || '[unknown]'}
+
+Please:
+1. Check if all required signatures are now complete
+2. If fully signed, update the document status and notify both parties
+3. If the document is a lease, update the tenancy record with the signed lease reference
+4. Send a copy of the signed document to all parties`;
+
+    case 'maintenance_stalled':
+      return `A maintenance request appears stalled — no status update in over 48 hours:
+- Request: "${p.title || '[unknown]'}"
+- Current status: ${p.status || '[unknown]'}
+- Urgency: ${p.urgency || 'routine'}
+- Days since last update: ${p.days_stalled || 'unknown'}
+
+Please:
+1. If a trade was assigned, follow up with them on progress
+2. If no trade assigned, search for available trades and create a work order
+3. Send a status update to the tenant
+4. If urgent/emergency, escalate immediately`;
+
+    case 'property_vacant':
+      return `A property has no active tenancy:
+- Property ID: ${p.property_id || '[unknown]'}
+- Days vacant: ${p.days_vacant || 'unknown'}
+
+Please:
+1. Check if a listing already exists for this property
+2. If no listing, recommend creating one with competitive market pricing
+3. If a listing exists, check its performance (views, enquiries, applications)
+4. Suggest rent adjustments if the listing has been active >14 days with no applications
+5. Notify the owner with a vacancy update`;
+
+    case 'rent_review_due':
+      return `A tenancy is due for a rent review:
+- Tenancy ID: ${p.tenancy_id || '[unknown]'}
+- Current rent: $${p.rent_amount ?? 0} ${p.rent_frequency || 'weekly'}
+- Last review date: ${p.last_review_date || 'never reviewed'}
+
+Please:
+1. Get current market data for comparable properties in the area
+2. Compare current rent to market median
+3. If rent is significantly below market (>10%), recommend a rent increase
+4. Check state-specific rules for rent increase notice periods and frequency limits
+5. Draft a recommendation for the owner`;
+
     default:
       return `Event: ${event.event_type}
 Payload: ${JSON.stringify(event.payload, null, 2)}
@@ -354,7 +455,7 @@ async function callClaude(
         },
         body: JSON.stringify({
           model,
-          max_tokens: 2048,
+          max_tokens: 4096,
           system: [
             {
               type: 'text',
@@ -479,13 +580,51 @@ async function executeToolLoop(
           };
         }
 
+        // Emergency override: certain urgent tools always execute regardless of autonomy
+        // These are time-sensitive actions where delay could cause harm
+        const isEmergencyOverride = EMERGENCY_OVERRIDE_TOOLS.has(toolBlock.name) &&
+          (eventSource.includes('emergency') || eventSource.includes('compliance_overdue') ||
+           eventSource.includes('payment_failed') || eventSource.includes('arrears'));
+
+        // Financial threshold check: tools with cost implications require approval
+        // if the cost exceeds the user's threshold
+        const financialThreshold = getFinancialThreshold(autonomySettings?.preset || 'balanced');
+        const toolCostAmount = extractCostFromInput(toolBlock.input);
+        const exceedsFinancialThreshold = toolCostAmount > 0 && toolCostAmount > financialThreshold;
+
         // Autonomy gating: in orchestrator mode, only execute tools where the
         // user's autonomy level meets or exceeds the tool's required level.
         // For lower autonomy tools, create a pending action and skip (non-blocking).
         const userAutonomyLevel = getUserAutonomyForCategory(autonomySettings, toolMeta.category);
         const toolRequiredLevel = toolMeta.autonomyLevel;
 
-        if (userAutonomyLevel < toolRequiredLevel) {
+        // Financial threshold override: even at L4, costs above threshold need approval
+        if (exceedsFinancialThreshold && !isEmergencyOverride) {
+          const toolDef = CLAUDE_TOOLS.find((t) => t.name === toolBlock.name);
+          await supabase.from('agent_pending_actions').insert({
+            user_id: userId,
+            action_type: toolMeta.category,
+            title: toolBlock.name,
+            description: `${toolDef?.description || toolBlock.name} — Estimated cost: $${toolCostAmount}`,
+            tool_name: toolBlock.name,
+            tool_params: toolBlock.input,
+            autonomy_level: toolRequiredLevel,
+            status: 'pending',
+            recommendation: `This action involves an estimated cost of $${toolCostAmount}, which exceeds your financial threshold of $${financialThreshold}. Approval required.`,
+          });
+
+          return {
+            type: 'tool_result',
+            tool_use_id: toolBlock.id,
+            content: JSON.stringify({
+              success: false,
+              needs_approval: true,
+              message: `Action queued — estimated cost $${toolCostAmount} exceeds financial threshold of $${financialThreshold}.`,
+            }),
+          };
+        }
+
+        if (userAutonomyLevel < toolRequiredLevel && !isEmergencyOverride) {
           // Create pending action for the owner to approve
           const toolDef = CLAUDE_TOOLS.find((t) => t.name === toolBlock.name);
           await supabase.from('agent_pending_actions').insert({
@@ -758,14 +897,12 @@ async function processInstantEvents(
 
           const autonomySettings = (autonomyResult.data as AutonomySettings | null);
           const userTier = profileResult.data?.subscription_tier || 'starter';
+          const eventPreset = autonomySettings?.preset || 'balanced';
           const model = selectModel(event.event_type, 'instant');
           const eventPrompt = await buildEventPrompt(event, supabase);
 
-          // Augment system prompt with orchestrator context
-          const orchestratorSystemPrompt = systemPrompt + `
-
-ORCHESTRATOR CONTEXT:
-You are running in autonomous orchestrator mode, NOT in chat mode. You are processing a real-time event triggered by a database change. Act decisively within your autonomy limits. Do not ask the user questions — take action or create pending actions for approval. Be brief in your reasoning.
+          // Augment system prompt with autonomy-aware orchestrator context
+          const orchestratorSystemPrompt = systemPrompt + buildOrchestratorContextPrompt('instant', eventPreset) + `
 Event source: trigger_${event.event_type}
 Property ID: ${event.property_id || 'not specified'}`;
 
@@ -861,6 +998,7 @@ async function buildDailyReviewPrompt(
   userId: string,
   propertyId: string,
   supabase: ReturnType<typeof getServiceClient>,
+  preset: string = 'balanced',
 ): Promise<string> {
   // Gather current state for this property
   const [
@@ -1009,12 +1147,27 @@ async function buildDailyReviewPrompt(
     prompt += `  Total: $${total.toFixed(2)}\n`;
   }
 
-  prompt += `\nPlease review this property's current state. Take any actions that are appropriate within your autonomy level. If there are issues needing owner attention, create pending actions. Focus on:
-1. Escalating any arrears that need it
-2. Following up on stalled maintenance requests
-3. Flagging upcoming lease expiries with renewal recommendations
-4. Checking overdue compliance items
-5. Identifying anything else that needs attention`;
+  if (preset === 'cautious') {
+    prompt += `\nREVIEW THIS PROPERTY and create pending actions for the owner to approve:
+For each issue found, create a specific pending action with:
+1. Your recommended course of action and reasoning
+2. Estimated costs where applicable
+3. Priority level (emergency > urgent > routine)
+4. Consequences of inaction
+The owner will review and approve/decline each action in the app.`;
+  } else {
+    prompt += `\nYOU ARE THE PROPERTY MANAGER. Based on the data above, you MUST act on every issue:
+
+1. ARREARS: If any exist, send rent reminders NOW using send_rent_reminder. If overdue >7 days, escalate the arrears level. If overdue >14 days, generate a formal breach notice.
+2. MAINTENANCE: Follow up on any request open >48 hours without a status update. For emergency items, search for available trades immediately using find_local_trades.
+3. LEASES: If expiring <90 days, analyse current rent vs market using get_market_data. Draft renewal terms. If <30 days with no action taken, create an urgent pending action for the owner.
+4. COMPLIANCE: If any item is overdue, notify the owner immediately. If due within 14 days, search for service providers and create a booking task.
+5. INSPECTIONS: If overdue (>3 months since last routine), schedule now using schedule_inspection with the correct state notice period.
+6. PAYMENTS: For recent payments, verify they match expected rent amounts. Send receipts to tenants using send_receipt.
+7. VACANT PROPERTIES: If no active tenancy, check if a listing exists. If not, recommend creating one with competitive pricing.
+
+DO NOT just describe what you could do. Take action on every item using the available tools. A real property manager doesn't write reports — they get things done.`;
+  }
 
   return prompt;
 }
@@ -1042,6 +1195,487 @@ function buildMonthlyReviewPrompt(propertyCount: number): string {
 7. Generate a monthly digest notification with key highlights
 
 This is a comprehensive review — be thorough but concise.`;
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator Context Prompt — autonomy-aware behaviour
+// ---------------------------------------------------------------------------
+
+function buildOrchestratorContextPrompt(mode: string, preset: string): string {
+  const presetBehaviours: Record<string, string> = {
+    hands_off: `AUTONOMY: HANDS-OFF (Full Autonomous Mode)
+You ARE the property manager. The owner trusts you to handle everything independently.
+Execute all actions immediately. Only create pending actions for:
+- Lease termination or eviction proceedings
+- Expenditures exceeding $2,000
+- Changes to rent amount
+- Bond disputes or tribunal actions
+Everything else: DO IT NOW, report in the daily digest.
+The owner's experience is: wake up, see a summary of what you handled. That's it.`,
+
+    balanced: `AUTONOMY: BALANCED (Execute & Report)
+You are the property manager with moderate autonomy.
+Execute routine actions immediately (reminders, scheduling, queries, reports).
+Create pending actions for approval on:
+- Financial decisions over $500
+- Tenant communications beyond reminders
+- Maintenance work order approvals
+- Lease renewals and rent changes
+- Any action you're uncertain about
+Always explain WHY you're recommending an action.`,
+
+    cautious: `AUTONOMY: CAUTIOUS (Recommend & Wait)
+You are a property management advisor. The owner wants to approve every action.
+For EVERY issue you find:
+1. Create a specific pending action with your recommendation
+2. Include estimated costs where applicable
+3. Explain the urgency and consequences of inaction
+4. Prioritise: emergency > urgent > routine
+Never execute actions directly — always create pending actions for review.`,
+  };
+
+  const behaviourBlock = presetBehaviours[preset] || presetBehaviours.balanced;
+
+  return `
+
+ORCHESTRATOR CONTEXT — AUTONOMOUS PROPERTY MANAGER:
+Mode: ${mode} batch review | Autonomy preset: ${preset}
+
+${behaviourBlock}
+
+You are not an assistant waiting for instructions — you are the property manager.
+You MUST take every action that a competent property manager would take.
+Every daily review must result in concrete actions, not just observations.
+
+MANDATORY RULES:
+- If something needs doing, DO IT (within autonomy limits) or create a pending action with a clear recommendation
+- Never say "you might want to" or "consider" — either execute or create a specific action for approval
+- Use multiple tools per review — a real PM does 5-10 things per property check, not 1
+- Chain actions: arrears → send reminder → update record → notify owner → check payment plan eligibility
+- Think in workflows: don't just flag a lease expiry — draft renewal terms AND compare market rent AND assess tenant history
+- For urgent items (emergency maintenance, compliance overdue, payment failures): act IMMEDIATELY regardless of preset
+- Always log what you did via agent events so the owner has a complete audit trail
+
+Mode: heartbeat_${mode}`;
+}
+
+// ---------------------------------------------------------------------------
+// Proactive Scanner — pre-loads event queue before daily batch
+// ---------------------------------------------------------------------------
+
+async function runProactiveScans(
+  supabase: ReturnType<typeof getServiceClient>,
+  startTime: number,
+): Promise<{ eventsCreated: number; workflowsCreated: number; errors: string[] }> {
+  let eventsCreated = 0;
+  let workflowsCreated = 0;
+  const errors: string[] = [];
+  const now = new Date();
+  const nowISO = now.toISOString();
+
+  try {
+    // ---------------------------------------------------------------
+    // 1. Lease Expiry Scanner
+    // Find leases expiring within 90 days that don't already have
+    // a recent lease_expiring_soon event or active lease_renewal workflow
+    // ---------------------------------------------------------------
+    const ninetyDaysFromNow = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: expiringTenancies } = await supabase
+      .from('tenancies')
+      .select('id, property_id, lease_end_date, rent_amount, rent_frequency, tenant_id')
+      .eq('status', 'active')
+      .lte('lease_end_date', ninetyDaysFromNow)
+      .gte('lease_end_date', nowISO);
+
+    if (expiringTenancies && expiringTenancies.length > 0) {
+      for (const tenancy of expiringTenancies) {
+        if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+        const daysLeft = Math.ceil((new Date(tenancy.lease_end_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+        // Check if we already have an unprocessed event for this tenancy
+        const { data: existingEvent } = await supabase
+          .from('agent_event_queue')
+          .select('id')
+          .eq('event_type', 'lease_expiring_soon')
+          .eq('processed', false)
+          .contains('payload', { tenancy_id: tenancy.id })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingEvent) continue;
+
+        // Check for active lease_renewal workflow
+        const { data: existingWorkflow } = await supabase
+          .from('agent_workflows')
+          .select('id')
+          .eq('tenancy_id', tenancy.id)
+          .eq('workflow_type', 'lease_renewal')
+          .in('status', ['active', 'pending'])
+          .limit(1)
+          .maybeSingle();
+
+        if (existingWorkflow) continue;
+
+        // Get owner
+        const { data: property } = await supabase
+          .from('properties')
+          .select('owner_id')
+          .eq('id', tenancy.property_id)
+          .single();
+
+        if (!property) continue;
+
+        // Get tenant name
+        const { data: tenant } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', tenancy.tenant_id)
+          .maybeSingle();
+
+        // Insert event
+        await supabase.from('agent_event_queue').insert({
+          event_type: 'lease_expiring_soon',
+          priority: daysLeft <= 30 ? 'instant' : 'normal',
+          payload: {
+            tenancy_id: tenancy.id,
+            days_remaining: daysLeft,
+            lease_end_date: tenancy.lease_end_date,
+            rent_amount: tenancy.rent_amount,
+            rent_frequency: tenancy.rent_frequency,
+            tenant_name: tenant?.full_name || 'Unknown',
+          },
+          user_id: property.owner_id,
+          property_id: tenancy.property_id,
+        });
+        eventsCreated++;
+
+        // Auto-create lease_renewal workflow if <60 days
+        if (daysLeft <= 60) {
+          await supabase.from('agent_workflows').insert({
+            user_id: property.owner_id,
+            property_id: tenancy.property_id,
+            tenancy_id: tenancy.id,
+            workflow_type: 'lease_renewal',
+            current_step: 0,
+            total_steps: 5,
+            steps: [
+              { name: 'Analyse market rent', status: 'pending', tool_name: 'get_market_data' },
+              { name: 'Assess tenant satisfaction and payment history', status: 'pending', tool_name: 'get_tenant_details' },
+              { name: 'Draft renewal terms', status: 'pending', tool_name: 'generate_lease' },
+              { name: 'Send renewal offer to owner for approval', status: 'pending', tool_name: 'create_pending_action' },
+              { name: 'Execute renewal', status: 'pending', tool_name: 'update_tenancy' },
+            ],
+            status: 'active',
+            next_action_at: nowISO,
+            metadata: { days_until_expiry: daysLeft, triggered_by: 'proactive_scan' },
+          });
+          workflowsCreated++;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 2. Compliance Due Scanner
+    // Find compliance items due within 30 days or already overdue
+    // ---------------------------------------------------------------
+    if (Date.now() - startTime < MAX_RUNTIME_MS) {
+      const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: dueCompliance } = await supabase
+        .from('property_compliance')
+        .select('id, property_id, status, next_due_date, compliance_requirements!inner(category)')
+        .not('status', 'eq', 'compliant')
+        .not('status', 'eq', 'exempt')
+        .not('status', 'eq', 'not_applicable')
+        .lte('next_due_date', thirtyDaysFromNow);
+
+      if (dueCompliance && dueCompliance.length > 0) {
+        for (const item of dueCompliance) {
+          if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+          const dueDate = (item as any).next_due_date;
+          const complianceType = (item as any).compliance_requirements?.category || 'unknown';
+          const isOverdue = new Date(dueDate) < now;
+          const daysUntil = Math.ceil((new Date(dueDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+          // Skip if already queued
+          const { data: existing } = await supabase
+            .from('agent_event_queue')
+            .select('id')
+            .eq('event_type', 'compliance_overdue')
+            .eq('processed', false)
+            .contains('payload', { compliance_id: item.id })
+            .limit(1)
+            .maybeSingle();
+
+          if (existing) continue;
+
+          const { data: property } = await supabase
+            .from('properties')
+            .select('owner_id')
+            .eq('id', item.property_id)
+            .single();
+
+          if (!property) continue;
+
+          await supabase.from('agent_event_queue').insert({
+            event_type: 'compliance_overdue',
+            priority: isOverdue ? 'instant' : 'normal',
+            payload: {
+              compliance_id: item.id,
+              compliance_type: complianceType,
+              due_date: dueDate,
+              days_overdue: isOverdue ? Math.abs(daysUntil) : 0,
+              days_until_due: isOverdue ? 0 : daysUntil,
+              status: item.status,
+            },
+            user_id: property.owner_id,
+            property_id: item.property_id,
+          });
+          eventsCreated++;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 3. Stalled Maintenance Scanner
+    // Find requests not updated in 48+ hours
+    // ---------------------------------------------------------------
+    if (Date.now() - startTime < MAX_RUNTIME_MS) {
+      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const { data: stalledRequests } = await supabase
+        .from('maintenance_requests')
+        .select('id, property_id, title, urgency, status, updated_at')
+        .not('status', 'in', '("completed","cancelled")')
+        .lt('updated_at', fortyEightHoursAgo);
+
+      if (stalledRequests && stalledRequests.length > 0) {
+        for (const req of stalledRequests) {
+          if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+          const hoursSinceUpdate = Math.round((Date.now() - new Date(req.updated_at).getTime()) / (60 * 60 * 1000));
+          const daysSinceUpdate = Math.round(hoursSinceUpdate / 24);
+
+          // Skip if already queued
+          const { data: existing } = await supabase
+            .from('agent_event_queue')
+            .select('id')
+            .eq('event_type', 'maintenance_stalled')
+            .eq('processed', false)
+            .contains('payload', { request_id: req.id })
+            .limit(1)
+            .maybeSingle();
+
+          if (existing) continue;
+
+          const { data: property } = await supabase
+            .from('properties')
+            .select('owner_id')
+            .eq('id', req.property_id)
+            .single();
+
+          if (!property) continue;
+
+          await supabase.from('agent_event_queue').insert({
+            event_type: 'maintenance_stalled',
+            priority: req.urgency === 'emergency' ? 'instant' : 'normal',
+            payload: {
+              request_id: req.id,
+              title: req.title,
+              urgency: req.urgency,
+              status: req.status,
+              days_stalled: daysSinceUpdate,
+              property_id: req.property_id,
+            },
+            user_id: property.owner_id,
+            property_id: req.property_id,
+          });
+          eventsCreated++;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 4. Vacant Property Scanner
+    // Find active properties with no active tenancy
+    // ---------------------------------------------------------------
+    if (Date.now() - startTime < MAX_RUNTIME_MS) {
+      const { data: allProperties } = await supabase
+        .from('properties')
+        .select('id, owner_id, created_at')
+        .eq('status', 'active')
+        .is('deleted_at', null);
+
+      if (allProperties && allProperties.length > 0) {
+        for (const prop of allProperties) {
+          if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+          const { count } = await supabase
+            .from('tenancies')
+            .select('id', { count: 'exact', head: true })
+            .eq('property_id', prop.id)
+            .eq('status', 'active');
+
+          if (count && count > 0) continue;
+
+          // Skip if already queued
+          const { data: existing } = await supabase
+            .from('agent_event_queue')
+            .select('id')
+            .eq('event_type', 'property_vacant')
+            .eq('processed', false)
+            .eq('property_id', prop.id)
+            .limit(1)
+            .maybeSingle();
+
+          if (existing) continue;
+
+          await supabase.from('agent_event_queue').insert({
+            event_type: 'property_vacant',
+            priority: 'normal',
+            payload: {
+              property_id: prop.id,
+              days_vacant: Math.ceil((Date.now() - new Date(prop.created_at).getTime()) / (24 * 60 * 60 * 1000)),
+            },
+            user_id: prop.owner_id,
+            property_id: prop.id,
+          });
+          eventsCreated++;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 5. Rent Review Scanner
+    // Find tenancies where rent hasn't been reviewed in 12 months
+    // ---------------------------------------------------------------
+    if (Date.now() - startTime < MAX_RUNTIME_MS) {
+      const twelveMonthsAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: reviewDue } = await supabase
+        .from('tenancies')
+        .select('id, property_id, rent_amount, rent_frequency, tenant_id, lease_start_date')
+        .eq('status', 'active')
+        .lt('lease_start_date', twelveMonthsAgo);
+
+      if (reviewDue && reviewDue.length > 0) {
+        for (const tenancy of reviewDue) {
+          if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+          // Skip if already queued
+          const { data: existing } = await supabase
+            .from('agent_event_queue')
+            .select('id')
+            .eq('event_type', 'rent_review_due')
+            .eq('processed', false)
+            .contains('payload', { tenancy_id: tenancy.id })
+            .limit(1)
+            .maybeSingle();
+
+          if (existing) continue;
+
+          const { data: property } = await supabase
+            .from('properties')
+            .select('owner_id')
+            .eq('id', tenancy.property_id)
+            .single();
+
+          if (!property) continue;
+
+          await supabase.from('agent_event_queue').insert({
+            event_type: 'rent_review_due',
+            priority: 'normal',
+            payload: {
+              tenancy_id: tenancy.id,
+              rent_amount: tenancy.rent_amount,
+              rent_frequency: tenancy.rent_frequency,
+              last_review_date: tenancy.lease_start_date,
+              property_id: tenancy.property_id,
+            },
+            user_id: property.owner_id,
+            property_id: tenancy.property_id,
+          });
+          eventsCreated++;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 6. Auto-initiate arrears_escalation workflows
+    // For arrears >7 days without an active escalation workflow
+    // ---------------------------------------------------------------
+    if (Date.now() - startTime < MAX_RUNTIME_MS) {
+      const { data: activeArrears } = await supabase
+        .from('arrears_records')
+        .select('id, tenancy_id, tenant_id, total_overdue, days_overdue, severity')
+        .eq('is_resolved', false)
+        .gte('days_overdue', 7);
+
+      if (activeArrears && activeArrears.length > 0) {
+        for (const arrears of activeArrears) {
+          if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+          // Check for existing workflow
+          const { data: existingWf } = await supabase
+            .from('agent_workflows')
+            .select('id')
+            .eq('tenancy_id', arrears.tenancy_id)
+            .eq('workflow_type', 'arrears_escalation')
+            .in('status', ['active', 'pending'])
+            .limit(1)
+            .maybeSingle();
+
+          if (existingWf) continue;
+
+          const { data: tenancy } = await supabase
+            .from('tenancies')
+            .select('property_id')
+            .eq('id', arrears.tenancy_id)
+            .single();
+
+          if (!tenancy) continue;
+
+          const { data: property } = await supabase
+            .from('properties')
+            .select('owner_id')
+            .eq('id', tenancy.property_id)
+            .single();
+
+          if (!property) continue;
+
+          await supabase.from('agent_workflows').insert({
+            user_id: property.owner_id,
+            property_id: tenancy.property_id,
+            tenancy_id: arrears.tenancy_id,
+            workflow_type: 'arrears_escalation',
+            current_step: 0,
+            total_steps: 4,
+            steps: [
+              { name: 'Send friendly rent reminder', status: 'pending', tool_name: 'send_rent_reminder' },
+              { name: 'Generate formal arrears notice', status: 'pending', tool_name: 'generate_arrears_notice' },
+              { name: 'Issue breach notice if unresolved', status: 'pending', tool_name: 'generate_breach_notice' },
+              { name: 'Escalate to tribunal preparation', status: 'pending', tool_name: 'create_pending_action' },
+            ],
+            status: 'active',
+            next_action_at: nowISO,
+            metadata: {
+              arrears_id: arrears.id,
+              total_overdue: arrears.total_overdue,
+              days_overdue: arrears.days_overdue,
+              triggered_by: 'proactive_scan',
+            },
+          });
+          workflowsCreated++;
+        }
+      }
+    }
+
+  } catch (err: any) {
+    console.error('[orchestrator] Proactive scan error:', err.message);
+    errors.push(`Proactive scan: ${err.message}`);
+  }
+
+  console.log(`[orchestrator] Proactive scan complete: ${eventsCreated} events, ${workflowsCreated} workflows created`);
+  return { eventsCreated, workflowsCreated, errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -1134,13 +1768,10 @@ async function processBatchMode(
       const autonomySettings = (autonomyResult.data as AutonomySettings | null);
       const userTier = profileResult.data?.subscription_tier || 'starter';
       const ownerName = profileResult.data?.full_name || 'Owner';
+      const preset = autonomySettings?.preset || 'balanced';
       const model = mode === 'daily' ? HAIKU_MODEL : SONNET_MODEL;
 
-      const orchestratorSystemPrompt = systemPromptBase + `
-
-ORCHESTRATOR CONTEXT:
-You are running in autonomous orchestrator mode (${mode} batch review). You are reviewing properties proactively. Act decisively within your autonomy limits. Do not ask the user questions — take action or create pending actions for approval. Be brief in your reasoning.
-Mode: heartbeat_${mode}`;
+      const orchestratorSystemPrompt = systemPromptBase + buildOrchestratorContextPrompt(mode, preset);
 
       if (mode === 'daily') {
         // Process properties concurrently in batches of CONCURRENCY_LIMIT
@@ -1153,7 +1784,7 @@ Mode: heartbeat_${mode}`;
             propBatch.map(async (property: any) => {
               const propStartTime = Date.now();
               try {
-                const reviewPrompt = await buildDailyReviewPrompt(ownerId, property.id, supabase);
+                const reviewPrompt = await buildDailyReviewPrompt(ownerId, property.id, supabase, preset);
 
                 const result = await executeToolLoop(
                   ownerId,
@@ -1450,6 +2081,148 @@ function verifyAuth(req: Request): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Daily Digest — compile and send summary to each owner
+// ---------------------------------------------------------------------------
+
+async function sendDailyDigests(
+  supabase: ReturnType<typeof getServiceClient>,
+  startTime: number,
+): Promise<void> {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayISO = todayStart.toISOString();
+
+  // Get all owners who had events processed today
+  const { data: todaysEvents } = await supabase
+    .from('agent_events')
+    .select('user_id, event_type, reasoning, property_id, tools_called')
+    .gte('created_at', todayISO)
+    .eq('event_source', 'heartbeat_daily')
+    .order('created_at', { ascending: true });
+
+  if (!todaysEvents || todaysEvents.length === 0) return;
+
+  // Group events by owner
+  const eventsByOwner: Record<string, typeof todaysEvents> = {};
+  for (const event of todaysEvents) {
+    if (!eventsByOwner[event.user_id]) eventsByOwner[event.user_id] = [];
+    eventsByOwner[event.user_id].push(event);
+  }
+
+  for (const [ownerId, events] of Object.entries(eventsByOwner)) {
+    if (Date.now() - startTime > MAX_RUNTIME_MS) break;
+
+    try {
+      // Get owner profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', ownerId)
+        .single();
+
+      if (!profile?.email) continue;
+
+      // Compile actions list
+      const actionsList: Array<{ description: string; property: string }> = [];
+      for (const event of events) {
+        const toolsCalled = (event.tools_called as Array<{ name: string }>) || [];
+        if (toolsCalled.length > 0) {
+          // Get property address for context
+          let propertyAddress = 'Portfolio';
+          if (event.property_id) {
+            const { data: prop } = await supabase
+              .from('properties')
+              .select('address_line_1, suburb')
+              .eq('id', event.property_id)
+              .maybeSingle();
+            if (prop) propertyAddress = `${prop.address_line_1}, ${prop.suburb}`;
+          }
+
+          // Use the reasoning as the action description (first 100 chars)
+          const description = (event.reasoning || 'Action taken').substring(0, 150);
+          actionsList.push({ description, property: propertyAddress });
+        }
+      }
+
+      // Get pending actions count
+      const { data: pendingActions } = await supabase
+        .from('agent_pending_actions')
+        .select('title, recommendation')
+        .eq('user_id', ownerId)
+        .eq('status', 'pending')
+        .limit(5);
+
+      // Get portfolio snapshot
+      const { data: properties } = await supabase
+        .from('properties')
+        .select('id')
+        .eq('owner_id', ownerId)
+        .is('deleted_at', null);
+
+      const propertyIds = (properties || []).map((p: any) => p.id);
+      let occupied = 0;
+      let vacant = 0;
+      let openMaintenance = 0;
+      let overdueCompliance = 0;
+
+      if (propertyIds.length > 0) {
+        const { count: occupiedCount } = await supabase
+          .from('tenancies')
+          .select('id', { count: 'exact', head: true })
+          .in('property_id', propertyIds)
+          .eq('status', 'active');
+        occupied = occupiedCount || 0;
+        vacant = propertyIds.length - occupied;
+
+        const { count: maintCount } = await supabase
+          .from('maintenance_requests')
+          .select('id', { count: 'exact', head: true })
+          .in('property_id', propertyIds)
+          .not('status', 'in', '("completed","cancelled")');
+        openMaintenance = maintCount || 0;
+
+        const { count: compCount } = await supabase
+          .from('compliance_items')
+          .select('id', { count: 'exact', head: true })
+          .in('property_id', propertyIds)
+          .not('status', 'eq', 'completed')
+          .lt('due_date', new Date().toISOString());
+        overdueCompliance = compCount || 0;
+      }
+
+      // Send the digest notification
+      await dispatchNotification(supabase, {
+        userId: ownerId,
+        type: 'agent_action_summary',
+        title: `Casa Daily Report — ${actionsList.length} action${actionsList.length !== 1 ? 's' : ''}`,
+        body: `Casa took ${actionsList.length} action${actionsList.length !== 1 ? 's' : ''} today. ${(pendingActions || []).length > 0 ? `${(pendingActions || []).length} item${(pendingActions || []).length !== 1 ? 's' : ''} need your attention.` : 'Everything is on track.'}`,
+        data: {
+          owner_name: profile.full_name,
+          actions_count: actionsList.length,
+          actions_list: actionsList,
+          date: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
+          pending_actions: (pendingActions || []).map((a: any) => ({
+            title: a.title,
+            description: a.recommendation || '',
+          })),
+          portfolio_snapshot: {
+            total_properties: propertyIds.length,
+            occupied,
+            vacant,
+            open_maintenance: openMaintenance,
+            overdue_compliance: overdueCompliance,
+          },
+        },
+      });
+
+      console.log(`[orchestrator] Daily digest sent to ${profile.email}`);
+    } catch (err: any) {
+      console.error(`[orchestrator] Digest for ${ownerId} failed:`, err.message);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main Handler
 // ---------------------------------------------------------------------------
 
@@ -1541,10 +2314,8 @@ serve(async (req: Request) => {
               const autonomySettings = (autonomyResult.data as AutonomySettings | null);
               const userTier = profileResult.data?.subscription_tier || 'starter';
 
-              const orchestratorPrompt = systemPrompt + `
-
-ORCHESTRATOR CONTEXT:
-You are running in autonomous orchestrator mode. You are advancing a scheduled workflow step. Act decisively within your autonomy limits.`;
+              const wfPreset = autonomySettings?.preset || 'balanced';
+              const orchestratorPrompt = systemPrompt + buildOrchestratorContextPrompt('workflow', wfPreset);
 
               const wfAdvanced = await advanceWorkflows(
                 ownerId,
@@ -1565,6 +2336,16 @@ You are running in autonomous orchestrator mode. You are advancing a scheduled w
       }
     } else {
       // Batch modes: daily, weekly, monthly
+
+      // Run proactive scans before daily batch to pre-populate event queue
+      if (mode === 'daily') {
+        const scanResult = await runProactiveScans(supabase, overallStartTime);
+        console.log(`[orchestrator] Proactive scan: ${scanResult.eventsCreated} events, ${scanResult.workflowsCreated} workflows`);
+        if (scanResult.errors.length > 0) {
+          response.errors.push(...scanResult.errors);
+        }
+      }
+
       const result = await processBatchMode(
         mode as 'daily' | 'weekly' | 'monthly',
         supabase,
@@ -1580,7 +2361,17 @@ You are running in autonomous orchestrator mode. You are advancing a scheduled w
       response.actions_taken = result.actionsCount;
       response.notifications_sent = result.notificationsCount;
       response.total_tokens = result.tokensUsed;
-      response.errors = result.errors;
+      response.errors.push(...result.errors);
+
+      // Send daily digest notifications after daily batch completes
+      if (mode === 'daily' && response.actions_taken > 0 && Date.now() - overallStartTime < MAX_RUNTIME_MS) {
+        try {
+          await sendDailyDigests(supabase, overallStartTime);
+        } catch (err: any) {
+          console.error('[orchestrator] Daily digest dispatch failed:', err.message);
+          response.errors.push(`Digest: ${err.message}`);
+        }
+      }
     }
 
     response.duration_ms = Date.now() - overallStartTime;

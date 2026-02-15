@@ -231,13 +231,15 @@ export type {
 } from './services/conditionReportTemplate';
 
 // State-specific legislation references
-export { getDetailedStateLegislation } from './services/documentTemplates';
+export { getDetailedStateLegislation, generateQLDForm12HTML, generateQLDForm13HTML } from './services/documentTemplates';
 export type {
   StateLegislation,
   LegislationSection,
   BondInfo,
   NoticePeriods,
   PrescribedForm,
+  QLDForm12Data,
+  QLDForm13Data,
 } from './services/documentTemplates';
 
 // Mission 06: Rent increase rules
@@ -586,6 +588,9 @@ export { useAgentChat } from './hooks/useAgentChat';
 export type { AgentChatState, UseAgentChatReturn } from './hooks/useAgentChat';
 export type { AgentMessage, AgentConversation, InlineAction, AgentDecision, AgentCorrection, AgentTrajectory, ToolGenome, ConfidenceFactors, ErrorType, AgentOutcome, OutcomeType } from './types/database';
 
+// AI Welcome Messages (WP9.1 & WP9.2)
+export { sendOwnerWelcomeMessage, sendTenantWelcomeMessage } from './services/welcomeMessage';
+
 // Document Hub & E-Signing
 export { useDocuments } from './hooks/useDocuments';
 export type { DocumentsState, DocumentsFilter, UseDocumentsReturn } from './hooks/useDocuments';
@@ -634,6 +639,25 @@ export type {
   DocumentCommentRow,
   DocumentCommentInsert,
 } from './types/database';
+
+export { useDocumentExtraction } from './hooks/useDocumentExtraction';
+export type {
+  ExtractionDocumentType,
+  ReceiptExtraction,
+  InsuranceExtraction,
+  CouncilRatesExtraction,
+  StrataLevyExtraction,
+  LeaseExtraction,
+  TenantIdExtraction,
+  PayslipExtraction,
+  WaterRatesExtraction,
+  LandTaxExtraction,
+  ExtractionResult,
+  UseDocumentExtractionReturn,
+} from './hooks/useDocumentExtraction';
+
+export { useDocumentTasks } from './hooks/useDocumentTasks';
+export type { DocumentTask, DocumentTaskType, UseDocumentTasksReturn } from './hooks/useDocumentTasks';
 
 export { useAgentTasks } from './hooks/useAgentTasks';
 export type { AgentTasksState, UseAgentTasksReturn } from './hooks/useAgentTasks';

@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Modal, Alert } from 'react-native';
 import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Card, PaymentStatusBadge, CurrencyDisplay } from '@casa/ui';
-import { usePayments, useOwnerPayouts, useArrears, useTenancies, formatDollars } from '@casa/api';
+import { Card, PaymentStatusBadge, CurrencyDisplay, Button, useToast } from '@casa/ui';
+import { usePayments, useOwnerPayouts, useArrears, useTenancies, formatDollars, getSupabaseClient } from '@casa/api';
 
 function ArrearsAlert() {
   const { arrears, loading } = useArrears();
@@ -37,10 +38,141 @@ function ArrearsAlert() {
   );
 }
 
+function RecordPaymentModal({
+  visible,
+  onClose,
+  tenancies,
+  onRecorded,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  tenancies: any[];
+  onRecorded: () => void;
+}) {
+  const toast = useToast();
+  const [selectedTenancy, setSelectedTenancy] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
+  const [reference, setReference] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!selectedTenancy || !amount) {
+      toast.error('Please select a tenancy and enter an amount.');
+      return;
+    }
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      toast.error('Please enter a valid amount.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const supabase = getSupabaseClient();
+      const tenancy = tenancies.find(t => t.id === selectedTenancy);
+      if (!tenancy) throw new Error('Tenancy not found');
+
+      // Find the next unpaid rent_schedule for this tenancy
+      const { data: unpaidSchedule } = await (supabase
+        .from('rent_schedules') as ReturnType<typeof supabase.from>)
+        .select('id, due_date, amount')
+        .eq('tenancy_id', selectedTenancy)
+        .eq('is_paid', false)
+        .order('due_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      // Record payment
+      const { error: paymentError } = await (supabase
+        .from('payments') as ReturnType<typeof supabase.from>)
+        .insert({
+          tenancy_id: selectedTenancy,
+          tenant_id: tenancy.tenants?.[0]?.tenant_id,
+          payment_type: 'rent',
+          amount: amountNum,
+          status: 'completed',
+          description: reference ? `Bank transfer: ${reference}` : 'Bank transfer (manual)',
+          paid_at: new Date().toISOString(),
+        });
+
+      if (paymentError) throw paymentError;
+
+      // Mark rent schedule as paid if one matches
+      if (unpaidSchedule) {
+        await (supabase
+          .from('rent_schedules') as ReturnType<typeof supabase.from>)
+          .update({ is_paid: true, paid_at: new Date().toISOString() })
+          .eq('id', unpaidSchedule.id);
+      }
+
+      toast.success('Payment recorded successfully.');
+      setSelectedTenancy(null);
+      setAmount('');
+      setReference('');
+      onClose();
+      onRecorded();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to record payment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Record Bank Transfer</Text>
+          <Text style={styles.modalSubtitle}>
+            Record a rent payment received via direct bank transfer.
+          </Text>
+
+          <Text style={styles.inputLabel}>Property / Tenancy</Text>
+          {tenancies.map(t => (
+            <TouchableOpacity
+              key={t.id}
+              style={[styles.tenancyOption, selectedTenancy === t.id && styles.tenancyOptionSelected]}
+              onPress={() => setSelectedTenancy(t.id)}
+            >
+              <Text style={[styles.tenancyOptionText, selectedTenancy === t.id && styles.tenancyOptionTextSelected]}>
+                {t.property?.address_line_1 || t.property_address || 'Property'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          <Text style={styles.inputLabel}>Amount ($)</Text>
+          <TextInput
+            style={styles.modalInput}
+            value={amount}
+            onChangeText={setAmount}
+            placeholder="e.g. 450.00"
+            placeholderTextColor={THEME.colors.textTertiary}
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.inputLabel}>Reference (optional)</Text>
+          <TextInput
+            style={styles.modalInput}
+            value={reference}
+            onChangeText={setReference}
+            placeholder="e.g. BSB transfer ref"
+            placeholderTextColor={THEME.colors.textTertiary}
+          />
+
+          <View style={styles.modalButtons}>
+            <Button title="Cancel" variant="secondary" onPress={onClose} style={{ flex: 1 }} />
+            <Button title="Record Payment" onPress={handleSave} loading={saving} disabled={saving} style={{ flex: 1 }} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function RentScreen() {
   const { payments, loading: paymentsLoading, refreshPayments } = usePayments({ limit: 10 });
   const { isOnboarded, loading: payoutsLoading } = useOwnerPayouts();
   const { tenancies } = useTenancies({ status: 'active' });
+  const [showRecordModal, setShowRecordModal] = useState(false);
 
   const loading = paymentsLoading || payoutsLoading;
 
@@ -99,14 +231,13 @@ export default function RentScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.rentActionButton}
-            onPress={() => router.push('/(app)/arrears/templates' as any)}
+            onPress={() => setShowRecordModal(true)}
             activeOpacity={0.7}
           >
             <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-              <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-              <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M12 5v14M5 12h14" stroke={THEME.colors.success} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
-            <Text style={styles.rentActionLabel}>Templates</Text>
+            <Text style={styles.rentActionLabel}>Record</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.rentActionButton}
@@ -191,6 +322,13 @@ export default function RentScreen() {
           </View>
         )}
       </ScrollView>
+
+      <RecordPaymentModal
+        visible={showRecordModal}
+        onClose={() => setShowRecordModal(false)}
+        tenancies={tenancies}
+        onRecorded={refreshPayments}
+      />
     </View>
   );
 }
@@ -399,5 +537,71 @@ const styles = StyleSheet.create({
     fontSize: THEME.fontSize.bodySmall,
     fontWeight: THEME.fontWeight.medium,
     color: THEME.colors.textPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: THEME.colors.surface,
+    borderTopLeftRadius: THEME.radius.lg,
+    borderTopRightRadius: THEME.radius.lg,
+    padding: THEME.spacing.lg,
+    paddingBottom: THEME.spacing['2xl'],
+  },
+  modalTitle: {
+    fontSize: THEME.fontSize.h2,
+    fontWeight: THEME.fontWeight.bold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.xs,
+  },
+  modalSubtitle: {
+    fontSize: THEME.fontSize.bodySmall,
+    color: THEME.colors.textSecondary,
+    marginBottom: THEME.spacing.lg,
+  },
+  inputLabel: {
+    fontSize: THEME.fontSize.bodySmall,
+    fontWeight: THEME.fontWeight.semibold,
+    color: THEME.colors.textPrimary,
+    marginBottom: THEME.spacing.xs,
+    marginTop: THEME.spacing.md,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.sm,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textPrimary,
+    backgroundColor: THEME.colors.canvas,
+  },
+  tenancyOption: {
+    paddingVertical: THEME.spacing.sm,
+    paddingHorizontal: THEME.spacing.md,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    marginBottom: THEME.spacing.xs,
+    backgroundColor: THEME.colors.canvas,
+  },
+  tenancyOptionSelected: {
+    borderColor: THEME.colors.brand,
+    backgroundColor: THEME.colors.subtle,
+  },
+  tenancyOptionText: {
+    fontSize: THEME.fontSize.body,
+    color: THEME.colors.textPrimary,
+  },
+  tenancyOptionTextSelected: {
+    color: THEME.colors.brand,
+    fontWeight: THEME.fontWeight.semibold,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: THEME.spacing.md,
+    marginTop: THEME.spacing.lg,
   },
 });

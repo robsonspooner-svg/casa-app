@@ -9,7 +9,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 
-const REMINDER_DAYS = [3, 1]; // Days before due date to send reminders
+const REMINDER_DAYS = [3, 1, 0]; // Days before due date to send reminders (0 = day-of)
 
 serve(async (req: Request) => {
   const corsResponse = handleCors(req);
@@ -100,8 +100,8 @@ serve(async (req: Request) => {
         if (!property || tenantEntries.length === 0) continue;
 
         const propertyAddress = [property.address_line_1, property.suburb, property.state, property.postcode].filter(Boolean).join(', ');
-        const amountCents = schedule.amount || (tenancy.rent_amount ? tenancy.rent_amount * 100 : 0);
-        const amountFormatted = `$${(amountCents / 100).toFixed(2)}`;
+        const amountDollars = schedule.amount || tenancy.rent_amount || 0;
+        const amountFormatted = `$${Number(amountDollars).toFixed(2)}`;
         const dueDateFormatted = new Date(schedule.due_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
         for (const entry of tenantEntries) {
@@ -133,12 +133,19 @@ serve(async (req: Request) => {
 
           // Dispatch notification
           try {
+            const reminderTitle = daysBefore === 0
+              ? 'Rent due today'
+              : `Rent due in ${daysBefore} day${daysBefore !== 1 ? 's' : ''}`;
+            const reminderBody = daysBefore === 0
+              ? `Your rent of ${amountFormatted} for ${propertyAddress} is due today.`
+              : `Your rent of ${amountFormatted} for ${propertyAddress} is due on ${dueDateFormatted}.`;
+
             await supabase.functions.invoke('dispatch-notification', {
               body: {
                 user_id: tenantId,
                 type: 'rent_due_soon',
-                title: `Rent due in ${daysBefore} day${daysBefore !== 1 ? 's' : ''}`,
-                body: `Your rent of ${amountFormatted} for ${propertyAddress} is due on ${dueDateFormatted}.`,
+                title: reminderTitle,
+                body: reminderBody,
                 data: {
                   tenant_name: tenantName,
                   property_address: propertyAddress,
@@ -146,7 +153,7 @@ serve(async (req: Request) => {
                   due_date: dueDateFormatted,
                   days_until_due: daysBefore,
                 },
-                channels: ['push', 'email'],
+                channels: daysBefore === 0 ? ['push', 'email', 'sms'] : ['push', 'email'],
               },
             });
 

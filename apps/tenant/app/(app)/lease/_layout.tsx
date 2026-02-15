@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { THEME } from '@casa/config';
 
-export default function InspectionDetailLayout() {
+export default function LeaseLayout() {
   return (
     <Stack
       screenOptions={{
@@ -11,10 +11,6 @@ export default function InspectionDetailLayout() {
         },
         animation: 'slide_from_right',
       }}
-    >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="review" />
-      <Stack.Screen name="respond" />
-    </Stack>
+    />
   );
 }

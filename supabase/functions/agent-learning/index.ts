@@ -397,8 +397,29 @@ async function updateGraduationTracking(
       .eq('id', tracking.id);
 
     const threshold = tracking.graduation_threshold * tracking.backoff_multiplier;
+    const isEligible = newConsecutive >= threshold && tracking.current_level < 4;
+
+    // Send graduation push notification when newly eligible
+    if (isEligible && tracking.consecutive_approvals < threshold) {
+      try {
+        const levelNames: Record<number, string> = { 1: 'Suggest', 2: 'Draft & Approve', 3: 'Auto with Notice', 4: 'Full Auto' };
+        const nextLevel = Math.min(tracking.current_level + 1, 4);
+        await supabase.functions.invoke('dispatch-notification', {
+          body: {
+            user_id: userId,
+            notification_type: 'graduation_eligible',
+            title: 'Casa is ready for more autonomy',
+            body: `You've approved ${newConsecutive} consecutive ${category} actions. Ready to upgrade to ${levelNames[nextLevel] || 'next level'}?`,
+            data: { category, current_level: tracking.current_level, next_level: nextLevel },
+          },
+        });
+      } catch {
+        // Don't block on notification failure
+      }
+    }
+
     return {
-      eligible: newConsecutive >= threshold && tracking.current_level < 4,
+      eligible: isEligible,
       consecutive: newConsecutive,
     };
   } else {

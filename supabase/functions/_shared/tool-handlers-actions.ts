@@ -2,14 +2,16 @@
 // Property CRUD, tenancy management, listings, messaging, maintenance, inspections,
 // arrears, compliance, trades, payments
 
+import { sendEmail, EMAIL_TEMPLATES } from './email.ts';
+
 type SupabaseClient = any;
 type ToolResult = { success: boolean; data?: unknown; error?: string };
 type ToolInput = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
-// Notification Dispatch Helper
+// Notification Dispatch Helper — shared across tool handler files
 // ---------------------------------------------------------------------------
-async function dispatchNotif(
+export async function dispatchNotif(
   sb: SupabaseClient,
   userId: string,
   type: string,
@@ -372,15 +374,14 @@ export async function handle_send_message(input: ToolInput, userId: string, sb: 
     const { data: tenant } = await sb.from('profiles').select('full_name, email').eq('id', input.tenant_id as string).single();
     if (!tenant) return { success: false, error: 'Tenant not found' };
 
-    const { error } = await sb.from('email_queue').insert({
-      to_email: (tenant as any).email,
-      to_name: (tenant as any).full_name,
-      subject: input.priority === 'urgent' ? `[Urgent] Message from your property manager` : `Message from your property manager`,
-      template_name: 'general_message',
-      template_data: { tenant_name: (tenant as any).full_name, content: input.content, priority: input.priority || 'normal' },
-      status: 'pending',
-    });
-    if (error) return { success: false, error: error.message };
+    const subject = input.priority === 'urgent' ? `[Urgent] Message from your property manager` : `Message from your property manager`;
+    const htmlContent = `
+      <p style="color:#1B2B4B;font-size:16px;line-height:1.6;">Hi ${(tenant as any).full_name},</p>
+      <p style="color:#1B2B4B;font-size:16px;line-height:1.6;">${input.content}</p>
+      <p style="color:#6B7280;font-size:14px;margin-top:32px;">This message was sent via Casa on behalf of your property manager.</p>
+    `;
+    const result = await sendEmail({ to: (tenant as any).email, toName: (tenant as any).full_name, subject, htmlContent, useBrandedWrapper: true });
+    if (!result.success) return { success: false, error: result.error || 'Failed to send email' };
     return { success: true, data: { sent_to: (tenant as any).email, channel: 'email' } };
   }
 
@@ -473,13 +474,20 @@ export async function handle_send_rent_reminder(input: ToolInput, userId: string
   const property = (tenancy as any).properties;
   const address = [property.address_line_1, property.suburb, property.state].filter(Boolean).join(', ');
 
-  const { error: emailErr } = await sb.from('email_queue').insert({
-    to_email: tenantInfo.email, to_name: tenantInfo.full_name,
-    subject: `Rent Payment Reminder - ${address}`, template_name: 'rent_reminder',
-    template_data: { tenant_name: tenantInfo.full_name, property_address: address, amount: `$${(totalOverdue / 100).toFixed(2)}`, custom_message: input.message || '' },
-    status: 'pending',
+  const amountStr = `$${(totalOverdue / 100).toFixed(2)}`;
+  const dueDate = overdue && overdue.length > 0 ? new Date(overdue[0].due_date).toLocaleDateString('en-AU') : 'now';
+  const emailTemplate = EMAIL_TEMPLATES.paymentReminder({
+    tenantName: tenantInfo.full_name,
+    propertyAddress: address,
+    amount: amountStr,
+    dueDate,
+    paymentUrl: 'https://casaapp.com.au',
   });
-  if (emailErr) return { success: false, error: emailErr.message };
+  const emailResult = await sendEmail({
+    to: tenantInfo.email, toName: tenantInfo.full_name,
+    subject: emailTemplate.subject, htmlContent: emailTemplate.htmlContent, useBrandedWrapper: true,
+  });
+  if (!emailResult.success) return { success: false, error: emailResult.error || 'Failed to send rent reminder email' };
   return { success: true, data: { sent_to: tenantInfo.email, tenant_name: tenantInfo.full_name, total_overdue: totalOverdue / 100, property_address: address } };
 }
 
@@ -560,10 +568,32 @@ export async function handle_update_maintenance_status(input: ToolInput, userId:
   if (mReq) {
     const tenantIds = await getTenantIdsForProperty((mReq as any).property_id, sb);
     const statusLabel = (input.status as string).replace(/_/g, ' ');
+
+    // Enhanced notification for work-scheduled status
+    let notifTitle = `Maintenance Update: ${(mReq as any).title}`;
+    let notifBody = `Your maintenance request has been updated to "${statusLabel}".`;
+
+    if (input.status === 'scheduled' || input.status === 'work_scheduled') {
+      notifTitle = `Work Scheduled: ${(mReq as any).title}`;
+      const scheduledDate = input.scheduled_date as string;
+      if (scheduledDate) {
+        const dateFormatted = new Date(scheduledDate).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+        notifBody = `Work has been scheduled for ${dateFormatted} for "${(mReq as any).title}". You will be contacted to arrange access. Please ensure the property is accessible.`;
+      } else {
+        notifBody = `Work has been scheduled for "${(mReq as any).title}". You will be contacted to arrange access. Please ensure the property is accessible.`;
+      }
+    } else if (input.status === 'in_progress') {
+      notifTitle = `Work In Progress: ${(mReq as any).title}`;
+      notifBody = `A tradesperson is currently working on "${(mReq as any).title}".`;
+    } else if (input.status === 'completed' || input.status === 'resolved') {
+      notifTitle = `Resolved: ${(mReq as any).title}`;
+      notifBody = `Your maintenance request "${(mReq as any).title}" has been resolved.${input.notes ? ` Notes: ${input.notes}` : ''}`;
+    }
+
     for (const tid of tenantIds) {
       dispatchNotif(sb, tid, 'maintenance_status_update',
-        `Maintenance Update: ${(mReq as any).title}`,
-        `Your maintenance request has been updated to "${statusLabel}".`,
+        notifTitle,
+        notifBody,
         { request_id: input.request_id, new_status: input.status, property_id: (mReq as any).property_id },
       );
     }
@@ -1061,10 +1091,13 @@ export async function handle_create_work_order(input: ToolInput, userId: string,
 
   // Notify tenants that a work order has been created for their maintenance request
   const tenantIds = await getTenantIdsForProperty((req as any).property_id, sb);
+  const scheduledDateStr = (input.scheduled_date as string)
+    ? ` Work is scheduled for ${new Date(input.scheduled_date as string).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}.`
+    : '';
   for (const tid of tenantIds) {
     dispatchNotif(sb, tid, 'work_order_created',
       'Maintenance Work Ordered',
-      `A tradesperson has been assigned to "${(req as any).title}".`,
+      `A tradesperson has been assigned to "${(req as any).title}".${scheduledDateStr} Please ensure the property is accessible.`,
       { work_order_id: (data as any).id, request_id: input.request_id, property_id: (req as any).property_id },
     );
   }
@@ -1627,14 +1660,30 @@ export async function handle_invite_tenant(input: ToolInput, userId: string, sb:
 
   if (error) return { success: false, error: error.message };
 
-  // Send invitation email
-  await sb.from('email_queue').insert({
-    to_email: input.email as string,
-    to_name: (input.name as string) || '',
+  // Send invitation email directly via Resend
+  const tenantName = (input.name as string) || 'there';
+  const inviteHtml = `
+    <p style="color:#1B2B4B;font-size:16px;line-height:1.6;">Hi ${tenantName},</p>
+    <p style="color:#1B2B4B;font-size:16px;line-height:1.6;">You've been invited to connect to your rental property on <strong>Casa</strong>, your smart property management app.</p>
+    <div style="background:#F9FAFB;padding:24px;border-radius:8px;margin:24px 0;text-align:center;">
+      <p style="color:#6B7280;font-size:14px;margin:0 0 8px 0;">Your Connection Code</p>
+      <p style="color:#1B2B4B;font-size:36px;font-weight:700;margin:0;letter-spacing:6px;">${code}</p>
+      <p style="color:#6B7280;font-size:13px;margin:8px 0 0 0;">Expires in 7 days</p>
+    </div>
+    <p style="color:#1B2B4B;font-size:16px;line-height:1.6;"><strong>How to connect:</strong></p>
+    <ol style="color:#1B2B4B;font-size:16px;line-height:1.8;">
+      <li>Download the <strong>Casa</strong> app</li>
+      <li>Create an account or sign in</li>
+      <li>Enter the connection code above</li>
+    </ol>
+    <p style="color:#6B7280;font-size:14px;margin-top:32px;">Once connected, you'll be able to pay rent, submit maintenance requests, and communicate with your landlord — all in one place.</p>
+  `;
+  await sendEmail({
+    to: input.email as string,
+    toName: (input.name as string) || '',
     subject: 'You have been invited to connect on Casa',
-    template_name: 'tenant_invitation',
-    template_data: { tenant_name: input.name || '', code, property_id: input.property_id },
-    status: 'pending',
+    htmlContent: inviteHtml,
+    useBrandedWrapper: true,
   });
 
   return { success: true, data: { connection_code: code, email: input.email, expires_at: (data as any).expires_at } };

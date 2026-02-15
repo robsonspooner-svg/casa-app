@@ -1025,3 +1025,183 @@ export function generateGenericDocumentHTML(data: GenericDocumentData): string {
 
   return wrapDocument(data.title, data.subtitle || '', body);
 }
+
+// ============================================================
+// QLD Form 12 — Entry Notice (RTRA Act 2008)
+// ============================================================
+
+export interface QLDForm12Data {
+  propertyAddress: string;
+  ownerName: string;
+  ownerAddress: string;
+  tenantNames: string[];
+  entryDate: string;
+  entryTimeFrom: string;
+  entryTimeTo: string;
+  entryReason: string;
+  additionalNotes?: string;
+}
+
+export function generateQLDForm12HTML(data: QLDForm12Data): string {
+  const tenantList = data.tenantNames.map(n => escapeHtml(n)).join(', ');
+  const body = `
+    <div class="note" style="background: #FEF3C7; border-left-color: #D97706;">
+      <strong>Form 12 — Entry Notice</strong><br>
+      Residential Tenancies and Rooming Accommodation Act 2008 (Qld), Section 192
+    </div>
+
+    <div class="section">
+      <h2>Property Details</h2>
+      <table class="dt">
+        <tr><td class="l">Rental premises</td><td class="v">${escapeHtml(data.propertyAddress)}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Parties</h2>
+      <table class="dt">
+        <tr><td class="l">Lessor / Agent</td><td class="v">${escapeHtml(data.ownerName)}</td></tr>
+        <tr><td class="l">Lessor address</td><td class="v">${escapeHtml(data.ownerAddress)}</td></tr>
+        <tr><td class="l">Tenant(s)</td><td class="v">${tenantList}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Entry Details</h2>
+      <table class="dt">
+        <tr><td class="l">Date of entry</td><td class="v">${formatDateAU(data.entryDate)}</td></tr>
+        <tr><td class="l">Time of entry</td><td class="v">${escapeHtml(data.entryTimeFrom)} to ${escapeHtml(data.entryTimeTo)}</td></tr>
+        <tr><td class="l">Reason for entry</td><td class="v">${escapeHtml(data.entryReason)}</td></tr>
+        ${data.additionalNotes ? `<tr><td class="l">Additional notes</td><td class="v">${escapeHtml(data.additionalNotes)}</td></tr>` : ''}
+      </table>
+    </div>
+
+    <div class="note">
+      <strong>Notice requirements:</strong> Under the RTRA Act 2008, the lessor must give the tenant at least
+      24 hours' written notice for most entry reasons, or at least 48 hours for a general inspection.
+      Entry may only be between 8:00 am and 6:00 pm on a day that is not a public holiday.
+    </div>
+
+    <div class="sig-block">
+      <div class="sig-row">
+        <div class="sig-party">
+          <h3>Lessor / Agent</h3>
+          <div class="sig-line"></div>
+          <div class="sig-label">Signature</div>
+          <div class="sig-line"></div>
+          <div class="sig-label">Name: ${escapeHtml(data.ownerName)}</div>
+          <div class="sig-line"></div>
+          <div class="sig-label">Date</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return wrapDocument(
+    'Form 12 — Entry Notice',
+    'Residential Tenancies and Rooming Accommodation Act 2008 (Qld)',
+    body,
+  );
+}
+
+// ============================================================
+// QLD Form 13 — Notice of Rent Increase (RTRA Act 2008)
+// ============================================================
+
+export interface QLDForm13Data {
+  propertyAddress: string;
+  ownerName: string;
+  ownerAddress: string;
+  tenantNames: string[];
+  currentRent: number;
+  currentFrequency: string;
+  newRent: number;
+  newFrequency: string;
+  effectiveDate: string;
+  noticeDateGiven: string;
+}
+
+export function generateQLDForm13HTML(data: QLDForm13Data): string {
+  const tenantList = data.tenantNames.map(n => escapeHtml(n)).join(', ');
+  const increaseAmount = data.newRent - data.currentRent;
+  const increasePercent = data.currentRent > 0
+    ? ((increaseAmount / data.currentRent) * 100).toFixed(1)
+    : '0.0';
+
+  const body = `
+    <div class="note" style="background: #FEF3C7; border-left-color: #D97706;">
+      <strong>Form 13 — Notice of Rent Increase</strong><br>
+      Residential Tenancies and Rooming Accommodation Act 2008 (Qld), Section 93
+    </div>
+
+    <div class="section">
+      <h2>Property Details</h2>
+      <table class="dt">
+        <tr><td class="l">Rental premises</td><td class="v">${escapeHtml(data.propertyAddress)}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Parties</h2>
+      <table class="dt">
+        <tr><td class="l">Lessor / Agent</td><td class="v">${escapeHtml(data.ownerName)}</td></tr>
+        <tr><td class="l">Lessor address</td><td class="v">${escapeHtml(data.ownerAddress)}</td></tr>
+        <tr><td class="l">Tenant(s)</td><td class="v">${tenantList}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Current Rent</h2>
+      <table class="dt">
+        <tr><td class="l">Current rent</td><td class="v">${formatCurrency(data.currentRent)}</td></tr>
+        <tr><td class="l">Payment frequency</td><td class="v">${escapeHtml(data.currentFrequency)}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>New Rent</h2>
+      <table class="dt">
+        <tr><td class="l">New rent</td><td class="v"><strong>${formatCurrency(data.newRent)}</strong></td></tr>
+        <tr><td class="l">Payment frequency</td><td class="v">${escapeHtml(data.newFrequency)}</td></tr>
+        <tr><td class="l">Increase amount</td><td class="v">${formatCurrency(increaseAmount)} (${increasePercent}%)</td></tr>
+        <tr><td class="l">Effective from</td><td class="v"><strong>${formatDateAU(data.effectiveDate)}</strong></td></tr>
+        <tr><td class="l">Date notice given</td><td class="v">${formatDateAU(data.noticeDateGiven)}</td></tr>
+      </table>
+    </div>
+
+    <div class="note">
+      <strong>Legal requirements (QLD):</strong><br>
+      &bull; At least 2 months (60 days) written notice must be given before the increase takes effect.<br>
+      &bull; Rent may be increased no more than once every 6 months.<br>
+      &bull; The tenant may apply to QCAT if they believe the increase is excessive.<br>
+      &bull; This notice must be given using this approved form (Form 13).
+    </div>
+
+    <div class="note">
+      <strong>Tenant rights:</strong> If you believe this rent increase is excessive, you may apply
+      to the Queensland Civil and Administrative Tribunal (QCAT) to have the increase reviewed.
+      You must apply within 30 days of receiving this notice. Contact QCAT on 1300 753 228 or
+      visit www.qcat.qld.gov.au.
+    </div>
+
+    <div class="sig-block">
+      <div class="sig-row">
+        <div class="sig-party">
+          <h3>Lessor / Agent</h3>
+          <div class="sig-line"></div>
+          <div class="sig-label">Signature</div>
+          <div class="sig-line"></div>
+          <div class="sig-label">Name: ${escapeHtml(data.ownerName)}</div>
+          <div class="sig-line"></div>
+          <div class="sig-label">Date</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return wrapDocument(
+    'Form 13 — Notice of Rent Increase',
+    'Residential Tenancies and Rooming Accommodation Act 2008 (Qld)',
+    body,
+  );
+}

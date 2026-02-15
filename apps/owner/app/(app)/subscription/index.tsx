@@ -28,6 +28,10 @@ export default function SubscriptionScreen() {
       const errMsg = data?.error || error.message || 'Something went wrong';
       throw new Error(errMsg);
     }
+    // Edge Function returns 200 with { success: false, error: '...' } on failure
+    if (data?.error || data?.success === false) {
+      throw new Error(data.error || 'Something went wrong');
+    }
     return data;
   };
 
@@ -147,6 +151,13 @@ export default function SubscriptionScreen() {
   };
 
   const handleManageBilling = async () => {
+    if (!profile?.stripe_customer_id) {
+      Alert.alert(
+        'No Active Subscription',
+        'Subscribe to a plan first to access billing management.',
+      );
+      return;
+    }
     setLoading('billing');
     try {
       const result = await callSubscriptionApi('get_portal_url');
@@ -280,8 +291,8 @@ export default function SubscriptionScreen() {
         </Svg>
       </TouchableOpacity>
 
-      {/* Cancel / Resume */}
-      {currentStatus === 'cancelled' ? (
+      {/* Cancel / Resume — only show if user has an active subscription */}
+      {!profile?.stripe_customer_id ? null : currentStatus === 'cancelled' ? (
         <TouchableOpacity
           style={styles.resumeLink}
           onPress={handleResume}

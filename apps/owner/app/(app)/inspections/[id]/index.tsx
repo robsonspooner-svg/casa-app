@@ -18,9 +18,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { THEME } from '@casa/config';
 import { Button, ConditionBadge } from '@casa/ui';
-import { useInspection, useInspectionMutations, useAIComparison } from '@casa/api';
+import { useInspection, useInspectionMutations, useAIComparison, getSupabaseClient } from '@casa/api';
 import type { InspectionStatus, ConditionRating, InspectionImageRow, InspectionItemRow } from '@casa/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -54,6 +56,7 @@ export default function InspectionDetail() {
   const isExitInspection = inspection?.inspection_type === 'exit';
   const hasComparison = comparison !== null;
   const [activeRoomIndex, setActiveRoomIndex] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const roomPagerRef = useRef<FlatList>(null);
 
   const isReportView = inspection && (
@@ -70,6 +73,70 @@ export default function InspectionDetail() {
       }
     }, [id, refreshInspection])
   );
+
+  const handleSharePDF = useCallback(async () => {
+    if (!inspection || !id) return;
+    setExporting(true);
+    try {
+      let html: string | null = null;
+
+      // If report already generated, fetch the HTML from storage
+      if (inspection.report_url) {
+        const response = await fetch(inspection.report_url);
+        if (response.ok) {
+          html = await response.text();
+        }
+      }
+
+      // If no stored report, generate one on the fly
+      if (!html) {
+        const supabase = getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+
+        const resp = await fetch(
+          `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/generate-inspection-report`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ inspection_id: id }),
+          }
+        );
+
+        if (!resp.ok) throw new Error('Failed to generate report');
+        const result = await resp.json();
+
+        if (result.report_url) {
+          const htmlResp = await fetch(result.report_url);
+          if (htmlResp.ok) html = await htmlResp.text();
+        }
+
+        refreshInspection();
+      }
+
+      if (!html) throw new Error('Could not load report HTML');
+
+      const { uri } = await Print.printToFileAsync({ html });
+      const address = inspection.property
+        ? `${inspection.property.address_line_1 || 'Property'} ${inspection.property.suburb || ''}`
+        : 'Inspection';
+      const typeLabel = inspection.inspection_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `${typeLabel} Report — ${address}`,
+        UTI: 'com.adobe.pdf',
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('cancel')) return;
+      Alert.alert('Export Error', err instanceof Error ? err.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  }, [inspection, id, refreshInspection]);
 
   const handleAction = async (action: string) => {
     if (!id) return;
@@ -310,7 +377,19 @@ export default function InspectionDetail() {
         <Text style={styles.headerTitle}>
           {isReportView ? 'Condition Report' : 'Inspection'}
         </Text>
-        <View style={styles.headerRight} />
+        {isReportView ? (
+          <TouchableOpacity onPress={handleSharePDF} style={styles.backButton} disabled={exporting}>
+            {exporting ? (
+              <ActivityIndicator size="small" color={THEME.colors.brand} />
+            ) : (
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke={THEME.colors.brand} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerRight} />
+        )}
       </View>
 
       <ScrollView
@@ -556,53 +635,35 @@ export default function InspectionDetail() {
           </TouchableOpacity>
         )}
 
-        {/* Report Generation */}
+        {/* Report Export */}
         {(inspection.status === 'completed' || inspection.status === 'tenant_review' || inspection.status === 'finalized') && (
           <View style={styles.reportSection}>
-            {inspection.report_url ? (
-              <TouchableOpacity style={styles.reportCard} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.reportCard}
+              onPress={handleSharePDF}
+              activeOpacity={0.7}
+              disabled={exporting}
+            >
+              {exporting ? (
+                <ActivityIndicator size="small" color={THEME.colors.brand} />
+              ) : (
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                  <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.success} strokeWidth={1.5} />
-                  <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={THEME.colors.success} strokeWidth={1.5} strokeLinecap="round" />
+                  <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
                 </Svg>
-                <Text style={styles.reportCardText}>View Inspection Report</Text>
-              </TouchableOpacity>
-            ) : (
+              )}
+              <Text style={styles.reportCardText}>Share as PDF</Text>
+            </TouchableOpacity>
+            {isExitInspection && (
               <TouchableOpacity
-                style={styles.reportCard}
-                onPress={async () => {
-                  try {
-                    const { getSupabaseClient } = await import('@casa/api');
-                    const supabase = getSupabaseClient();
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (!session) throw new Error('Not authenticated');
-
-                    const response = await fetch(
-                      `${process.env.EXPO_PUBLIC_SUPABASE_URL || ''}/functions/v1/generate-inspection-report`,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Authorization': `Bearer ${session.access_token}`,
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ inspection_id: id }),
-                      }
-                    );
-
-                    if (!response.ok) throw new Error('Report generation failed');
-                    Alert.alert('Report Generated', 'Inspection report has been created.');
-                    refreshInspection();
-                  } catch (err) {
-                    Alert.alert('Error', err instanceof Error ? err.message : 'Failed to generate report');
-                  }
-                }}
+                style={[styles.reportCard, { marginTop: THEME.spacing.sm }]}
+                onPress={() => router.push({ pathname: '/(app)/inspections/[id]/evidence-report' as any, params: { id } })}
                 activeOpacity={0.7}
               >
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                  <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.brand} strokeWidth={1.5} />
-                  <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" />
+                  <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={THEME.colors.warning} strokeWidth={1.5} />
+                  <Path d="M14 2v6h6M12 11v6M9 14h6" stroke={THEME.colors.warning} strokeWidth={1.5} strokeLinecap="round" />
                 </Svg>
-                <Text style={styles.reportCardText}>Generate PDF Report</Text>
+                <Text style={[styles.reportCardText, { color: THEME.colors.warning }]}>Tribunal Evidence Report</Text>
               </TouchableOpacity>
             )}
           </View>

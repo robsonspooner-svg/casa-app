@@ -13,9 +13,9 @@ serve(async (req: Request) => {
   try {
     const supabase = getServiceClient();
     const now = new Date();
-    const sevenDaysOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysOut = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    // Find items that are overdue or due within 7 days
+    // Find items that are overdue or due within 30 days (covers 30/14/7 day tiers)
     const { data: items, error } = await supabase
       .from('property_compliance')
       .select(`
@@ -24,7 +24,7 @@ serve(async (req: Request) => {
         properties(owner_id, address_line_1, suburb)
       `)
       .in('status', ['overdue', 'upcoming'])
-      .lte('next_due_date', sevenDaysOut.toISOString())
+      .lte('next_due_date', thirtyDaysOut.toISOString())
       .not('properties', 'is', null);
 
     if (error) {
@@ -47,18 +47,44 @@ serve(async (req: Request) => {
 
     for (const [ownerId, ownerItems] of Object.entries(byOwner)) {
       const overdueItems = ownerItems.filter(i => i.status === 'overdue');
-      const upcomingItems = ownerItems.filter(i => i.status === 'upcoming');
 
-      // Build notification message
-      let body = '';
-      if (overdueItems.length > 0) {
-        body += `${overdueItems.length} overdue compliance item${overdueItems.length > 1 ? 's' : ''} need attention. `;
+      // Categorise upcoming items by urgency tier
+      const urgentItems: typeof ownerItems = []; // due within 7 days
+      const soonItems: typeof ownerItems = [];   // due within 14 days
+      const earlyItems: typeof ownerItems = [];  // due within 30 days
+
+      for (const item of ownerItems) {
+        if (item.status === 'overdue') continue;
+        const dueDate = item.next_due_date ? new Date(item.next_due_date).getTime() : 0;
+        const daysUntil = Math.ceil((dueDate - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysUntil <= 7) urgentItems.push(item);
+        else if (daysUntil <= 14) soonItems.push(item);
+        else earlyItems.push(item);
       }
-      if (upcomingItems.length > 0) {
-        body += `${upcomingItems.length} item${upcomingItems.length > 1 ? 's' : ''} due within 7 days.`;
+
+      // Build notification with escalating urgency
+      let title = 'Compliance Reminder';
+      let body = '';
+
+      if (overdueItems.length > 0) {
+        title = 'Compliance: Action Required';
+        body += `${overdueItems.length} OVERDUE item${overdueItems.length > 1 ? 's' : ''} need immediate attention. `;
+      }
+      if (urgentItems.length > 0) {
+        if (!overdueItems.length) title = 'Compliance: Due This Week';
+        body += `${urgentItems.length} item${urgentItems.length > 1 ? 's' : ''} due within 7 days. `;
+      }
+      if (soonItems.length > 0) {
+        body += `${soonItems.length} item${soonItems.length > 1 ? 's' : ''} due within 14 days. `;
+      }
+      if (earlyItems.length > 0) {
+        body += `${earlyItems.length} item${earlyItems.length > 1 ? 's' : ''} due within 30 days.`;
       }
 
       if (!body) continue;
+
+      // Set priority for push notification
+      const pushPriority = overdueItems.length > 0 || urgentItems.length > 0 ? 'high' : 'default';
 
       // Fetch owner profile for email and name
       const { data: profile } = await supabase
@@ -84,10 +110,11 @@ serve(async (req: Request) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               to: tokenRow.token,
-              title: 'Compliance Reminder',
+              title,
               body: body.trim(),
               data: { route: '/(app)/compliance' },
               sound: 'default',
+              priority: pushPriority,
             }),
           });
           notificationsSent++;
@@ -105,15 +132,22 @@ serve(async (req: Request) => {
           return `${name} at ${addr} — due ${dueDate} (${item.status})`;
         }).join('\n');
 
+        const upcomingTotal = urgentItems.length + soonItems.length + earlyItems.length;
+        const subjectParts: string[] = [];
+        if (overdueItems.length > 0) subjectParts.push(`${overdueItems.length} overdue`);
+        if (urgentItems.length > 0) subjectParts.push(`${urgentItems.length} due this week`);
+        if (soonItems.length + earlyItems.length > 0) subjectParts.push(`${soonItems.length + earlyItems.length} upcoming`);
+
         await supabase.from('email_queue').insert({
           to_email: profile.email,
           to_name: profile.full_name || 'Property Owner',
-          subject: `Compliance Reminder: ${overdueItems.length} overdue, ${upcomingItems.length} upcoming`,
+          subject: `Compliance Reminder: ${subjectParts.join(', ')}`,
           template_name: 'compliance_reminder',
           template_data: {
             owner_name: profile.full_name || 'there',
             overdue_count: overdueItems.length,
-            upcoming_count: upcomingItems.length,
+            upcoming_count: upcomingTotal,
+            urgent_count: urgentItems.length,
             items_list: itemsList,
           },
           status: 'pending',

@@ -63,6 +63,7 @@ export default function NewMaintenanceScreen() {
   const [preferredTimes, setPreferredTimes] = useState('');
   const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
 
   const canSubmit = category && title.trim() && description.trim() && tenancy;
 
@@ -72,17 +73,40 @@ export default function NewMaintenanceScreen() {
       return;
     }
 
-    const remaining = MAX_PHOTOS - images.length;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      selectionLimit: remaining,
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      setImages(prev => [...prev, ...result.assets].slice(0, MAX_PHOTOS));
-    }
+    Alert.alert('Add Photo', 'Choose how to add a photo', [
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Camera access is needed to take photos.');
+            return;
+          }
+          const result = await ImagePicker.launchCameraAsync({
+            quality: 0.7,
+          });
+          if (!result.canceled && result.assets.length > 0) {
+            setImages(prev => [...prev, ...result.assets].slice(0, MAX_PHOTOS));
+          }
+        },
+      },
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const remaining = MAX_PHOTOS - images.length;
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsMultipleSelection: true,
+            selectionLimit: remaining,
+            quality: 0.7,
+          });
+          if (!result.canceled && result.assets.length > 0) {
+            setImages(prev => [...prev, ...result.assets].slice(0, MAX_PHOTOS));
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const handleRemoveImage = (index: number) => {
@@ -107,12 +131,23 @@ export default function NewMaintenanceScreen() {
       });
 
       if (requestId) {
-        // Upload photos in background (non-blocking)
+        // Upload photos with progress tracking
         if (images.length > 0) {
-          for (const img of images) {
-            const fileName = img.fileName || `photo_${Date.now()}.jpg`;
+          const totalImages = images.length;
+          let completedUploads = 0;
+
+          for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            const fileName = img.fileName || `photo_${Date.now()}_${i}.jpg`;
             const mimeType = img.mimeType || 'image/jpeg';
-            uploadImage(requestId, img.uri, fileName, mimeType, true).catch(() => {});
+            setUploadProgress(prev => ({ ...prev, [i]: 0 }));
+            try {
+              await uploadImage(requestId, img.uri, fileName, mimeType, true);
+              completedUploads++;
+              setUploadProgress(prev => ({ ...prev, [i]: 100 }));
+            } catch {
+              setUploadProgress(prev => ({ ...prev, [i]: -1 }));
+            }
           }
         }
 
@@ -234,14 +269,34 @@ export default function NewMaintenanceScreen() {
             {images.map((img, index) => (
               <View key={index} style={styles.photoThumb}>
                 <Image source={{ uri: img.uri }} style={styles.photoImage} />
-                <TouchableOpacity
-                  style={styles.photoRemove}
-                  onPress={() => handleRemoveImage(index)}
-                >
-                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                    <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
-                  </Svg>
-                </TouchableOpacity>
+                {uploadProgress[index] !== undefined && uploadProgress[index] !== 100 && (
+                  <View style={styles.photoUploadOverlay}>
+                    {uploadProgress[index] === -1 ? (
+                      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                        <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.error} strokeWidth={2} strokeLinecap="round" />
+                      </Svg>
+                    ) : (
+                      <ActivityIndicator size="small" color={THEME.colors.textInverse} />
+                    )}
+                  </View>
+                )}
+                {uploadProgress[index] === 100 && (
+                  <View style={styles.photoUploadDone}>
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M20 6L9 17l-5-5" stroke={THEME.colors.success} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  </View>
+                )}
+                {!submitting && (
+                  <TouchableOpacity
+                    style={styles.photoRemove}
+                    onPress={() => handleRemoveImage(index)}
+                  >
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M18 6L6 18M6 6l12 12" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" />
+                    </Svg>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
             {images.length < MAX_PHOTOS && (
@@ -478,6 +533,23 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoUploadDone: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
   },

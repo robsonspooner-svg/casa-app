@@ -157,26 +157,67 @@ export default function MyHomeScreen() {
           </View>
         )}
 
-        {/* Quick Actions */}
-        <View style={styles.actionsGrid}>
-          <QuickAction
-            icon={
-              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                <Path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>
-            }
-            label="Pay Rent"
+        {/* Prominent Action Shortcuts */}
+        <View style={styles.heroActions}>
+          <TouchableOpacity
+            style={[styles.heroAction, styles.heroActionPrimary]}
             onPress={() => router.push('/(app)/payments/pay' as any)}
-          />
-          <QuickAction
-            icon={
-              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+            activeOpacity={0.7}
+          >
+            <View style={styles.heroActionIconPrimary}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </View>
+            <View style={styles.heroActionContent}>
+              <Text style={styles.heroActionTitle}>Pay Rent</Text>
+              {nextDue && (
+                <Text style={styles.heroActionSubtext}>
+                  {totalOwed ? formatDollars(totalOwed) : ''} {nextDue?.due_date ? `due ${new Date(nextDue.due_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` : ''}
+                </Text>
+              )}
+            </View>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 18l6-6-6-6" stroke={THEME.colors.textInverse} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.heroAction}
+            onPress={() => router.push('/(app)/maintenance/new' as any)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.heroActionIcon}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
                 <Path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
-            }
-            label="Request Repair"
-            onPress={() => router.push('/(app)/maintenance/new' as any)}
-          />
+            </View>
+            <View style={styles.heroActionContent}>
+              <Text style={styles.heroActionTitleDark}>Report Issue</Text>
+              <Text style={styles.heroActionSubtextDark}>Request a repair</Text>
+            </View>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 18l6-6-6-6" stroke={THEME.colors.textTertiary} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+        </View>
+
+        {/* Arrears Warning */}
+        {hasArrears && (
+          <TouchableOpacity
+            style={styles.arrearsWarning}
+            onPress={() => router.push('/(app)/(tabs)/rent' as any)}
+            activeOpacity={0.7}
+          >
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke={THEME.colors.error} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+            <Text style={styles.arrearsText}>You have an outstanding balance. Tap to view.</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Quick Actions */}
+        <View style={styles.actionsGrid}>
           <QuickAction
             icon={
               <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -186,6 +227,24 @@ export default function MyHomeScreen() {
             }
             label="View Lease"
             onPress={() => router.push('/(app)/tenancy' as any)}
+          />
+          <QuickAction
+            icon={
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            label="Rent History"
+            onPress={() => router.push('/(app)/(tabs)/rent' as any)}
+          />
+          <QuickAction
+            icon={
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                <Path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" stroke={THEME.colors.brand} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            }
+            label="My Repairs"
+            onPress={() => router.push('/(app)/(tabs)/maintenance' as any)}
           />
           <QuickAction
             icon={
@@ -325,6 +384,85 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: THEME.colors.textPrimary,
+  },
+
+  // Hero Actions (prominent shortcuts)
+  heroActions: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  heroAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.surface,
+    borderRadius: THEME.radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+  },
+  heroActionPrimary: {
+    backgroundColor: THEME.colors.brand,
+    borderColor: THEME.colors.brand,
+  },
+  heroActionIconPrimary: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  heroActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.colors.brand + '12',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  heroActionContent: {
+    flex: 1,
+  },
+  heroActionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.colors.textInverse,
+  },
+  heroActionSubtext: {
+    fontSize: 13,
+    color: THEME.colors.textInverse + 'B3',
+    marginTop: 2,
+  },
+  heroActionTitleDark: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  heroActionSubtextDark: {
+    fontSize: 13,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
+  },
+
+  // Arrears Warning
+  arrearsWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: THEME.colors.errorBg,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: THEME.colors.error + '30',
+  },
+  arrearsText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: THEME.colors.error,
   },
 
   // Quick Actions

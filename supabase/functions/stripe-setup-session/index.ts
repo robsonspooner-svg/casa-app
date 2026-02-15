@@ -89,14 +89,117 @@ serve(async (req: Request) => {
     }
 
     if (wantsBecs) {
-      // BECS Direct Debit cannot be pre-saved via Stripe Checkout setup mode.
-      // Return an error directing the user to add a card instead.
-      // BECS is available at checkout time (payment mode supports it).
+      // BECS Direct Debit is not supported via Stripe Checkout in setup mode.
+      // Instead, we accept the bank details (BSB + account number + name)
+      // and create the PaymentMethod + SetupIntent server-side.
+      const bsbNumber = body.bsbNumber;
+      const accountNumber = body.accountNumber;
+      const accountHolderName = body.accountHolderName;
+
+      if (!bsbNumber || !accountNumber || !accountHolderName) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'BECS setup requires bsbNumber, accountNumber, and accountHolderName.',
+            code: 'becs_missing_fields',
+            requiresFields: true,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Validate BSB format (6 digits, optionally with a dash: 000-000)
+      const bsbClean = bsbNumber.replace(/[-\s]/g, '');
+      if (!/^\d{6}$/.test(bsbClean)) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid BSB number. Must be 6 digits.', code: 'invalid_bsb' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Validate account number (5-9 digits for AU)
+      const acctClean = accountNumber.replace(/[-\s]/g, '');
+      if (!/^\d{5,9}$/.test(acctClean)) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid account number. Must be 5-9 digits.', code: 'invalid_account' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Create a PaymentMethod with BECS details
+      const paymentMethod = await stripe.paymentMethods.create({
+        type: 'au_becs_debit',
+        au_becs_debit: {
+          bsb_number: bsbClean,
+          account_number: acctClean,
+        },
+        billing_details: {
+          name: accountHolderName,
+          email: user.email,
+        },
+      });
+
+      // Attach to customer
+      await stripe.paymentMethods.attach(paymentMethod.id, {
+        customer: stripeCustomerId,
+      });
+
+      // Create and confirm a SetupIntent to establish the BECS mandate
+      const setupIntent = await stripe.setupIntents.create({
+        customer: stripeCustomerId,
+        payment_method: paymentMethod.id,
+        payment_method_types: ['au_becs_debit'],
+        confirm: true,
+        mandate_data: {
+          customer_acceptance: {
+            type: 'online',
+            online: {
+              ip_address: req.headers.get('x-forwarded-for') || '0.0.0.0',
+              user_agent: req.headers.get('user-agent') || 'Casa App',
+            },
+          },
+        },
+        metadata: { casa_user_id: user.id },
+      });
+
+      if (setupIntent.status === 'succeeded') {
+        // Save payment method to our table
+        const { count } = await supabase
+          .from('payment_methods')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+
+        await supabase
+          .from('payment_methods')
+          .insert({
+            user_id: user.id,
+            stripe_payment_method_id: paymentMethod.id,
+            stripe_customer_id: stripeCustomerId,
+            type: 'au_becs_debit',
+            last_four: paymentMethod.au_becs_debit?.last4 || acctClean.slice(-4),
+            bank_name: 'Bank Account',
+            becs_mandate_status: 'active',
+            is_default: (count || 0) === 0,
+            is_autopay: false,
+            is_active: true,
+          });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            mode: 'becs_saved',
+            last4: paymentMethod.au_becs_debit?.last4 || acctClean.slice(-4),
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'BECS Direct Debit cannot be pre-saved as a payment method. Please add a card instead — you can still choose to pay via bank transfer at checkout time, which has the lowest fees (max $3.50).',
-          code: 'becs_not_supported_in_setup',
+          error: `BECS setup status: ${setupIntent.status}. Please try again.`,
+          code: 'setup_incomplete',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

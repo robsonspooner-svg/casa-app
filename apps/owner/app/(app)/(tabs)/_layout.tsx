@@ -71,6 +71,23 @@ function TasksIcon({ focused }: { focused: boolean }) {
   );
 }
 
+function RentIcon({ focused }: { focused: boolean }) {
+  const color = focused ? THEME.colors.brand : THEME.colors.textTertiary;
+  return (
+    <View style={styles.iconContainer}>
+      <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"
+          stroke={color}
+          strokeWidth={focused ? 2 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+    </View>
+  );
+}
+
 function PortfolioIcon({ focused }: { focused: boolean }) {
   const color = focused ? THEME.colors.brand : THEME.colors.textTertiary;
   return (
@@ -153,6 +170,13 @@ export default function TabLayout() {
         options={{
           title: 'Chat',
           tabBarIcon: ({ focused }) => <ChatIcon focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="rent"
+        options={{
+          title: 'Rent',
+          tabBarIcon: ({ focused }) => <RentIcon focused={focused} />,
         }}
       />
       <Tabs.Screen

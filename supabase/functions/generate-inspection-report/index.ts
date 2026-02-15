@@ -797,6 +797,123 @@ serve(async (req: Request) => {
       // Report was generated and stored, so return success with a warning
     }
 
+    // Auto-save to documents table so the report appears in the documents hub
+    const inspectionTypeLabel = formatInspectionType(inspectionData.inspection_type);
+    const address = formatAddress(inspectionData.property);
+    const tenantIds = inspectionData.tenancy?.tenancy_tenants?.map(tt => tt.tenant_id) || [];
+
+    let savedDocId: string | null = null;
+
+    try {
+      const { data: upsertedDoc } = await supabase
+        .from('documents')
+        .upsert({
+          owner_id: property.owner_id,
+          tenant_id: tenantIds[0] || null,
+          property_id: property.id,
+          tenancy_id: inspectionData.tenancy?.id || null,
+          document_type: 'condition_report',
+          title: `${inspectionTypeLabel} — ${address}`,
+          html_content: html,
+          status: inspectionData.status === 'finalized' ? 'signed' : 'draft',
+          requires_signature: false,
+          storage_path: storagePath,
+          file_url: reportUrl,
+          created_by: user.id,
+          metadata: {
+            inspection_id: inspection_id,
+            inspection_type: inspectionData.inspection_type,
+            overall_condition: inspectionData.overall_condition,
+            room_count: inspectionData.rooms.length,
+          },
+        }, {
+          onConflict: 'owner_id,metadata->>inspection_id',
+          ignoreDuplicates: false,
+        })
+        .select('id')
+        .single();
+
+      if (upsertedDoc?.id) {
+        savedDocId = upsertedDoc.id;
+      }
+    } catch (docErr) {
+      // Non-critical: if upsert by metadata fails, try plain insert
+      // (onConflict on jsonb path may not be supported)
+      const { data: insertedDoc, error: docInsertError } = await supabase
+        .from('documents')
+        .insert({
+          owner_id: property.owner_id,
+          tenant_id: tenantIds[0] || null,
+          property_id: property.id,
+          tenancy_id: inspectionData.tenancy?.id || null,
+          document_type: 'condition_report',
+          title: `${inspectionTypeLabel} — ${address}`,
+          html_content: html,
+          status: inspectionData.status === 'finalized' ? 'signed' : 'draft',
+          requires_signature: false,
+          storage_path: storagePath,
+          file_url: reportUrl,
+          created_by: user.id,
+          metadata: {
+            inspection_id: inspection_id,
+            inspection_type: inspectionData.inspection_type,
+            overall_condition: inspectionData.overall_condition,
+            room_count: inspectionData.rooms.length,
+          },
+        })
+        .select('id')
+        .single();
+
+      if (docInsertError) {
+        console.error('Failed to save report to documents table:', docInsertError);
+      } else if (insertedDoc?.id) {
+        savedDocId = insertedDoc.id;
+      }
+    }
+
+    // Share the report with the tenant and send a push notification
+    if (savedDocId && inspectionData.status === 'finalized' && tenantIds.length > 0) {
+      const tenantId = tenantIds[0];
+
+      // Create a document_shares record so the tenant can view the report
+      const { error: shareError } = await supabase
+        .from('document_shares')
+        .insert({
+          document_id: savedDocId,
+          shared_with_id: tenantId,
+          share_type: 'user',
+          shared_by: property.owner_id,
+        });
+
+      if (shareError) {
+        console.error('Failed to share report with tenant:', shareError);
+      }
+
+      // Send push notification to the tenant
+      try {
+        await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/dispatch-notification`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({
+              user_id: tenantId,
+              type: 'inspection_report_shared',
+              title: 'Inspection report available',
+              body: `The inspection report for ${address} is now available to view`,
+              channels: ['push'],
+            }),
+          }
+        );
+      } catch (notifErr) {
+        // Notification dispatch is best-effort
+        console.error('Failed to notify tenant about inspection report:', notifErr);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
