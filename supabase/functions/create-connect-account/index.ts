@@ -149,6 +149,7 @@ serve(async (req: Request) => {
     }
 
     // Create account link for onboarding
+    console.log(`Creating account link for ${stripeAccountId} with refresh=${refreshUrl}, return=${returnUrl}`);
     const accountLink = await stripe.accountLinks.create({
       account: stripeAccountId,
       refresh_url: refreshUrl,
@@ -156,6 +157,16 @@ serve(async (req: Request) => {
       type: 'account_onboarding',
       collect: 'eventually_due',
     });
+
+    console.log(`Account link created — url: ${accountLink.url}, expires_at: ${accountLink.expires_at}`);
+
+    if (!accountLink.url || !accountLink.url.startsWith('http')) {
+      console.error(`Invalid account link URL received: "${accountLink.url}"`);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Stripe returned an invalid onboarding URL. Please try again.' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     return new Response(
       JSON.stringify({

@@ -54,8 +54,8 @@ export default function PayoutOnboardScreen() {
         return;
       }
 
-      if (!data?.onboardingUrl) {
-        throw new Error('Onboarding session could not be created. Please try again.');
+      if (!data?.onboardingUrl || !data.onboardingUrl.startsWith('http')) {
+        throw new Error(`Onboarding session could not be created. Please try again. (URL: ${data?.onboardingUrl || 'none'})`);
       }
 
       // Open Stripe Connect onboarding in an in-app browser
