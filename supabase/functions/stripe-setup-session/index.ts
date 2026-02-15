@@ -89,31 +89,14 @@ serve(async (req: Request) => {
     }
 
     if (wantsBecs) {
-      // BECS Direct Debit: Stripe Checkout "setup" mode does NOT support au_becs_debit.
-      // Fall back to card-only setup and inform the client that BECS will be
-      // available at checkout time (payment mode supports it).
-      const session = await stripe.checkout.sessions.create({
-        mode: 'setup',
-        customer: stripeCustomerId,
-        payment_method_types: ['card'],
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        metadata: { casa_user_id: user.id },
-      });
-
-      if (!session.url) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Unable to create setup session. Please try again.' }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
+      // BECS Direct Debit cannot be pre-saved via Stripe Checkout setup mode.
+      // Return an error directing the user to add a card instead.
+      // BECS is available at checkout time (payment mode supports it).
       return new Response(
         JSON.stringify({
-          sessionUrl: session.url,
-          sessionId: session.id,
-          fallbackToCard: true,
-          message: 'BECS Direct Debit cannot be pre-saved as a payment method, but you can pay via bank transfer at checkout — with the lowest fees (max $3.50).',
+          success: false,
+          error: 'BECS Direct Debit cannot be pre-saved as a payment method. Please add a card instead — you can still choose to pay via bank transfer at checkout time, which has the lowest fees (max $3.50).',
+          code: 'becs_not_supported_in_setup',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

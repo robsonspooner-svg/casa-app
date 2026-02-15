@@ -35,13 +35,30 @@ export default function AddPaymentMethodScreen() {
   }
 
   const handleAddMethod = async () => {
+    // BECS cannot be pre-saved via Stripe Checkout setup mode.
+    // Show a friendly message and suggest adding a card instead.
+    if (selectedType === 'becs') {
+      Alert.alert(
+        'Bank Account (BECS)',
+        'BECS Direct Debit cannot be pre-saved as a payment method, but you can pay via bank transfer when making a rent payment — with the lowest fees (max $3.50 per payment).\n\nWould you like to add a card instead?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Add Card',
+            onPress: () => setSelectedType('card'),
+          },
+        ]
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       const supabase = getSupabaseClient();
 
       const { data, error } = await supabase.functions.invoke('stripe-setup-session', {
         body: {
-          paymentMethodTypes: [selectedType === 'card' ? 'card' : 'au_becs_debit'],
+          paymentMethodTypes: ['card'],
           successUrl: 'casa-tenant://payments/methods/add?setup=success',
           cancelUrl: 'casa-tenant://payments/methods/add?setup=cancelled',
         },
@@ -50,7 +67,6 @@ export default function AddPaymentMethodScreen() {
       // Check for errors from both the supabase invoke wrapper and the function response body
       if (error || data?.error) {
         let errMsg = data?.error || error?.message || 'Failed to start payment setup';
-        // Translate generic errors into helpful messages
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
           errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
         } else if (errMsg.includes('Network') || errMsg.includes('fetch')) {
@@ -61,24 +77,6 @@ export default function AddPaymentMethodScreen() {
 
       if (!data?.sessionUrl || !data.sessionUrl.startsWith('http')) {
         throw new Error('Setup session could not be created. Please try again.');
-      }
-
-      // If BECS wasn't available and Stripe fell back to card, inform the user
-      if (data?.fallbackToCard && selectedType === 'becs') {
-        Alert.alert(
-          'Bank Account Setup',
-          'BECS Direct Debit setup is not currently available through this flow. You can add a card now, and still pay via bank transfer at checkout time — which has the lowest fees.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Add Card Instead',
-              onPress: async () => {
-                await WebBrowser.openBrowserAsync(data.sessionUrl);
-              },
-            },
-          ]
-        );
-        return;
       }
 
       // Open Stripe Checkout in an in-app browser
