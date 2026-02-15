@@ -90,57 +90,33 @@ serve(async (req: Request) => {
 
     if (wantsBecs) {
       // BECS Direct Debit: Stripe Checkout "setup" mode does NOT support au_becs_debit.
-      // Instead, create a Checkout Session in "setup" mode with only ['card'] BUT
-      // we use a different approach: create a Checkout Session in "setup" mode using
-      // automatic_payment_methods which CAN include BECS when the customer's country
-      // is Australia. Alternatively, we use payment_method_configuration.
-      //
-      // Simplest working approach: Use a Checkout Session with mode=setup and
-      // payment_method_types=['au_becs_debit'] — this actually DOES work on recent
-      // Stripe API versions (2023-10-16+) when the connected account or platform
-      // has BECS capability enabled.
-      //
-      // If that fails, fall back to card-only setup.
-      try {
-        const session = await stripe.checkout.sessions.create({
-          mode: 'setup',
-          customer: stripeCustomerId,
-          payment_method_types: ['au_becs_debit'],
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          metadata: { casa_user_id: user.id },
-        });
+      // Fall back to card-only setup and inform the client that BECS will be
+      // available at checkout time (payment mode supports it).
+      const session = await stripe.checkout.sessions.create({
+        mode: 'setup',
+        customer: stripeCustomerId,
+        payment_method_types: ['card'],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: { casa_user_id: user.id },
+      });
 
+      if (!session.url) {
         return new Response(
-          JSON.stringify({
-            sessionUrl: session.url,
-            sessionId: session.id,
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (becsError: any) {
-        console.error('BECS Checkout setup failed, trying card-only:', becsError?.message);
-        // BECS not supported in setup mode — fall back to card
-        // and inform the client
-        const session = await stripe.checkout.sessions.create({
-          mode: 'setup',
-          customer: stripeCustomerId,
-          payment_method_types: ['card'],
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          metadata: { casa_user_id: user.id },
-        });
-
-        return new Response(
-          JSON.stringify({
-            sessionUrl: session.url,
-            sessionId: session.id,
-            fallbackToCard: true,
-            message: 'BECS Direct Debit setup is not available through this flow. Card setup provided instead.',
-          }),
+          JSON.stringify({ success: false, error: 'Unable to create setup session. Please try again.' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+
+      return new Response(
+        JSON.stringify({
+          sessionUrl: session.url,
+          sessionId: session.id,
+          fallbackToCard: true,
+          message: 'BECS Direct Debit cannot be pre-saved as a payment method, but you can pay via bank transfer at checkout — with the lowest fees (max $3.50).',
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Card setup: use standard Checkout Session in setup mode
@@ -156,6 +132,13 @@ serve(async (req: Request) => {
       cancel_url: cancelUrl,
       metadata: { casa_user_id: user.id },
     });
+
+    if (!session.url) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unable to create setup session. Please try again.' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     return new Response(
       JSON.stringify({

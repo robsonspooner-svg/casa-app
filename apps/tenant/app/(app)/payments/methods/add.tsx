@@ -59,7 +59,7 @@ export default function AddPaymentMethodScreen() {
         throw new Error(errMsg);
       }
 
-      if (!data?.sessionUrl) {
+      if (!data?.sessionUrl || !data.sessionUrl.startsWith('http')) {
         throw new Error('Setup session could not be created. Please try again.');
       }
 
