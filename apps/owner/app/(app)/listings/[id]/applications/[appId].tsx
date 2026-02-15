@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { Badge, Button, ContactButton, StatusTimeline, THEME } from '@casa/ui';
+import { Badge, Button, ContactButton, StatusTimeline, THEME, useToast } from '@casa/ui';
 import {
   useApplication,
   useApplicationMutations,
@@ -111,6 +111,7 @@ export default function ApplicationDetailScreen() {
   const { appId } = useLocalSearchParams<{ appId: string }>();
   const { application, loading, error } = useApplication(appId || null);
   const { reviewApplication, shortlistApplication, approveApplication, rejectApplication } = useApplicationMutations();
+  const toast = useToast();
   const [actionLoading, setActionLoading] = useState(false);
 
   const handleReview = async () => {
@@ -118,9 +119,9 @@ export default function ApplicationDetailScreen() {
     setActionLoading(true);
     try {
       await reviewApplication(appId);
-      Alert.alert('Success', 'Application marked as under review.');
+      toast.success('Application marked as under review.');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update application');
+      toast.error(err instanceof Error ? err.message : 'Failed to update application');
     } finally {
       setActionLoading(false);
     }
@@ -131,9 +132,9 @@ export default function ApplicationDetailScreen() {
     setActionLoading(true);
     try {
       await shortlistApplication(appId);
-      Alert.alert('Success', 'Application shortlisted.');
+      toast.success('Application shortlisted.');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to shortlist application');
+      toast.error(err instanceof Error ? err.message : 'Failed to shortlist application');
     } finally {
       setActionLoading(false);
     }
@@ -149,9 +150,9 @@ export default function ApplicationDetailScreen() {
           setActionLoading(true);
           try {
             await approveApplication(appId);
-            Alert.alert('Success', 'Application approved.');
+            toast.success('Application approved.');
           } catch (err) {
-            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to approve application');
+            toast.error(err instanceof Error ? err.message : 'Failed to approve application');
           } finally {
             setActionLoading(false);
           }
@@ -171,9 +172,9 @@ export default function ApplicationDetailScreen() {
           setActionLoading(true);
           try {
             await rejectApplication(appId, 'Application not successful');
-            Alert.alert('Done', 'Application rejected.');
+            toast.success('Application rejected.');
           } catch (err) {
-            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to reject application');
+            toast.error(err instanceof Error ? err.message : 'Failed to reject application');
           } finally {
             setActionLoading(false);
           }

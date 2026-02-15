@@ -10,13 +10,12 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Button, SearchInput, StarRating } from '@casa/ui';
+import { Button, SearchInput, StarRating, useToast } from '@casa/ui';
 import { useTrades, useTradeMutations } from '@casa/api';
 import type { MaintenanceCategory, TradeRow } from '@casa/api';
 
@@ -61,17 +60,18 @@ export default function FindTrades() {
     filter.searchTerm || filter.category ? filter : undefined,
   );
   const { addToNetwork } = useTradeMutations();
+  const toast = useToast();
 
   const handleAddToNetwork = useCallback(
     async (tradeId: string) => {
       setAddingTradeId(tradeId);
       try {
         await addToNetwork(tradeId);
-        Alert.alert('Added', 'Trade added to your network.');
+        toast.success('Trade added to your network.');
         refreshTrades();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to add trade';
-        Alert.alert('Error', message);
+        toast.error(message);
       } finally {
         setAddingTradeId(null);
       }

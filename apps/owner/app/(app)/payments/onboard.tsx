@@ -1,15 +1,28 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { router } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator, Linking } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Card, Button } from '@casa/ui';
+import { Card, Button, useToast } from '@casa/ui';
 import { useOwnerPayouts, getSupabaseClient } from '@casa/api';
+
+// Supabase Edge Function URL for the redirect endpoint.
+// Stripe Account Links API requires HTTPS URLs for refresh_url and return_url.
+// This Edge Function redirects the browser back to the app via casa-owner:// deep link.
+const SUPABASE_URL = 'https://woxlvhzgannzhajtjnke.supabase.co';
+const REDIRECT_BASE = `${SUPABASE_URL}/functions/v1/stripe-connect-redirect`;
 
 export default function PayoutOnboardScreen() {
   const { stripeAccount, isOnboarded, refreshPayouts } = useOwnerPayouts();
   const [loading, setLoading] = useState(false);
+  const toast = useToast();
+
+  // Refresh payout status when screen gains focus (e.g., returning from Stripe in system browser)
+  useFocusEffect(
+    useCallback(() => {
+      refreshPayouts();
+    }, [refreshPayouts])
+  );
 
   const handleStartOnboarding = async () => {
     setLoading(true);
@@ -18,8 +31,8 @@ export default function PayoutOnboardScreen() {
 
       const { data, error } = await supabase.functions.invoke('create-connect-account', {
         body: {
-          refreshUrl: 'casa-owner://payments/onboard',
-          returnUrl: 'casa-owner://payments/onboard',
+          refreshUrl: `${REDIRECT_BASE}?type=refresh`,
+          returnUrl: `${REDIRECT_BASE}?type=return`,
         },
       });
 
@@ -27,12 +40,10 @@ export default function PayoutOnboardScreen() {
       if (error || data?.error) {
         let errMsg = 'Failed to start onboarding';
         if (data?.error) {
-          // Function returned a detailed error in the body
           errMsg = data.error;
         } else if (error?.message) {
           errMsg = error.message;
         }
-        // Translate generic/cryptic errors into helpful messages
         if (errMsg.includes('non-2xx') || errMsg.includes('status code')) {
           errMsg = 'Unable to connect to the payment service. Please check your internet connection and try again.';
         } else if (errMsg.includes('Network') || errMsg.includes('fetch')) {
@@ -50,19 +61,21 @@ export default function PayoutOnboardScreen() {
       // If already fully onboarded, refresh the local state
       if (data?.alreadyOnboarded) {
         await refreshPayouts();
-        Alert.alert('Already Connected', 'Your bank account is already connected and payouts are enabled.');
+        toast.success('Your bank account is already connected and payouts are enabled.');
         return;
       }
 
       if (!data?.onboardingUrl || !data.onboardingUrl.startsWith('http')) {
-        throw new Error(`Onboarding session could not be created. Please try again. (URL: ${data?.onboardingUrl || 'none'})`);
+        throw new Error('Onboarding session could not be created. Please try again.');
       }
 
-      // Open Stripe Connect onboarding in an in-app browser
-      await WebBrowser.openBrowserAsync(data.onboardingUrl);
+      // Open Stripe Connect onboarding in the system browser.
+      // We use Linking.openURL instead of WebBrowser.openBrowserAsync because
+      // Stripe Connect onboarding must run in a full browser, not an in-app WebView.
+      // After completion, Stripe redirects to our Edge Function which deep links back.
+      await Linking.openURL(data.onboardingUrl);
 
-      // After returning from Stripe, refresh the account status
-      await refreshPayouts();
+      // refreshPayouts() runs on screen focus via useFocusEffect above
     } catch (err: any) {
       const message = err.message || 'Failed to start payout onboarding. Please try again.';
       Alert.alert(

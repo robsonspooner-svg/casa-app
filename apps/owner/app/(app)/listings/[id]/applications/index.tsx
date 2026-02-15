@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Href } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { Badge, THEME } from '@casa/ui';
+import { Badge, THEME, useToast } from '@casa/ui';
 import { useApplications, useApplicationMutations, ApplicationWithDetails, ApplicationStatus } from '@casa/api';
 
 function getStatusVariant(status: ApplicationStatus): 'success' | 'info' | 'warning' | 'neutral' {
@@ -121,6 +121,7 @@ export default function ListingApplicationsScreen() {
   const statusFilter = filter === 'all' ? undefined : filter;
   const { applications, loading, refreshing, refreshApplications } = useApplications(id || null, { status: statusFilter as ApplicationStatus | undefined });
   const { shortlistApplication } = useApplicationMutations();
+  const toast = useToast();
 
   const toggleSelect = (appId: string) => {
     setSelected(prev => {
@@ -145,12 +146,12 @@ export default function ListingApplicationsScreen() {
               for (const appId of selected) {
                 await shortlistApplication(appId);
               }
-              Alert.alert('Done', `${selected.size} application${selected.size > 1 ? 's' : ''} shortlisted.`);
+              toast.success(`${selected.size} application${selected.size > 1 ? 's' : ''} shortlisted.`);
               setSelected(new Set());
               setSelectMode(false);
               refreshApplications();
             } catch (err) {
-              Alert.alert('Error', err instanceof Error ? err.message : 'Failed to shortlist');
+              toast.error(err instanceof Error ? err.message : 'Failed to shortlist');
             }
           },
         },

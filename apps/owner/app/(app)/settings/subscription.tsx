@@ -12,6 +12,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '@casa/config';
+import { useToast } from '@casa/ui';
 import { useProfile, useAuth, SUBSCRIPTION_TIERS, getSupabaseClient } from '@casa/api';
 import type { SubscriptionTier } from '@casa/api';
 import Svg, { Path } from 'react-native-svg';
@@ -73,6 +74,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { profile, loading: profileLoading, refreshProfile } = useProfile();
+  const toast = useToast();
   const [actionLoading, setActionLoading] = useState(false);
 
   const currentTier = profile?.subscription_tier || 'starter';
@@ -136,7 +138,7 @@ export default function SubscriptionScreen() {
             const result = await callManageSubscription(action, tier);
             if (result?.success) {
               await refreshProfile();
-              Alert.alert('Success', `Your plan has been changed to ${tierInfo.name}.`);
+              toast.success(`Your plan has been changed to ${tierInfo.name}.`);
             }
             setActionLoading(false);
           },
@@ -159,10 +161,7 @@ export default function SubscriptionScreen() {
             const result = await callManageSubscription('cancel');
             if (result?.success) {
               await refreshProfile();
-              Alert.alert(
-                'Subscription Cancelled',
-                'Your subscription will remain active until the end of your current billing period.',
-              );
+              toast.success('Subscription cancelled. It remains active until the end of your billing period.');
             }
             setActionLoading(false);
           },
@@ -176,7 +175,7 @@ export default function SubscriptionScreen() {
     const result = await callManageSubscription('resume');
     if (result?.success) {
       await refreshProfile();
-      Alert.alert('Subscription Resumed', 'Your subscription has been reactivated.');
+      toast.success('Your subscription has been reactivated.');
     }
     setActionLoading(false);
   }, [callManageSubscription, refreshProfile]);
@@ -189,7 +188,7 @@ export default function SubscriptionScreen() {
     if (result?.url && typeof result.url === 'string') {
       await Linking.openURL(result.url);
     } else if (result) {
-      Alert.alert('Error', 'Unable to open billing portal. Please try again.');
+      toast.error('Unable to open billing portal. Please try again.');
     }
   }, [callManageSubscription]);
 

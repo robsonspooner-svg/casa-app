@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Button, StarRating } from '@casa/ui';
+import { Button, StarRating, useToast } from '@casa/ui';
 import { useWorkOrder, useTradeMutations } from '@casa/api';
 
 export default function WriteReviewScreen() {
@@ -29,6 +29,7 @@ export default function WriteReviewScreen() {
   const [content, setContent] = useState('');
   const [wouldRecommend, setWouldRecommend] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
 
   const canSubmit = rating > 0;
 
@@ -49,11 +50,10 @@ export default function WriteReviewScreen() {
         would_recommend: wouldRecommend,
       });
 
-      Alert.alert('Review Submitted', 'Thank you for your feedback.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Review submitted. Thank you for your feedback.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to submit review');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit review');
     } finally {
       setSubmitting(false);
     }

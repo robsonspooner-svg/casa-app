@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Button, ConditionBadge } from '@casa/ui';
+import { Button, ConditionBadge, useToast } from '@casa/ui';
 import { useInspection, useInspectionMutations } from '@casa/api';
 import type { InspectionStatus } from '@casa/api';
 
@@ -31,6 +31,7 @@ const STATUS_CONFIG: Record<InspectionStatus, { label: string; color: string; bg
 };
 
 export default function TenantInspectionDetail() {
+  const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { inspection, loading, error, refreshing, refreshInspection } = useInspection(id || null);
   const { acknowledgeInspection, disputeInspection } = useInspectionMutations();
@@ -44,10 +45,10 @@ export default function TenantInspectionDetail() {
     setSubmitting(true);
     try {
       await acknowledgeInspection(id);
-      Alert.alert('Acknowledged', 'You have acknowledged the inspection report.');
+      toast.success('Inspection report acknowledged.');
       refreshInspection();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to acknowledge');
+      toast.error(err instanceof Error ? err.message : 'Failed to acknowledge');
     } finally {
       setSubmitting(false);
     }
@@ -61,11 +62,11 @@ export default function TenantInspectionDetail() {
     setSubmitting(true);
     try {
       await disputeInspection(id, disputeText.trim());
-      Alert.alert('Dispute Submitted', 'Your dispute has been recorded and the owner will be notified.');
+      toast.success('Dispute submitted. The owner will be notified.');
       setShowDisputeForm(false);
       refreshInspection();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to submit dispute');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit dispute');
     } finally {
       setSubmitting(false);
     }

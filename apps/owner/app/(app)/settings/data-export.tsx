@@ -12,6 +12,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '@casa/config';
+import { useToast } from '@casa/ui';
 import { useAuth, getSupabaseClient } from '@casa/api';
 import Svg, { Path } from 'react-native-svg';
 
@@ -107,6 +108,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function DataExportScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const toast = useToast();
   const [exports, setExports] = useState<DataExport[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -176,12 +178,9 @@ export default function DataExportScreen() {
       const newExport = data as DataExport;
       setExports(prev => [newExport, ...prev]);
 
-      Alert.alert(
-        'Export Requested',
-        'Your data export has been queued. This includes all your properties, tenancies, financial records, documents, and messages in ZIP format (CSV + PDF). You will be notified when it is ready.',
-      );
+      toast.success('Data export queued. You will be notified when ready.');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to request export');
+      toast.error(err instanceof Error ? err.message : 'Failed to request export');
     } finally {
       setExporting(false);
     }
@@ -191,7 +190,7 @@ export default function DataExportScreen() {
     try {
       await Linking.openURL(fileUrl);
     } catch {
-      Alert.alert('Error', 'Unable to open download link');
+      toast.error('Unable to open download link');
     }
   }, []);
 

@@ -7,17 +7,17 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Button } from '@casa/ui';
+import { Button, useToast } from '@casa/ui';
 import { useMyTenancy, getSupabaseClient, useAuth } from '@casa/api';
 
 export default function LeaseRenewalScreen() {
+  const toast = useToast();
   const { user } = useAuth();
   const { tenancy, loading } = useMyTenancy();
   const [response, setResponse] = useState<'accept' | 'decline' | 'negotiate' | null>(null);
@@ -103,11 +103,10 @@ export default function LeaseRenewalScreen() {
         negotiate: 'Your response has been sent. Your landlord will review your request.',
       };
 
-      Alert.alert('Response Sent', messages[response], [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success(messages[response]);
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to submit response');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit response');
     } finally {
       setSubmitting(false);
     }

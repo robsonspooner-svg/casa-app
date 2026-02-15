@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { Button, Input, Chip, ProgressSteps, FileUpload, THEME } from '@casa/ui';
+import { Button, Input, Chip, ProgressSteps, FileUpload, THEME, useToast } from '@casa/ui';
 import type { UploadedFile } from '@casa/ui';
 import { useApplicationMutations, useAuth, useProfile, ApplicationInsert, EmploymentType } from '@casa/api';
 import * as DocumentPicker from 'expo-document-picker';
@@ -32,6 +32,7 @@ interface ReferenceInput {
 }
 
 export default function ApplyScreen() {
+  const toast = useToast();
   const router = useRouter();
   const { listingId } = useLocalSearchParams<{ listingId: string }>();
   const { user } = useAuth();
@@ -168,13 +169,10 @@ export default function ApplyScreen() {
       // Submit the application
       await submitApplication(app.id);
 
-      Alert.alert(
-        'Application Submitted',
-        'Your application has been submitted successfully. The owner will review it shortly.',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      toast.success('Application submitted! The owner will review it shortly.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to submit application');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit application');
     }
   };
 
@@ -207,11 +205,10 @@ export default function ApplyScreen() {
       };
 
       await createApplication(data);
-      Alert.alert('Draft Saved', 'Your application has been saved as a draft.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Draft saved.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save draft');
+      toast.error(err instanceof Error ? err.message : 'Failed to save draft');
     }
   };
 

@@ -14,10 +14,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { THEME } from '@casa/config';
-import { Button } from '@casa/ui';
+import { Button, useToast } from '@casa/ui';
 import { useInspection, useInspectionMutations, getSupabaseClient } from '@casa/api';
 
 export default function InspectionRespondScreen() {
+  const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { inspection, loading } = useInspection(id || null);
   const { updateInspection } = useInspectionMutations();
@@ -83,11 +84,10 @@ export default function InspectionRespondScreen() {
         }
       } catch { /* non-blocking */ }
 
-      Alert.alert('Confirmed', 'You have confirmed the inspection time.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Inspection time confirmed.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to confirm');
+      toast.error(err instanceof Error ? err.message : 'Failed to confirm');
     } finally {
       setSubmitting(false);
     }
@@ -139,11 +139,10 @@ export default function InspectionRespondScreen() {
         }
       } catch { /* non-blocking */ }
 
-      Alert.alert('Submitted', 'Your preferred times have been sent to the owner.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Preferred times sent to the owner.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to submit');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit');
     } finally {
       setSubmitting(false);
     }

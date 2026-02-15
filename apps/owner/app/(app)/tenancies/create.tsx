@@ -16,6 +16,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '@casa/config';
+import { useToast } from '@casa/ui';
 import {
   useApplication,
   useTenancyMutations,
@@ -40,6 +41,7 @@ export default function CreateTenancyScreen() {
   const { applicationId } = useLocalSearchParams<{ applicationId: string }>();
   const { application, loading: appLoading } = useApplication(applicationId || null);
   const { createTenancy } = useTenancyMutations();
+  const toast = useToast();
 
   const [leaseType, setLeaseType] = useState<LeaseTerm>('12_months');
   const [startDate, setStartDate] = useState('');
@@ -139,11 +141,10 @@ export default function CreateTenancyScreen() {
         [application.tenant_id]
       );
 
-      Alert.alert('Tenancy Created', 'The tenancy has been created successfully.', [
-        { text: 'View Tenancy', onPress: () => router.replace(`/(app)/tenancies/${tenancyId}` as any) },
-      ]);
+      toast.success('Tenancy created successfully.');
+      router.replace(`/(app)/tenancies/${tenancyId}` as any);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to create tenancy');
+      toast.error(err instanceof Error ? err.message : 'Failed to create tenancy');
     } finally {
       setSubmitting(false);
     }

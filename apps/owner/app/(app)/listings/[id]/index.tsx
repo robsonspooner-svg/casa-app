@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Href } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { Badge, Chip, Button, THEME } from '@casa/ui';
+import { Badge, Chip, Button, THEME, useToast } from '@casa/ui';
 import { useListing, useListingMutations, ListingStatus } from '@casa/api';
 
 function getStatusVariant(status: ListingStatus): 'success' | 'info' | 'warning' | 'neutral' {
@@ -58,6 +58,7 @@ export default function ListingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { listing, loading, error } = useListing(id || null);
   const { publishListing, pauseListing, closeListing, deleteListing } = useListingMutations();
+  const toast = useToast();
   const [actionLoading, setActionLoading] = useState(false);
 
   const handlePublish = async () => {
@@ -65,9 +66,9 @@ export default function ListingDetailScreen() {
     setActionLoading(true);
     try {
       await publishListing(id);
-      Alert.alert('Success', 'Listing published successfully.');
+      toast.success('Listing published successfully.');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to publish listing');
+      toast.error(err instanceof Error ? err.message : 'Failed to publish listing');
     } finally {
       setActionLoading(false);
     }
@@ -83,9 +84,9 @@ export default function ListingDetailScreen() {
           setActionLoading(true);
           try {
             await pauseListing(id);
-            Alert.alert('Success', 'Listing paused.');
+            toast.success('Listing paused.');
           } catch (err) {
-            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to pause listing');
+            toast.error(err instanceof Error ? err.message : 'Failed to pause listing');
           } finally {
             setActionLoading(false);
           }
@@ -105,9 +106,9 @@ export default function ListingDetailScreen() {
           setActionLoading(true);
           try {
             await closeListing(id, 'Manually closed');
-            Alert.alert('Success', 'Listing closed.');
+            toast.success('Listing closed.');
           } catch (err) {
-            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to close listing');
+            toast.error(err instanceof Error ? err.message : 'Failed to close listing');
           } finally {
             setActionLoading(false);
           }
@@ -127,11 +128,10 @@ export default function ListingDetailScreen() {
           setActionLoading(true);
           try {
             await deleteListing(id);
-            Alert.alert('Success', 'Listing deleted.', [
-              { text: 'OK', onPress: () => router.back() },
-            ]);
+            toast.success('Listing deleted.');
+            router.back();
           } catch (err) {
-            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete listing');
+            toast.error(err instanceof Error ? err.message : 'Failed to delete listing');
             setActionLoading(false);
           }
         },

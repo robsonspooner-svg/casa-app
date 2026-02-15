@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { Input, Button, Chip, DatePicker, THEME } from '@casa/ui';
+import { Input, Button, Chip, DatePicker, THEME, useToast } from '@casa/ui';
 import {
   useListing,
   useListingMutations,
@@ -40,6 +40,7 @@ export default function EditListingScreen() {
   const { listing, loading, error } = useListing(id || null);
   const { updateListing } = useListingMutations();
   const { featuresByCategory } = useFeatureOptions();
+  const toast = useToast();
 
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
@@ -107,11 +108,10 @@ export default function EditListingScreen() {
         selectedFeatures
       );
 
-      Alert.alert('Success', 'Listing updated successfully.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Listing updated successfully.');
+      router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update listing');
+      toast.error(err instanceof Error ? err.message : 'Failed to update listing');
     } finally {
       setSubmitting(false);
     }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { THEME } from '@casa/config';
-import { Card, Button, Input } from '@casa/ui';
+import { Card, Button, Input, useToast } from '@casa/ui';
 import {
   useMyTenancy,
   usePaymentMethods,
@@ -11,6 +11,7 @@ import {
 } from '@casa/api';
 
 export default function AutoPayScreen() {
+  const toast = useToast();
   const { tenancy } = useMyTenancy();
   const { methods, defaultMethod } = usePaymentMethods();
   const { settings, loading: settingsLoading } = useAutoPay(tenancy?.id);
@@ -46,9 +47,9 @@ export default function AutoPayScreen() {
         isEnabled,
         daysBeforeDue: parseInt(daysBeforeDue) || 0,
       });
-      Alert.alert('Saved', 'Auto-pay settings updated successfully.');
+      toast.success('Auto-pay settings updated.');
     } catch {
-      Alert.alert('Error', 'Failed to update auto-pay settings.');
+      toast.error('Failed to update auto-pay settings.');
     }
   };
 

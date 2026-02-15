@@ -12,11 +12,10 @@ import {
   ScrollView,
   Modal,
   TextInput,
-  Alert,
 } from 'react-native';
 import { useRouter, Href } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { SearchInput, THEME } from '@casa/ui';
+import { SearchInput, THEME, useToast } from '@casa/ui';
 import { usePublicListings, ListingWithDetails, PublicListingsSearchParams, useSavedSearches, useFavourites } from '@casa/api';
 
 function formatRentFrequency(frequency: string): string {
@@ -134,6 +133,7 @@ function ListingSearchCard({ listing, onPress, isFav, onToggleFav }: { listing: 
 }
 
 export default function SearchScreen() {
+  const toast = useToast();
   const router = useRouter();
   const [searchText, setSearchText] = useState('');
   const [filters, setFilters] = useState<PublicListingsSearchParams>({});
@@ -234,7 +234,7 @@ export default function SearchScreen() {
     if (success) {
       setShowSaveSearch(false);
       setSaveSearchName('');
-      Alert.alert('Saved', 'Your search has been saved. You\'ll be notified of new matches.');
+      toast.success('Search saved! You\'ll be notified of new matches.');
     }
   }, [saveSearchName, savingSearch, filters, searchText, saveSearch]);
 
