@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { THEME } from '@casa/config';
+import { ToastProvider } from '@casa/ui';
 import { initializeSupabase, getSupabaseClient, AuthProvider, AgentProvider } from '@casa/api';
 import NotificationProvider from '../components/NotificationProvider';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -84,20 +85,22 @@ export default function RootLayout() {
         <AuthProvider>
           <AgentProvider>
             <NotificationProvider>
-              <StatusBar style="dark" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: {
-                    backgroundColor: THEME.colors.canvas,
-                  },
-                  animation: 'slide_from_right',
-                }}
-              >
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(app)" />
-              </Stack>
+              <ToastProvider>
+                <StatusBar style="dark" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: {
+                      backgroundColor: THEME.colors.canvas,
+                    },
+                    animation: 'slide_from_right',
+                  }}
+                >
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="(app)" />
+                </Stack>
+              </ToastProvider>
             </NotificationProvider>
           </AgentProvider>
         </AuthProvider>

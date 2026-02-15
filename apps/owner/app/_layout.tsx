@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import { THEME } from '@casa/config';
+import { ToastProvider } from '@casa/ui';
 import { initializeSupabase, getSupabaseClient, AuthProvider, AgentProvider } from '@casa/api';
 import NotificationProvider from '../components/NotificationProvider';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -24,14 +25,22 @@ export default function RootLayout() {
   useEffect(() => {
     async function checkForUpdates() {
       try {
-        if (!Updates.isEnabled) return;
+        if (!Updates.isEnabled) {
+          console.log('[OTA] Updates not enabled in this build');
+          return;
+        }
+        console.log('[OTA] Checking for updates...');
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
+          console.log('[OTA] Update available, downloading...');
           await Updates.fetchUpdateAsync();
+          console.log('[OTA] Update downloaded, reloading...');
           await Updates.reloadAsync();
+        } else {
+          console.log('[OTA] App is up to date');
         }
-      } catch {
-        // Silently handle update check failures
+      } catch (e: any) {
+        console.error('[OTA] Update check failed:', e?.message || e);
       }
     }
     checkForUpdates();
@@ -88,20 +97,22 @@ export default function RootLayout() {
         <AuthProvider>
           <AgentProvider>
             <NotificationProvider>
-              <StatusBar style="dark" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: {
-                    backgroundColor: THEME.colors.canvas,
-                  },
-                  animation: 'slide_from_right',
-                }}
-              >
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(app)" />
-              </Stack>
+              <ToastProvider>
+                <StatusBar style="dark" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: {
+                      backgroundColor: THEME.colors.canvas,
+                    },
+                    animation: 'slide_from_right',
+                  }}
+                >
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="(app)" />
+                </Stack>
+              </ToastProvider>
             </NotificationProvider>
           </AgentProvider>
         </AuthProvider>
